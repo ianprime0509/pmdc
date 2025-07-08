@@ -1225,6 +1225,7 @@ void mc_main(struct mc *mc, char *cmdline) {
 #else
     *m_filename++ = 'M';
 #endif
+    *m_filename++ = 0;
 #endif
 
     // :377
