@@ -297,6 +297,7 @@ static void cmloop(struct mc *mc);
 static void cmloop2(struct mc *mc);
 // :881
 static void check_lopcnt(struct mc *mc);
+#if !efc
 // :946
 static void fm3_check(struct mc *mc);
 // :961
@@ -307,6 +308,7 @@ static void pcm_check(struct mc *mc);
 static void pcmc_main(struct mc *mc, char part);
 // :1007
 static void rt(struct mc *mc);
+#endif
 // :1118
 static void cm_init(struct mc *mc);
 // :1219
@@ -315,10 +317,12 @@ static void nd_s_opl_loop(struct mc *mc);
 static void nd_s_loop(struct mc *mc);
 // :1296
 static void memow_loop0(struct mc *mc, char **adr);
+#if !hyouka
 // :1417
 static void write_ff(struct mc *mc);
 // :1448
 static void write_disk(struct mc *mc);
+#endif
 // :1562
 static void line_skip(struct mc *mc);
 // :1803
@@ -627,10 +631,12 @@ static void vss2(struct mc *mc);
 static void vss2m(struct mc *mc);
 // :6039
 static void neirochg(struct mc *mc, char cmd);
+#if !efc
 // :6088
 static void rhyprg(struct mc *mc, uint16_t prg);
 // :6095
 static void psgprg(struct mc *mc, uint8_t prg);
+#endif
 // :6114
 static void repeat_check(struct mc *mc, uint8_t prg);
 // :6153
@@ -1732,6 +1738,8 @@ static void check_lopcnt(struct mc *mc) {
     }
 }
 
+#if !efc
+
 // :946
 static void fm3_check(struct mc *mc) {
     if (!mc->fm3_ofsadr) return;
@@ -1840,6 +1848,8 @@ static void rt(struct mc *mc) {
     if (mc->kpart_maxprg != 0) mc->si = NULL, error(mc, 0, 29);
 }
 
+#endif
+
 // :1118
 static void cm_init(struct mc *mc) {
     mc->maxprg = 0;
@@ -1911,6 +1921,8 @@ static void memow_loop0(struct mc *mc, char **adr) {
     }
 }
 
+#if !hyouka
+
 // :1417
 static void write_ff(struct mc *mc) {
     if ((mc->prg_flg & 2) == 0) return;
@@ -1933,6 +1945,8 @@ static void write_disk(struct mc *mc) {
         mc->si = NULL, error(mc, 0, 4);
     }
 }
+
+#endif
 
 // :1562
 static void line_skip(struct mc *mc) {
@@ -2087,7 +2101,9 @@ static int get_option(struct mc *mc, bool is_mml, bool is_env) {
 
 // :2074
 static void macro_set(struct mc *mc) {
+#if !efc
     char *macro_start = mc->si;
+#endif
     char c1 = toupper(*mc->si++);
     char c2 = toupper(*mc->si++);
     if (move_next_param(mc) != 0) error(mc, '#', 6);
@@ -2514,6 +2530,8 @@ static void dt2flag_set(struct mc *mc, char c2) {
         detune_select(mc);
         return;
     }
+#else
+    (void)c2;
 #endif
 
     if (toupper(*mc->si++) != 'O') ps_error(mc);
@@ -4087,13 +4105,14 @@ static void ots002(struct mc *mc, uint8_t onkai) {
     // :4847
     uint16_t detune = 0;
     if (mc->pitch != 0) {
-        if (!efc && mc->ongen >= psg) {
+#if !efc
+        if (mc->ongen >= psg) {
             // :4857
             detune = mc->pitch >> 7;
             if ((detune & 0x8000) != 0) detune++;
-        } else {
-            detune = fmpt(mc, onkai);
-        }
+        } else
+#endif
+        detune = fmpt(mc, onkai);
     }
     // :4919
     detune += mc->detune + mc->master_detune;
@@ -4299,6 +4318,8 @@ static uint8_t ongen_sel_vol(struct mc *mc, uint8_t vol) {
     if (mc->part == pcmpart || mc->ongen == pcm_ex) return vol << 4;
     if (mc->towns_flg == 1 && mc->part == rhythm2) return vol << 4;
     if (mc->ongen == psg) return vol;
+#else
+    (void)mc;
 #endif
     return vol << 2;
 }
@@ -4553,11 +4574,14 @@ static int futen(struct mc *mc, uint8_t *ret) {
     for (; len >= 256; len -= 255) {
         if (mc->ge_delay != 0 || mc->ss_length != 0) error(mc, '.', 20);
         // :5543
-        if (!efc && mc->part == rhythm) {
+#if !efc
+        if (mc->part == rhythm) {
             // :5562
             *mc->di++ = 255;
             *mc->di++ = 0x0f;
-        } else {
+        } else
+#endif
+        {
             // :5547
             *mc->di++ = 255;
             *mc->di++ = 0xfb;
@@ -4875,12 +4899,16 @@ static void vset(struct mc *mc, uint8_t vol) {
         if (mc->volss < 0) {
             // :5939
             vol = 0;
-        } else if (efc || mc->ongen < psg) {
-            // :5948
-            vol = 0x7f;
-        } else {
+        }
+#if !efc
+        else if (mc->ongen >= psg) {
             // :5945
             vol = 15;
+        }
+#endif
+        else {
+            // :5948
+            vol = 0x7f;
         }
     }
     // :5949
@@ -5017,6 +5045,8 @@ static void neirochg(struct mc *mc, char cmd) {
 #endif
 }
 
+#if !efc
+
 // :6088
 static void rhyprg(struct mc *mc, uint16_t prg) {
     if (prg >= 0x4000) error(mc, '@', 2);
@@ -5032,6 +5062,8 @@ static void psgprg(struct mc *mc, uint8_t prg) {
     mc->di += sizeof(psgenvdat[prg]);
     olc0(mc);
 }
+
+#endif
 
 // :6114
 static void repeat_check(struct mc *mc, uint8_t prg) {
@@ -5118,7 +5150,8 @@ static void tieset_2(struct mc *mc, char cmd) {
     mc->di++;
     if ((mc->prsok & 8) != 0) error(mc, '^', 8);
     // :6210
-    if (!efc && mc->part == rhythm) {
+#if !efc
+    if (mc->part == rhythm) {
         // :6222
         *mc->di++ = 0x0f;
         *mc->di++ = len;
@@ -5126,6 +5159,7 @@ static void tieset_2(struct mc *mc, char cmd) {
         olc02(mc);
         return;
     }
+#endif
     // :6214
     uint8_t onkai = mc->di[-2];
     *mc->di++ = 0xfb;
@@ -5398,12 +5432,16 @@ static void extloop(struct mc *mc, char cmd) {
 // :6558
 static void lopset(struct mc *mc, char cmd) {
     (void)cmd;
-    if (efc || mc->part == rhythm) error(mc, 'L', 17);
+#if efc
+    error(mc, 'L', 17);
+#else
+    if (mc->part == rhythm) error(mc, 'L', 17);
     // :6565
     *mc->di++ = 0xf6;
     mc->allloop_flag = 1;
     mc->length_check1 = 0;
     olc0(mc);
+#endif
 }
 
 // :6576

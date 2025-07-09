@@ -10,13 +10,12 @@ pub fn build(b: *std.Build) void {
 
     const mc_exe = addMc(b, "mc", target, optimize, lang_num);
     b.installArtifact(mc_exe);
-    // TODO: add these
-    // const mch_exe = addMc(b, "mch", target, optimize, lang_num);
-    // mch_exe.root_module.addCMacro("hyouka", "1");
-    // b.installArtifact(mch_exe);
-    // const efc_exe = addMc(b, "efc", target, optimize, lang_num);
-    // efc_exe.root_module.addCMacro("efc", "1");
-    // b.installArtifact(efc_exe);
+    const mch_exe = addMc(b, "mch", target, optimize, lang_num);
+    mch_exe.root_module.addCMacro("hyouka", "1");
+    b.installArtifact(mch_exe);
+    const efc_exe = addMc(b, "efc", target, optimize, lang_num);
+    efc_exe.root_module.addCMacro("efc", "1");
+    b.installArtifact(efc_exe);
 
     const mc_run = b.addRunArtifact(mc_exe);
     mc_run.step.dependOn(b.getInstallStep());
