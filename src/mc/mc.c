@@ -4140,14 +4140,18 @@ static uint16_t fmpt(struct mc *mc, uint8_t onkai) {
     uint16_t fnum = fnumdat_seg[fnum_adr];
     fnum_adr += pitch_shift;
     // :4901
-    if ((fnum_adr & 0x8000) != 0) {
-        fnum_adr += 32 * 12;
-        fnum += 0x026a;
-    }
-    // :4906
-    if (fnum_adr >= 32 * 12) {
-        fnum_adr -= 32 * 12;
-        fnum -= 0x026a;
+    for (;;) {
+        if ((fnum_adr & 0x8000) != 0) {
+            // :4903
+            fnum_adr += 32 * 12;
+            fnum += 0x026a;
+        } else if (fnum_adr >= 32 * 12) {
+            // :4908
+            fnum_adr -= 32 * 12;
+            fnum -= 0x026a;
+        } else {
+            break;
+        }
     }
     // :4912
     fnum -= fnumdat_seg[fnum_adr];
