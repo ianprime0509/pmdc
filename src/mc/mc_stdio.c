@@ -6,12 +6,12 @@
 
 void mc_sys_putc(char c, void *user_data) {
     (void)user_data;
-    fputc(c, stderr);
+    fputc(c, stdout);
 }
 
 void mc_sys_print(const char *mes, void *user_data) {
     (void)user_data;
-    fprintf(stderr, "%s", mes);
+    fprintf(stdout, "%s", mes);
 }
 
 void *mc_sys_create(const char *filename, void *user_data) {
