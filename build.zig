@@ -17,12 +17,30 @@ pub fn build(b: *std.Build) void {
     efc_exe.root_module.addCMacro("efc", "1");
     b.installArtifact(efc_exe);
 
-    const mc_run = b.addRunArtifact(mc_exe);
-    mc_run.step.dependOn(b.getInstallStep());
-    if (b.args) |args| mc_run.addArgs(args);
+    const test_step = b.step("test", "Run all tests");
 
-    const mc_run_step = b.step("mc", "Run mc");
-    mc_run_step.dependOn(&mc_run.step);
+    const mc_test_harness_mod = b.createModule(.{
+        .root_source_file = b.path("test/mc/harness.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const mc_test_harness_exe = b.addExecutable(.{
+        .name = "mc-test-harness",
+        .root_module = mc_test_harness_mod,
+    });
+
+    const mc_test_run = b.addRunArtifact(mc_test_harness_exe);
+    mc_test_run.addFileArg(mc_exe.getEmittedBin());
+    mc_test_run.addDirectoryArg(b.path("test/mc/cases"));
+    mc_test_run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
+    // This ensures the tests are always re-run, even if test cases are changed.
+    // Zig's cache system doesn't look at the contents of the test cases
+    // directory when deciding if a cached result can be used.
+    mc_test_run.has_side_effects = true;
+
+    const mc_test_step = b.step("test-mc", "Run MC tests");
+    mc_test_step.dependOn(&mc_test_run.step);
+    test_step.dependOn(mc_test_step);
 }
 
 fn addMc(

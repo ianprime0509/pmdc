@@ -1,0 +1,15 @@
+; Output: SCALE.M
+; Console: SCALE.OUT
+
+#Title Scale
+#Option /v/c
+
+; nm alg fbl
+@000 006 007
+; ar  dr  sr  rr  sl  tl  ks  ml  dt ams
+ 000 000 000 000 000 000 000 000 000 000
+ 000 000 000 000 000 000 000 000 000 000
+ 031 021 012 015 001 000 000 002 000 000
+ 031 021 012 015 001 000 000 002 000 000
+
+A @0 o4l4 cdefgab>c

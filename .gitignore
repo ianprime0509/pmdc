@@ -1,6 +1,2 @@
 .zig-cache
 zig-out
-
-*.M
-*.M2
-*.MML
