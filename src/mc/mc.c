@@ -1299,7 +1299,7 @@ void mc_main(struct mc *mc, char *cmdline) {
     mc->lopcnt = 0;
 
     // :585
-#if !defined(efc) && !defined(olddat)
+#if !efc && !olddat
     *m_start(mc) = 2 * mc->opl_flg + mc->x68_flg;
 #endif
 
