@@ -39,6 +39,11 @@ static void write32(uint8_t *ptr, uint32_t val) {
     ptr[3] = val >> 24;
 }
 
+static uint16_t lodsw(struct mc *mc) {
+    uint16_t val = read16(mc->sib);
+    mc->sib += 2;
+    return val;
+}
 static void stosw(struct mc *mc, uint16_t val) {
     write16(mc->di, val);
     mc->di += 2;
@@ -1557,15 +1562,13 @@ static void cmloop2(struct mc *mc) {
     if (mc->part == 1 && mc->fm3_partchr[0] != 0) {
         *mc->di++ = 0xc6;
         mc->fm3_ofsadr = mc->di;
-        memset(mc->di, 0, 6);
-        mc->di += 6;
+        for (int i = 0; i < 3; i++) stosw(mc, 0);
     }
     // :678
     if (mc->part == pcmpart && mc->pcm_partchr[0] != 0) {
         *mc->di++ = 0xb4;
         mc->pcm_ofsadr = mc->di;
-        memset(mc->di, 0, 8);
-        mc->di += 8;
+        for (int i = 0; i < 8; i++) stosw(mc, 0);
     }
     // :691
     if (mc->part == 7) {
@@ -1753,7 +1756,7 @@ static void fm3_check(struct mc *mc) {
 // :961
 static void fm3c_main(struct mc *mc, char part) {
     write16(mc->fm3_ofsadr, mc->di - m_buf(mc));
-    mc->fm3_ofsadr++;
+    mc->fm3_ofsadr += 2;
     mc->part = part - 'A' + 1;
     mc->ongen = fm;
     cmloop2(mc);
@@ -1772,7 +1775,7 @@ static void pcm_check(struct mc *mc) {
 // :991
 static void pcmc_main(struct mc *mc, char part) {
     write16(mc->pcm_ofsadr, mc->di - m_buf(mc));
-    mc->pcm_ofsadr++;
+    mc->pcm_ofsadr += 2;
     mc->part = part - 'A' + 1;
     mc->ongen = pcm_ex;
     cmloop2(mc);
@@ -6456,16 +6459,16 @@ static void part_loop2(struct mc *mc) {
 
     // LC.INC:58
     if (*part_chr(mc) == 'A' && *mc->sib == 0xc6) {
-        // Translating the memcpy-like loop in the original as a memcpy would
-        // prevent the logic from working correctly on big endian machines.
-        for (int i = 0; i < 3; i++, mc->sib += 2) {
-            mc->fm3_adr[i] = read16(mc->sib);
+        mc->sib++;
+        for (int i = 0; i < 3; i++) {
+            mc->fm3_adr[i] = lodsw(mc);
         }
     }
     // LC.INC:77
     if (*part_chr(mc) == 'J' && *mc->sib == 0xb4) {
-        for (int i = 0; i < 8; i++, mc->sib += 2) {
-            mc->pcm_adr[i] = read16(mc->sib);
+        mc->sib++;
+        for (int i = 0; i < 8; i++) {
+            mc->pcm_adr[i] = lodsw(mc);
         }
     }
     // LC.INC:97
