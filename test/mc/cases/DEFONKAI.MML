@@ -1,0 +1,14 @@
+; Output: DEFONKAI.M
+; Console: DEFONKAI.OUT
+
+#Title Transposition
+#Option /v/c
+
+ABC _{-b}
+DE _{+f}
+
+A abc _{+ac} abc
+B bcd _{+b c d} bcd
+C cde cde
+D def _{=f} def
+E efg _{+f,g} def

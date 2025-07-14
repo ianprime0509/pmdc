@@ -4085,6 +4085,7 @@ static void otoset(struct mc *mc, char cmd, uint8_t note, int8_t shift) {
             // :4821
             octave++;
             if (octave == 8) error(mc, cmd, 26);
+            note = 0;
         }
         // :4826
     } while (*mc->si == '+' || *mc->si == '-');
@@ -5491,13 +5492,13 @@ static void def_onkai_set(struct mc *mc) {
         if (c == ' ' || c == '\t' || c == ',') continue;
         // :6622
         switch (c) {
-        case 'a': mc->def_a += inc; break;
-        case 'b': mc->def_b += inc; break;
-        case 'c': mc->def_c += inc; break;
-        case 'd': mc->def_d += inc; break;
-        case 'e': mc->def_e += inc; break;
-        case 'f': mc->def_f += inc; break;
-        case 'g': mc->def_g += inc; break;
+        case 'a': mc->def_a = inc; break;
+        case 'b': mc->def_b = inc; break;
+        case 'c': mc->def_c = inc; break;
+        case 'd': mc->def_d = inc; break;
+        case 'e': mc->def_e = inc; break;
+        case 'f': mc->def_f = inc; break;
+        case 'g': mc->def_g = inc; break;
         default: error(mc, '{', 2);
         }
     }
