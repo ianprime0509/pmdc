@@ -5092,6 +5092,7 @@ static void repeat_check(struct mc *mc, uint8_t prg) {
     }
     // :6129
     mc->si++;
+    stosw(mc, getnum(mc));
     if (*mc->si != ',') {
         // :6144
         stosw(mc, 0x8000);
@@ -5099,6 +5100,7 @@ static void repeat_check(struct mc *mc, uint8_t prg) {
         return;
     }
     // :6135
+    mc->si++;
     stosw(mc, getnum(mc));
     olc0(mc);
 }
