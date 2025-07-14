@@ -2231,9 +2231,10 @@ static void pcmextend_set(struct mc *mc, char *macro_start) {
         return;
     }
     if (*mc->si < ' ') error(mc, '#', 6);
-    if (partcheck(*mc->si++) != 0) ps_error(mc);
+    char c = *mc->si++;
+    if (partcheck(c) != 0) ps_error(mc);
     char *partchr = mc->pcm_partchr;
-    *partchr++ = *mc->si;
+    *partchr++ = c;
 
     // :2195
     for (int i = 0; i < 7; i++) {
