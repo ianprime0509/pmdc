@@ -2649,7 +2649,7 @@ static void include_set(struct mc *mc) {
 // :2804
 // c: al
 static int partcheck(char c) {
-    return c == 'L' || c == 'R' || (uint8_t)c > 0x7f;
+    return c < 'L' || c == 'R' || (uint8_t)c > 0x7f;
 }
 
 // :2821
