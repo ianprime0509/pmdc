@@ -4950,7 +4950,7 @@ static void vsetm(struct mc *mc, uint8_t vol) {
         vol = vol * vol < 256 ? vol * vol : 255;
     } else {
         // :5975
-        vol = vol * 4 < 256 ? vol * 4 : 255;
+        vol = vol * 16 < 256 ? vol * 16 : 255;
     }
     // :5988
     vsetm1(mc, vol);
