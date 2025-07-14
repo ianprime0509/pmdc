@@ -1,0 +1,6 @@
+; Output: PAN.M
+; Console: PAN.OUT
+
+#Title Pan
+
+A c p1c p2c p3c px-3c px-1c px0c px+2c px+4c px0,1c

@@ -5942,6 +5942,7 @@ static void panset(struct mc *mc, char cmd) {
     (void)cmd;
     if (*mc->si == 'x') {
         // :7225
+        mc->si++;
         *mc->di++ = 0xc3;
         *mc->di++ = getnum(mc);
         *mc->di++ = 0;
