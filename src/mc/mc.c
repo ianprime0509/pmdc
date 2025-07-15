@@ -5421,7 +5421,7 @@ static void edl00b(struct mc *mc, uint8_t loops) {
 
     // :6520
     mc->di += 2;
-    if (!mc->si) olc0(mc);
+    if (mc->si) olc0(mc);
 }
 
 // :6531
