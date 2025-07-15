@@ -1227,7 +1227,7 @@ void mc_main(struct mc *mc, char *cmdline) {
     mml_filename = mc->mml_filename;
     char *m_filename = mc->m_filename;
     while ((*m_filename++ = *mml_filename++) != '.') ;
-    
+
     mc->file_ext_adr = m_filename;
 #if efc
     *m_filename++ = 'E';
@@ -1658,7 +1658,7 @@ static void cmloop2(struct mc *mc) {
         *mc->di++ = mc->transpose;
     }
 #endif
-    
+
     // :817
     for (;;) {
         char c = *mc->si++;
@@ -3742,13 +3742,13 @@ static void hardlfo_onoff(struct mc *mc, char cmd) {
 #else
     switch (*mc->si++) {
     case 'D':
-        hdelay_set(mc); 
+        hdelay_set(mc);
         return;
     case 'f':
-        opm_hf_set(mc); 
+        opm_hf_set(mc);
         return;
     case 'w':
-        opm_wf_set(mc); 
+        opm_wf_set(mc);
         return;
     case 'p':
         opm_pmd_set(mc);
@@ -4233,7 +4233,7 @@ static void bp9(struct mc *mc) {
     }
     // :5029
     mc->tie_flag = 0;
-    
+
     // :5032
     olc02(mc);
 }
@@ -4891,7 +4891,7 @@ static void vseta(struct mc *mc, char cmd) {
         vsetm(mc, vol);
         return;
     }
-    if (mc->ongen == psg) {
+    if (mc->ongen >= psg) {
         vset(mc, vol);
         return;
     }
@@ -5640,7 +5640,7 @@ static void lfoset(struct mc *mc, char cmd) {
         lfomask_set(mc);
         return;
     }
-    
+
     // :6764
     uint8_t lfocmd;
     switch (c) {
