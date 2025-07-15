@@ -218,10 +218,18 @@ enum {
 // :8309
 enum {
     max_part = 11,
+};
+// :8310
+enum ongen {
+    // FM channel.
     fm = 0,
+    // Unused.
     fm2 = 1,
+    // SSG channel.
     psg = 2,
+    // PCM channel (part J) or rhythm (part K).
     pcm = 3,
+    // PPZ/PCM extend channel (§2.25).
     pcm_ex = 4,
 };
 
@@ -1114,7 +1122,7 @@ static void print_chr(struct mc *mc, char c) {
 
 // :72
 static void print_line(struct mc *mc, const char *line) {
-    // Since our mc_sys_print accepts a NUL-terminated string rather than a
+    // Since our mc_sys_print accepts a null-terminated string rather than a
     // $-terminated string as in DOS, we don't need to replicate the original
     // logic of this macro (which was to print the string character by
     // character until the NUL terminator).
@@ -1958,6 +1966,8 @@ static void line_skip(struct mc *mc) {
 
 // :1803
 static void read_fffile(struct mc *mc) {
+    mc->ff_flg = 1;
+
     // :1813
     // Note: same overall logic as :211.
     char *v_filename = mc->v_filename;
@@ -2789,7 +2799,7 @@ static void nns_pname_set(struct mc *mc, uint8_t *dst) {
 
 // :3090
 static void opl_nns(struct mc *mc) {
-    // CHECK: prg_name isn't being NUL-terminated here? Won't that cause corrupted instrument names?
+    // CHECK: prg_name isn't being null-terminated here? Won't that cause corrupted instrument names?
     memset(mc->oplbuf, 0, sizeof(mc->oplbuf));
 
     // :3101
@@ -2924,6 +2934,15 @@ static bool one_line_compile(struct mc *mc) {
     }
 
     // :3336
+    // In the original, olc0, olc02, and olc03 are simply labels within the
+    // larger one_line_compile "unit", and commands jump back to one of them
+    // depending on the post-processing they need.
+    // This structure is not directly implementable in (readable) C code:
+    // instead, the olc0 and olc02 post-processing logic is extracted into
+    // functions of the same name, which command implementations may call
+    // before they return. A return statement in a command is equivalent to
+    // "jmp olc03" in the original, as olc03 encapsulates the main command
+    // loop.
     return olc03(mc);
 }
 
