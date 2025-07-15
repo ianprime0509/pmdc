@@ -145,6 +145,17 @@ struct mc {
     uint16_t lastprg;
 
     // :8334
+    // Flags describing the previous content processed, mainly for deciding when
+    // to make decisions about compressing tied notes and rests (see the press
+    // function, :5348). For example, the sequence c2&c2 can be compressed into
+    // c1 to save space in the output.
+    //
+    // Format: R000PTKL
+    // L: previous content was a note length
+    // K: previous content was an adjustment of a previous note length
+    // T: previous content was a tie command (FBh)
+    // P: previous content was a portamento
+    // R: previous content was a rhythm shot/dump command
     uint8_t prsok;
 
     // :8341
