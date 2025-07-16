@@ -5766,7 +5766,8 @@ static void depthset(struct mc *mc) {
         olc0(mc);
         return;
     }
-    // :6879
+    // :6876
+    mc->si++;
     *mc->di++ = 0xb7;
     uint8_t times = getnum(mc);
     if ((times & 0x80) != 0) error(mc, 'M', 2);
