@@ -1,7 +1,6 @@
 #include "mc.h"
 
 #include <assert.h>
-#include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
@@ -24,6 +23,21 @@
 #define olddat 0
 #define split 0
 #define tempo_old_flag 0
+
+// Character classification helpers
+//
+// These functions work slightly differently from their ctype.h counterparts,
+// since they must work correctly with Shift JIS and replicate quirks within the
+// original code (such as DEL not being considered a control character).
+
+static bool is_cntrl(char c) { return c >= 0 && c < ' '; }
+static bool is_graph(char c) { return !is_cntrl(c) && c != ' '; }
+static bool is_digit(char c) { return c >= '0' && c <= '9'; }
+static bool is_upper(char c) { return c >= 'A' && c <= 'Z'; }
+static bool is_lower(char c) { return c >= 'a' && c <= 'z'; }
+static char to_upper(char c) { return is_lower(c) ? c - 'a' + 'A' : c; }
+
+// Data read/write helpers
 
 static uint16_t read16(uint8_t *ptr) {
     return ptr[0] + (ptr[1] << 8);
@@ -52,6 +66,14 @@ static void stosd(struct mc *mc, uint32_t val) {
     write32(mc->di, val);
     mc->di += 4;
 }
+
+// Data offset helpers
+//
+// Assembly doesn't have the same rigid struct layout that C does. In the
+// original assembly code, there are a few places where a specific location
+// _within_ a larger field/structure has been given a label, sometimes even
+// conditionally. To mimic this in C, the following functions return pointers
+// to these "internal labels" within the global data.
 
 static char *ou00(struct mc *mc) { return &mc->comtbl[11].cmd; }
 static char *od00(struct mc *mc) { return &mc->comtbl[12].cmd; }
@@ -1492,7 +1514,7 @@ static void p1cloop(struct mc *mc) {
             goto p1c_next;
         }
         if (c == 0) break;
-        if (c <= ' ' || c == ';') continue;
+        if (!is_graph(c) || c == ';') continue;
         if (c == '`') {
             mc->skip_flag ^= 2;
             goto p1c_next;
@@ -1675,7 +1697,7 @@ static void cmloop2(struct mc *mc) {
             continue;
         } else if (c == 0) {
             break;
-        } else if (c <= ' ' || c == ';') {
+        } else if (!is_graph(c) || c == ';') {
             // :871
             line_skip(mc);
             continue;
@@ -1815,7 +1837,7 @@ static void rt(struct mc *mc) {
         char c = *mc->si++;
         if (sjis_check(c)) {
             mc->si++;
-        } else if (c <= ' ' || c == ';') {
+        } else if (!is_graph(c) || c == ';') {
             // :1064, :1067 -> :1103
             line_skip(mc);
             // :1051
@@ -2022,13 +2044,13 @@ static void read_fffile(struct mc *mc) {
 static int get_option(struct mc *mc, bool is_mml, bool is_env) {
     for (;; mc->si++) {
         if (*mc->si == ' ') continue;
-        if (*mc->si < ' ') return 0;
+        if (is_cntrl(*mc->si)) return 0;
         if (*mc->si == '/' || *mc->si == '-') {
             mc->si++;
-            switch (toupper(*mc->si)) {
+            switch (to_upper(*mc->si)) {
             case 'V':
                 // :1971
-                if (toupper(mc->si[1]) == 'W') {
+                if (to_upper(mc->si[1]) == 'W') {
 #if !hyouka
                     mc->prg_flg |= 2;
 #endif
@@ -2117,8 +2139,8 @@ static void macro_set(struct mc *mc) {
 #if !efc
     char *macro_start = mc->si;
 #endif
-    char c1 = toupper(*mc->si++);
-    char c2 = toupper(*mc->si++);
+    char c1 = to_upper(*mc->si++);
+    char c2 = to_upper(*mc->si++);
     if (move_next_param(mc) != 0) error(mc, '#', 6);
     // :2086
     switch (c1) {
@@ -2194,8 +2216,8 @@ static void pcmfile_set(struct mc *mc, char c2, char *macro_start) {
         ppsfile_set(mc, macro_start);
         return;
     case 'C':
-        if (toupper(macro_start[2]) != 'M') ps_error(mc);
-        switch (toupper(macro_start[3])) {
+        if (to_upper(macro_start[2]) != 'M') ps_error(mc);
+        switch (to_upper(macro_start[3])) {
         case 'V':
             pcmvolume_set(mc);
             return;
@@ -2222,7 +2244,7 @@ static void ppcfile_set(struct mc *mc) {
 
 // :2156
 static void pcmvolume_set(struct mc *mc) {
-    switch (toupper(*mc->si++)) {
+    switch (to_upper(*mc->si++)) {
     case 'N':
         mc->pcm_vol_ext = 0;
         return;
@@ -2239,11 +2261,11 @@ static void pcmvolume_set(struct mc *mc) {
 // macro_start: bx
 static void pcmextend_set(struct mc *mc, char *macro_start) {
 #if !efc
-    if (toupper(macro_start[3]) == 'F') {
+    if (to_upper(macro_start[3]) == 'F') {
         ppzfile_set(mc);
         return;
     }
-    if (*mc->si < ' ') error(mc, '#', 6);
+    if (is_cntrl(*mc->si)) error(mc, '#', 6);
     char c = *mc->si++;
     if (partcheck(c) != 0) ps_error(mc);
     char *partchr = mc->pcm_partchr;
@@ -2262,7 +2284,7 @@ static void pcmextend_set(struct mc *mc, char *macro_start) {
 // :2224
 // macro_start: bx
 static void ppsfile_set(struct mc *mc, char *macro_start) {
-    switch (toupper(macro_start[2])) {
+    switch (to_upper(macro_start[2])) {
     case 'C':
         ppcfile_set(mc);
         return;
@@ -2290,7 +2312,7 @@ static void title_set(struct mc *mc, char c2, char *macro_start) {
         transpose_set(mc);
         return;
     default:
-        if (toupper(macro_start[2]) == 'M') {
+        if (to_upper(macro_start[2]) == 'M') {
             tempo_set2(mc);
             return;
         }
@@ -2316,8 +2338,8 @@ static void arranger_set(struct mc *mc, char c2) {
 
 // :2272
 static void adpcm_set(struct mc *mc) {
-    if (toupper(*mc->si++) != 'O') ps_error(mc);
-    switch (toupper(*mc->si++)) {
+    if (to_upper(*mc->si++) != 'O') ps_error(mc);
+    switch (to_upper(*mc->si++)) {
     case 'N':
         mc->adpcm_flag = 1;
         return;
@@ -2345,7 +2367,7 @@ static void transpose_set(struct mc *mc) {
 
 // :2312
 static void detune_select(struct mc *mc) {
-    switch (toupper(*mc->si++)) {
+    switch (to_upper(*mc->si++)) {
     case 'N':
         mc->ext_detune = 0;
         return;
@@ -2366,7 +2388,7 @@ static void LFOExtend_set(struct mc *mc, char c2) {
         return;
     }
 
-    switch (toupper(*mc->si++)) {
+    switch (to_upper(*mc->si++)) {
     case 'N':
         mc->ext_lfo = 0;
         return;
@@ -2388,7 +2410,7 @@ static void loopdef_set(struct mc *mc) {
 
 // :2355
 static void EnvExtend_set(struct mc *mc) {
-    switch (toupper(*mc->si++)) {
+    switch (to_upper(*mc->si++)) {
     case 'N':
         mc->ext_env = 0;
         return;
@@ -2407,7 +2429,7 @@ static void VolDown_set(struct mc *mc) {
         uint8_t fspr = 0;
         for (char c = *mc->si; ; c = *++mc->si) {
             if (c <= '9') break;
-            switch (toupper(c)) {
+            switch (to_upper(c)) {
             case 'F':
                 fspr |= 1;
                 break;
@@ -2502,7 +2524,7 @@ static void FM3Extend_set(struct mc *mc, char c2) {
     }
 
 #if !efc
-    if (*mc->si < ' ') error(mc, '#', 6);
+    if (is_cntrl(*mc->si)) error(mc, '#', 6);
     if (partcheck(*mc->si) != 0) mc->si++, ps_error(mc);
     mc->fm3_partchr[0] = *mc->si++;
     if (partcheck(*mc->si) != 0) return;
@@ -2524,7 +2546,7 @@ static void file_name_set(struct mc *mc) {
     } else {
         filename = mc->m_filename;
     }
-    for (; *mc->si != ';' && *mc->si >= '!'; ) {
+    for (; *mc->si != ';' && is_graph(*mc->si); ) {
         *filename++ = *mc->si++;
     }
     *filename = 0;
@@ -2548,8 +2570,8 @@ static void dt2flag_set(struct mc *mc, char c2) {
     (void)c2;
 #endif
 
-    if (toupper(*mc->si++) != 'O') ps_error(mc);
-    switch (toupper(*mc->si++)) {
+    if (to_upper(*mc->si++) != 'O') ps_error(mc);
+    switch (to_upper(*mc->si++)) {
     case 'N':
         mc->dt2_flg = 1;
         return;
@@ -2570,7 +2592,7 @@ static void octrev_set(struct mc *mc, char c2) {
         return;
     }
 
-    switch (toupper(*mc->si++)) {
+    switch (to_upper(*mc->si++)) {
     case 'R':
         *ou00(mc) = '<';
         *od00(mc) = '>';
@@ -2668,7 +2690,7 @@ static int partcheck(char c) {
 
 // :2821
 static char *set_strings(struct mc *mc, char *out) {
-    while (*mc->si == '\t' || *mc->si == 0x1b || *mc->si >= ' ') {
+    while (*mc->si == '\t' || *mc->si == 0x1b || !is_cntrl(*mc->si)) {
         *out++ = *mc->si++;
     }
     *out++ = 0;
@@ -2677,8 +2699,8 @@ static char *set_strings(struct mc *mc, char *out) {
 
 // :2838
 static char *set_strings2(struct mc *mc, char *out) {
-    while (*mc->si == '\t' || *mc->si == 0x1b || *mc->si >= ' ') {
-        *out++ = toupper(*mc->si++);
+    while (*mc->si == '\t' || *mc->si == 0x1b || !is_cntrl(*mc->si)) {
+        *out++ = to_upper(*mc->si++);
     }
     *out++ = 0;
     return out;
@@ -2687,11 +2709,11 @@ static char *set_strings2(struct mc *mc, char *out) {
 // :2865
 static int move_next_param(struct mc *mc) {
     for (char c = *mc->si++; c != '\t' && c != ' '; c = *mc->si++) {
-        if (c < ' ') return 1;
+        if (is_cntrl(c)) return 1;
     }
     char c = *mc->si;
     while (c == '\t' || c == ' ') c = *++mc->si;
-    return c != 0x1b && c < ' ';
+    return is_cntrl(c) && c != 0x1b;
 }
 
 // :2894
@@ -2699,7 +2721,7 @@ static void hsset(struct mc *mc) {
     char **ptr;
     uint16_t n;
     if (lngset(mc, &n) == 0) {
-        ptr = &mc->hsbuf2[n & 0xFF];
+        ptr = &mc->hsbuf2[n & 0xff];
     } else {
         char *old_si = mc->si;
         struct mc_hs3 *found, *prefix_found;
@@ -2713,11 +2735,11 @@ static void hsset(struct mc *mc) {
                 found = &mc->hsbuf3[i];
                 char *new_name = found->name;
                 for (int j = 0; j < 30; j++) {
-                    if (*mc->si < '!') break;
+                    if (!is_graph(*mc->si)) break;
                     *new_name++ = *mc->si++;
                 }
                 // :2937
-                while (*mc->si >= '!') mc->si++;
+                while (is_graph(*mc->si)) mc->si++;
                 goto found_hs3;
             }
             // :2924
@@ -2732,7 +2754,7 @@ static void hsset(struct mc *mc) {
     for (;;) {
         char c = *mc->si++;
         if (c == '\r') break;
-        if (c <= ' ') {
+        if (!is_graph(c)) {
             *ptr = mc->si;
             break;
         }
@@ -2859,7 +2881,7 @@ static uint8_t get_param(struct mc *mc) {
             mc->si++;
         } else if (c == '\t' || c == ' ') {
             // :3239, :3241
-        } else if (c < ' ' || c == ';') {
+        } else if (is_cntrl(c) || c == ';') {
             // :3271
             line_skip(mc);
             if (*mc->si == 0) error(mc, '@', 6);
@@ -2926,7 +2948,7 @@ static bool one_line_compile(struct mc *mc) {
                 // :3387
                 return true;
             }
-        } else if (c <= ' ') {
+        } else if (!is_graph(c)) {
             // :3329
             olc02(mc);
             break;
@@ -2966,7 +2988,7 @@ static bool olc03(struct mc *mc) {
             continue;
         } else if (c == '\t' || c == ' ') {
             continue;
-        } else if (c < ' ') {
+        } else if (is_cntrl(c)) {
             // :3346 -> :3382
         } else if (c == ';') {
             // :5405
@@ -3055,7 +3077,7 @@ static bool skip_mml(struct mc *mc) {
     for (;;) {
         char part = mc->part + 'A' - 1;
         // :3423
-        if (*mc->si < '!') return true;
+        if (!is_graph(*mc->si)) return true;
         if (*mc->si == '!') {
             // :3427
             mc->si++;
@@ -3072,7 +3094,7 @@ static bool skip_mml(struct mc *mc) {
                     }
                 } else if (c == '\r') {
                     return false;
-                } else if (c <= ' ') {
+                } else if (!is_graph(c)) {
                     // :3436
                     mc->si--;
                     // :3468, :3465
@@ -3089,7 +3111,7 @@ static bool skip_mml(struct mc *mc) {
                 } else if (c == '\r') {
                     // :3444
                     return false;
-                } else if (c <= ' ') {
+                } else if (!is_graph(c)) {
                     // :3451
                     if (part_not_found(mc)) {
                         // :3456
@@ -3120,7 +3142,7 @@ static bool part_found(struct mc *mc) {
     for (;;) {
         char c = *mc->si++;
         if (c == '\r') return false;
-        if (c <= ' ') return true;
+        if (!is_graph(c)) return true;
     }
 }
 
@@ -4573,11 +4595,11 @@ static int hexget8(struct mc *mc, uint8_t *ret) {
 
 // :5495
 static int hexcal8(char c, uint8_t *ret) {
-    c = toupper(c);
-    if (c >= '0' && c <= '9') {
+    c = to_upper(c);
+    if (is_digit(c)) {
         *ret = c - '0';
         return 0;
-    } else if (c >= 'A' && c <= 'F') {
+    } else if (is_upper(c)) {
         *ret = c - 'A' + 10;
         return 0;
     } else {
@@ -4630,7 +4652,7 @@ static void futen_skip(struct mc *mc) {
 
 // :5580
 static int numget(struct mc *mc, uint8_t *ret) {
-    if (*mc->si >= '0' && *mc->si <= '9') {
+    if (is_digit(*mc->si)) {
         *ret = *mc->si++ - '0';
         return 0;
     } else {
@@ -6160,7 +6182,7 @@ static void hscom(struct mc *mc, char cmd) {
         hsptr = mc->hsbuf2[n];
     } else {
         // :7482
-        if (*mc->si < '!') error(mc, '!', 6);
+        if (!is_graph(*mc->si)) error(mc, '!', 6);
         struct mc_hs3 *found, *prefix_found;
         if (search_hs3(mc, &found, &prefix_found) == 0) {
             // :7487
@@ -6198,7 +6220,7 @@ static int search_hs3(struct mc *mc, struct mc_hs3 **found, struct mc_hs3 **pref
         // :7537
         for (int j = 0; j < 30; j++) {
             // :7540
-            if (*mc->si < '!') {
+            if (!is_graph(*mc->si)) {
                 // :7555
                 if (*check_name == 0) return 0;
                 goto hscom3_next;
@@ -6215,7 +6237,7 @@ static int search_hs3(struct mc *mc, struct mc_hs3 **found, struct mc_hs3 **pref
             // :7544
             if (*mc->si++ != *check_name++) goto hscom3_next;
         }
-        while (*mc->si < '!') mc->si++;
+        while (!is_graph(*mc->si)) mc->si++;
         return 0;
     hscom3_next:
         // :7566
@@ -6255,7 +6277,7 @@ noreturn static void error(struct mc *mc, char cmd, uint8_t n) {
     print_mes(mc, errmes_4);
     mc_sys_print(err_table[n], mc->user_data);
     // :7691
-    if (mc->si && mc->line != 0 && (*mc->linehead == '\t' || *mc->linehead >= ' ')) {
+    if (mc->si && mc->line != 0 && (*mc->linehead == '\t' || !is_cntrl(*mc->linehead))) {
         // :7700
         // This logic has been reworked to avoid possible out of bounds reads
         // (fine in assembly, not in C) and double scanning.
@@ -6268,9 +6290,9 @@ noreturn static void error(struct mc *mc, char cmd, uint8_t n) {
         // :7720
         mc->si[1] = 0;
         mc->si[0] = '^';
-        if (mc->si[-1] >= ' ') *--mc->si = '^';
+        if (!is_cntrl(mc->si[-1])) *--mc->si = '^';
         while (mc->si != mc->linehead) {
-            if (*--mc->si > ' ') *mc->si = ' ';
+            if (is_graph(*--mc->si)) *mc->si = ' ';
         }
         // :7733
         mc_sys_print(mc->linehead, mc->user_data);
