@@ -315,9 +315,9 @@ static const uint32_t num_data[] = {
 };
 
 // :50
-noreturn static void msdos_exit(struct mc *mc);
+PMDC_NORETURN static void msdos_exit(struct mc *mc);
 // :55
-noreturn static void error_exit(struct mc *mc, int status);
+PMDC_NORETURN static void error_exit(struct mc *mc, int status);
 // :60
 static void print_mes(struct mc *mc, const char *mes);
 // :66
@@ -367,7 +367,7 @@ static int get_option(struct mc *mc, bool is_mml, bool is_env);
 // :2074
 static void macro_set(struct mc *mc);
 // :2118
-noreturn static void ps_error(struct mc *mc);
+PMDC_NORETURN static void ps_error(struct mc *mc);
 // :2132
 static void pcmfile_set(struct mc *mc, char c2, char *macro_start);
 // :2149
@@ -497,7 +497,7 @@ static void bunsan_exit(struct mc *mc);
 // :4149
 static void bunsan_set1loop(struct mc *mc);
 // :4179
-noreturn static void bunsan_error(struct mc *mc);
+PMDC_NORETURN static void bunsan_error(struct mc *mc);
 // :4210
 static void status_write(struct mc *mc, char cmd);
 // :4228
@@ -797,7 +797,7 @@ static void hscom(struct mc *mc, char cmd);
 // :7523
 static int search_hs3(struct mc *mc, struct mc_hs3 **found, struct mc_hs3 **prefix_found);
 // :7592
-noreturn static void error(struct mc *mc, char cmd, uint8_t n);
+PMDC_NORETURN static void error(struct mc *mc, char cmd, uint8_t n);
 // :7748
 static void put_part(struct mc *mc);
 // :7787
@@ -1123,32 +1123,32 @@ void mc_init(struct mc *mc) {
 }
 
 // :50
-noreturn static void msdos_exit(struct mc *mc) {
-    mc_sys_exit(0, mc->user_data);
+PMDC_NORETURN static void msdos_exit(struct mc *mc) {
+    mc->sys->exit(0, mc->user_data);
 }
 
 // :55
-noreturn static void error_exit(struct mc *mc, int status) {
-    mc_sys_exit(status, mc->user_data);
+PMDC_NORETURN static void error_exit(struct mc *mc, int status) {
+    mc->sys->exit(status, mc->user_data);
 }
 
 // :60
 static void print_mes(struct mc *mc, const char *mes) {
-    mc_sys_print(mes, mc->user_data);
+    mc->sys->print(mes, mc->user_data);
 }
 
 // :66
 static void print_chr(struct mc *mc, char c) {
-    mc_sys_putc(c, mc->user_data);
+    mc->sys->putc(c, mc->user_data);
 }
 
 // :72
 static void print_line(struct mc *mc, const char *line) {
-    // Since our mc_sys_print accepts a null-terminated string rather than a
+    // Since our print accepts a null-terminated string rather than a
     // $-terminated string as in DOS, we don't need to replicate the original
     // logic of this macro (which was to print the string character by
     // character until the NUL terminator).
-    mc_sys_print(line, mc->user_data);
+    mc->sys->print(line, mc->user_data);
 }
 
 // :132
@@ -2203,7 +2203,7 @@ static void ppzfile_set(struct mc *mc) {
 }
 
 // :2118
-noreturn static void ps_error(struct mc *mc) {
+PMDC_NORETURN static void ps_error(struct mc *mc) {
     error(mc, '#', 7);
 }
 
@@ -3583,7 +3583,7 @@ static void bunsan_set1loop(struct mc *mc) {
 }
 
 // :4179
-noreturn static void bunsan_error(struct mc *mc) {
+PMDC_NORETURN static void bunsan_error(struct mc *mc) {
     error(mc, '}', 35);
 }
 
@@ -6252,7 +6252,7 @@ static int search_hs3(struct mc *mc, struct mc_hs3 **found, struct mc_hs3 **pref
 // :7592
 // cmd: dh
 // n: dl
-noreturn static void error(struct mc *mc, char cmd, uint8_t n) {
+PMDC_NORETURN static void error(struct mc *mc, char cmd, uint8_t n) {
     // :7593
     calc_line(mc);
     // :7604
@@ -6272,11 +6272,11 @@ noreturn static void error(struct mc *mc, char cmd, uint8_t n) {
     // :7647
     if (cmd != 0) {
         print_mes(mc, errmes_3);
-        mc_sys_putc(cmd, mc->user_data);
+        mc->sys->putc(cmd, mc->user_data);
     }
     // :7670
     print_mes(mc, errmes_4);
-    mc_sys_print(err_table[n], mc->user_data);
+    mc->sys->print(err_table[n], mc->user_data);
     // :7691
     if (mc->si && mc->line != 0 && (*mc->linehead == '\t' || !is_cntrl(*mc->linehead))) {
         // :7700
@@ -6296,7 +6296,7 @@ noreturn static void error(struct mc *mc, char cmd, uint8_t n) {
             if (is_graph(*--mc->si)) *mc->si = ' ';
         }
         // :7733
-        mc_sys_print(mc->linehead, mc->user_data);
+        mc->sys->print(mc->linehead, mc->user_data);
         print_mes(mc, crlf_mes);
 
     }
@@ -6308,7 +6308,7 @@ noreturn static void error(struct mc *mc, char cmd, uint8_t n) {
 static void put_part(struct mc *mc) {
     if (mc->part == 0) return;
     print_mes(mc, errmes_2);
-    mc_sys_putc(mc->part + 'A' - 1, mc->user_data);
+    mc->sys->putc(mc->part + 'A' - 1, mc->user_data);
     if (mc->hsflag == 0) return;
 #if !efc
     if (mc->part != rhythm) {
@@ -6384,7 +6384,7 @@ found_error:
 // :7864
 // name: si
 static char *search_env(struct mc *mc, const char *name) {
-    return mc_sys_getenv(name, mc->user_data);
+    return mc->sys->getenv(name, mc->user_data);
 }
 
 // :7892
@@ -6392,7 +6392,7 @@ static void print_8(struct mc *mc, uint8_t n) {
     bool seen_digits = false;
     p8_oneset(mc, &n, 100, &seen_digits);
     p8_oneset(mc, &n, 10, &seen_digits);
-    mc_sys_putc('0' + n, mc->user_data);
+    mc->sys->putc('0' + n, mc->user_data);
 }
 
 // :7903
@@ -6403,7 +6403,7 @@ static void p8_oneset(struct mc *mc, uint8_t *n, uint8_t div, bool *seen_digits)
         c++;
     }
     if (*seen_digits || c != '0') {
-        mc_sys_putc(c, mc->user_data);
+        mc->sys->putc(c, mc->user_data);
         *seen_digits = true;
     }
 }
@@ -6415,7 +6415,7 @@ static void print_16(struct mc *mc, uint16_t n) {
     p16_oneset(mc, &n, 1000, &seen_digits);
     p16_oneset(mc, &n, 100, &seen_digits);
     p16_oneset(mc, &n, 10, &seen_digits);
-    mc_sys_putc('0' + n, mc->user_data);
+    mc->sys->putc('0' + n, mc->user_data);
 }
 
 // :7946
@@ -6426,7 +6426,7 @@ static void p16_oneset(struct mc *mc, uint16_t *n, uint16_t div, bool *seen_digi
         c++;
     }
     if (*seen_digits || c != '0') {
-        mc_sys_putc(c, mc->user_data);
+        mc->sys->putc(c, mc->user_data);
         *seen_digits = true;
     }
 }
@@ -6774,7 +6774,7 @@ static void print_32(struct mc *mc, uint32_t n) {
     if (mc->print_flag == 0) return;
     bool seen_digits = false;
     for (int i = 0; i < 9; i++) sub_pr(mc, &n, num_data[i], &seen_digits);
-    mc_sys_putc('0' + n, mc->user_data);
+    mc->sys->putc('0' + n, mc->user_data);
 }
 
 // LC.INC:454
@@ -6785,7 +6785,7 @@ static void sub_pr(struct mc *mc, uint32_t *n, uint32_t div, bool *seen_digits) 
         c++;
     }
     if (c != '0' || *seen_digits) {
-        mc_sys_putc(c, mc->user_data);
+        mc->sys->putc(c, mc->user_data);
         *seen_digits = true;
     }
 }
@@ -6801,7 +6801,7 @@ static int diskwrite(struct mc *mc, const char *filename, void *data, uint16_t n
 
 // DISKPMD.INC:112
 static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static 128]) {
-    void *file = mc_sys_open(filename, mc->user_data);
+    void *file = mc->sys->open(filename, mc->user_data);
     if (file) return file;
 
     // DISKPMD.INC:128
@@ -6816,7 +6816,7 @@ static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static
     }
 
     // DISKPMD.INC:157
-    const char *pmd_path = mc_sys_getenv("PMD", mc->user_data);
+    const char *pmd_path = mc->sys->getenv("PMD", mc->user_data);
     if (!pmd_path) return NULL;
 
     // DISKPMD.INC:179
@@ -6840,7 +6840,7 @@ static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static
     *ohf_write++ = 0;
 
     // DISKPMD.INC:221
-    return mc_sys_open(oh_filename, mc->user_data);
+    return mc->sys->open(oh_filename, mc->user_data);
 }
 
 // DISKPMD.INC:250
@@ -6850,20 +6850,20 @@ static bool sjis_check(char c) {
 
 // DISKPMD.INC:270
 static int redhnd(struct mc *mc, void *file, void *dest, uint16_t n, uint16_t *read) {
-    return mc_sys_read(file, dest, n, read, mc->user_data);
+    return mc->sys->read(file, dest, n, read, mc->user_data);
 }
 
 // DISKPMD.INC:280
 static int clohnd(struct mc *mc, void *file) {
-    return mc_sys_close(file, mc->user_data);
+    return mc->sys->close(file, mc->user_data);
 }
 
 // DISKPMD.INC:291
 static void *makhnd(struct mc *mc, const char *filename) {
-    return mc_sys_create(filename, mc->user_data);
+    return mc->sys->create(filename, mc->user_data);
 }
 
 // DISKPMD.INC:303
 static int wrihnd(struct mc *mc, void *file, void *data, uint16_t n) {
-    return mc_sys_write(file, data, n, mc->user_data);
+    return mc->sys->write(file, data, n, mc->user_data);
 }

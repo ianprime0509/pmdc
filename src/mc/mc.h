@@ -2,42 +2,52 @@
 #define PMDC_MC_H
 
 #include <stdint.h>
-#include <stdnoreturn.h>
 
-// All system interactions are done via the following mc_sys functions, which
-// mostly correspond to DOS system functions. An implementation of these
-// functions using the C standard library I/O functionality is available in
-// mc_stdio.c, but other implementations are possible if desired.
-
-// To increase the flexibility of possible system function implementations, all
-// mc_sys functions accept a user_data parameter, which is passed as the
-// user_data set in the mc "global" structure.
-
-// Reference for DOS INT 21 functions: https://www.stanislavs.org/helppc/int_21.html
-// DOS INT 21,2
-void mc_sys_putc(char c, void *user_data);
-// DOS INT 21,9
-// But mes is expected to be null-terminated, not $-terminated.
-void mc_sys_print(const char *mes, void *user_data);
-// DOS INT 21,3C
-void *mc_sys_create(const char *filename, void *user_data);
-// DOS INT 21,3D
-void *mc_sys_open(const char *filename, void *user_data);
-// DOS INT 21,3E
-int mc_sys_close(void *file, void *user_data);
-// DOS INT 21,3F
-int mc_sys_read(void *file, void *dest, uint16_t n, uint16_t *read, void *user_data);
-// DOS INT 21,40
-int mc_sys_write(void *file, void *data, uint16_t n, void *user_data);
-// DOS INT 21,4C
-noreturn void mc_sys_exit(int status, void *user_data);
-// Takes a null-terminated environment variable name and returns its
-// null-terminated value, or NULL. The returned pointer must be stable across
-// multiple calls to this function.
-// Replaces kankyo_seg (:8000).
-char *mc_sys_getenv(const char *name, void *user_data);
+// The standard C noreturn attribute is not a property of function types and
+// can't be used on function pointers, so we can't use it here.
+#ifdef __GNUC__
+#define PMDC_NORETURN __attribute__((noreturn))
+#else
+#define PMDC_NORETURN
+#endif
 
 struct mc;
+
+// The vtable for system functions.
+// Reference for DOS INT 21 functions: https://www.stanislavs.org/helppc/int_21.html
+//
+// All system interactions are done via these functions, which mostly correspond
+// to DOS system functions. An implementation of this vtable using the C
+// standard library I/O functionality is available in mc_stdio.c, but other
+// implementations are possible if desired.
+//
+// To increase the flexibility of possible system function implementations, all
+// vtable functions accept a user_data parameter, which is passed as the
+// user_data set in the mc "global" structure.
+struct mc_sys {
+    // DOS INT 21,2
+    void (*putc)(char c, void *user_data);
+    // DOS INT 21,9
+    // But mes is expected to be null-terminated, not $-terminated.
+    void (*print)(const char *mes, void *user_data);
+    // DOS INT 21,3C
+    void *(*create)(const char *filename, void *user_data);
+    // DOS INT 21,3D
+    void *(*open)(const char *filename, void *user_data);
+    // DOS INT 21,3E
+    int (*close)(void *file, void *user_data);
+    // DOS INT 21,3F
+    int (*read)(void *file, void *dest, uint16_t n, uint16_t *read, void *user_data);
+    // DOS INT 21,40
+    int (*write)(void *file, void *data, uint16_t n, void *user_data);
+    // DOS INT 21,4C
+    PMDC_NORETURN void (*exit)(int status, void *user_data);
+    // Takes a null-terminated environment variable name and returns its
+    // null-terminated value, or NULL. The returned pointer must be stable
+    // across multiple calls to this function.
+    // Replaces kankyo_seg (:8000).
+    char *(*getenv)(const char *name, void *user_data);
+};
 
 // A command definition within comtbl (:3493).
 struct mc_com {
@@ -427,6 +437,7 @@ struct mc {
         char *dic;
     };
 
+    const struct mc_sys *sys;
     void *user_data;
 };
 

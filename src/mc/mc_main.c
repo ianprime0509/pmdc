@@ -1,11 +1,12 @@
 #include "mc.h"
+#include "mc_stdio.h"
 
 #include <stdio.h>
 #include <string.h>
 
 int main(int argc, char **argv) {
     (void)argc;
-    
+
     char cmdline[128];
     size_t cmdline_len = 0;
     while (*++argv != NULL) {
@@ -20,6 +21,7 @@ int main(int argc, char **argv) {
     cmdline[cmdline_len] = 0;
 
     struct mc mc;
+    mc.sys = &mc_sys_stdio;
     mc_init(&mc);
     mc_main(&mc, cmdline);
 
