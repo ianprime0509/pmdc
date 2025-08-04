@@ -5,12 +5,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#if lang == 256 * 'e' + 'n'
-#include "strings_en.h"
-#else
-#include "strings_jp.h"
-#endif
-
 // :13
 #if !hyouka
 #define hyouka 0
@@ -23,6 +17,12 @@
 #define olddat 0
 #define split 0
 #define tempo_old_flag 0
+
+#if lang == 256 * 'e' + 'n'
+#include "strings_en.h"
+#else
+#include "strings_jp.h"
+#endif
 
 // Character classification helpers
 //
