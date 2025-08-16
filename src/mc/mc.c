@@ -1204,7 +1204,10 @@ void mc_main(struct mc *mc, char *cmdline) {
             *mml_filename++ = *mc->si;
             continue;
         }
-        if (*mc->si == ' ' || *mc->si == 0) {
+        // The comparison with 0 is not present in the original. It is present
+        // here because we use a null terminator for the command line instead of
+        // a CR.
+        if (*mc->si == ' ' || *mc->si == '\r' || *mc->si == 0) {
             if (!mml_filename_ext) {
 #if efc
                 *mml_filename++ = '.';
@@ -2000,7 +2003,10 @@ static void read_fffile(struct mc *mc) {
             *v_filename++ = *mc->si;
             continue;
         }
-        if (*mc->si == ' ' || *mc->si == 0) {
+        // The comparison with 0 is not present in the original. It is present
+        // here because we use a null terminator for the command line instead of
+        // a CR.
+        if (*mc->si == ' ' || *mc->si == '\r' || *mc->si == 0) {
             if (!v_filename_ext) {
                 *v_filename++ = '.';
                 *v_filename++ = 'F';
