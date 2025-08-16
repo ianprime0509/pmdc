@@ -2042,15 +2042,17 @@ static void read_fffile(struct mc *mc) {
 // is_mml: ds == mml_seg
 // is_env: ds == [kankyo_seg]
 static int get_option(struct mc *mc, bool is_mml, bool is_env) {
-    for (;; mc->si++) {
-        if (*mc->si == ' ') continue;
-        if (is_cntrl(*mc->si)) return 0;
-        if (*mc->si == '/' || *mc->si == '-') {
-            mc->si++;
-            switch (to_upper(*mc->si)) {
+    for (;;) {
+        char c = *mc->si++;
+        if (c == ' ') continue;
+        if (is_cntrl(c)) break;
+        if (c == '/' || c == '-') {
+            // :1932
+            switch (to_upper(*mc->si++)) {
             case 'V':
                 // :1971
-                if (to_upper(mc->si[1]) == 'W') {
+                if (to_upper(*mc->si) == 'W') {
+                    mc->si++;
 #if !hyouka
                     mc->prg_flg |= 2;
 #endif
@@ -2128,10 +2130,13 @@ static int get_option(struct mc *mc, bool is_mml, bool is_env) {
             } else if (is_env) {
                 return 1;
             } else {
-                return 0;
+                break;
             }
         }
     }
+    // :2064
+    mc->si--;
+    return 0;
 }
 
 // :2074
