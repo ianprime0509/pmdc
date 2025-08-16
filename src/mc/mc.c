@@ -2034,7 +2034,7 @@ static void read_fffile(struct mc *mc) {
         return;
     }
 #if !hyouka
-    mc->prg_flg = 1;
+    mc->prg_flg |= 1;
 #endif
 }
 
