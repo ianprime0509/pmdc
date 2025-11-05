@@ -6491,7 +6491,7 @@ static void lc(struct mc *mc, uint8_t lc_flag) {
     // LC.INC:155
     *part_chr(mc) = 'K';
     mc->all_length = 0;
-    mc->loop_length = 0;
+    mc->loop_length = -1;
     mc->loop_flag = 0;
     // LC.INC:163
     mc->sib = m_buf(mc) + read16(bp);
