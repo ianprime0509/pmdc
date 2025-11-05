@@ -2,7 +2,7 @@
     .name = .pmdc,
     .version = "0.0.0",
     .fingerprint = 0xdf5eb9b202cc3b87, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.14.1",
+    .minimum_zig_version = "0.15.1",
     .paths = .{
         "build.zig",
         "build.zig.zon",
