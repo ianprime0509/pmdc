@@ -1,0 +1,16 @@
+; Output: PPZEXT.M
+; Console: PPZEXT.OUT
+
+#Title PPZEXT
+#Option /v/c
+#PPZExtend LM
+
+; Part L - PPZ extend part
+L @0 v10 l4 c d e f
+
+; Part M - PPZ extend part
+M @1 v8 l4 g a b >c
+
+; Part A (FM) to ensure valid file
+A @1 v12 l4 c d e f
+

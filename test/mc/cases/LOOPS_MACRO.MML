@@ -1,0 +1,29 @@
+; Output: LOOPS_MACRO.M
+; Console: LOOPS_MACRO.OUT
+
+#Title LOOPS_MACRO
+#Filename LOOPS_MACRO.M
+#Option /v/c
+
+; Exercise repeats, alternate endings, ties, slurs
+
+; Part A: simple nested repeat and tie
+A t120 o4 l8 [cdef]2 a4
+A c8d8e8f8 c2&c2
+
+; Part B: simple ties and dotted lengths
+B l4 c c&c d d&d e2 f.
+
+; Part C: long repeat
+C l16 [cdefgabc]2
+
+; Part D: note length modifiers and dotted notes
+D l8 c. d.. e1... f2&f4
+
+; Part E: change default length mid-stream
+E l4 c d l8 e f l16 g a l8 b>c<
+
+; Rhythm hint via rests and spacing
+R0 l8 r r r r
+R1 l8 r r r r
+K R0 R1

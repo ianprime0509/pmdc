@@ -1,0 +1,32 @@
+; Output: BLOCK_SKIP.M
+; Console: BLOCK_SKIP.OUT
+
+`
+;skipped header comment in first pass
+`
+#Title BLOCK_SKIP
+#Option /v/c
+
+; Part A: basic notes before block skip
+A c d e f
+
+; Block-level " skip (cmloop2): toggles skip for entire lines
+"
+A g a b >c
+"
+
+; This line compiles normally after skip is toggled off
+A <d e f
+
+; Block-level ' to forcibly end skip started by "
+"
+A a b
+'
+A >c d e
+
+; Backtick block comment in cmloop2 (second pass scan)
+`
+A this line is skipped by backtick
+`
+A f g a b
+

@@ -1,0 +1,41 @@
+; Output: TIELEN.M
+; Console: TIELEN.OUT
+
+#Title TIELEN
+#Option /v/c
+
+; Arpeggio with all 5 optional params (note_len, tie_flag, gate, vol)
+A {{ceg}}4,16,0,8,-2
+
+; Grace note with tie flag
+A S2,-1,1 c d S0 e
+
+; Pseudo echo with fine volume
+A W8,%-10 c W0 d
+
+; Length rewrite with dots (lngrew/futen paths)
+A c4 =8 d4 =. e8 =..
+
+; More tie patterns for tieset_2 coverage
+; Tie with explicit length that doesn't overflow
+A c4&8 d8&4
+; Slur with explicit length
+A e4&&8 f8&&4
+
+; v/V paths for different sound sources
+; FM volume V (large value)
+A V127 c V0 d V64 e
+; SSG volume paths
+G v15 c V15 d v0 e V0 f
+; PCM volume V (0-255 range)
+J V255 c V0 d V128 e
+
+; Tempo T inline to generate 0xfd byte for lc
+A T200 c T+10 d
+
+; Loop with break for lc coverage of 0xf9/0xf8/0xf7
+A [c d : e f]2 g
+
+; Volume relative with accent
+A v10 c )^ d (^%8 e
+

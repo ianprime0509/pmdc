@@ -1,0 +1,38 @@
+; Output: OPTIONS.M
+; Console: OPTIONS.OUT
+
+#Title OPTIONS
+#Option /v/c/n
+
+; /N resets to NEC PC-88 mode (default)
+; These should not change output format
+
+; Inline instrument definition with = name (get_param '=' path)
+@1 =TestPrg
+  31  7 7 7 7 0 38 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 33 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 30 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 24 0  0  0  0  0  0  0  0  0  0  0
+
+; Part A: use the defined instrument
+A @1 v12 l4 c d e f g a b >c
+
+; LFO B single-param (lfoswitch B path, c2 path in lfoset)
+A MB12,2,4,1 *B1 c d
+
+; LFO B delay-only form
+A MB12 c d
+
+; Part with | pipe for multi-part lines (one_line_compile | path, skip_mml)
+AB| @1 v10 l4 c d e f
+AB|!B g a b >c
+
+; Named macro with prefix match
+!LongMacroName c d e
+!Long f g a
+
+; Use exact match
+A !LongMacroName
+; Use prefix match (Long matches LongMacroName as prefix)
+A !Long
+

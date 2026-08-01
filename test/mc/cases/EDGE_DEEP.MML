@@ -1,0 +1,97 @@
+; Output: EDGE_DEEP.M
+; Console: EDGE_DEEP.OUT
+
+#Title EDGE_DEEP
+#Option /v/c
+
+; Deep edge-case coverage for ASM-exact replication
+
+; --- Part A: LFO sub-commands with A/B variants ---
+; M with only delay (triggers di[-2] rewrite from 0xf2 to 0xc2)
+A M24 c
+; MA with only delay (explicit A, same behavior)
+A MA24 d
+; MB with only delay (triggers di[-2] rewrite from 0xbf to 0xb9)
+A MB12 e
+; Full LFO with all params
+A M24,1,8,2 c MA12,2,4,1 d MB6,3,2,3 e
+; MX: LFO speed mode toggle (A/B variants)
+A MX1 c MXA0 d MXB1 e
+; MW: LFO waveform (A/B variants)
+A MW0 c MWA1 d MWB2 e MW3 f
+; MM: LFO slot mask (A/B variants)
+A MM15 c MMA3 d MMB12 e
+; MP: one-shot LFO (A/B variants, +/- depth, optional delay/speed)
+A MP-80 c MPA+10,12 d MPB-5,l8,2 e MP+127 f
+; MD: depth modulation (with speed=0 special case, with/without times)
+A *1 M24,1,2,2 MD2,1,10 c MD0,5 d
+A *B1 MB12,2,4,1 MDB1,-1 e MDA0 f
+
+; --- Part B: Volume edge cases ---
+; v with volss2 adjustment, boundary values
+B @1 v0 c v16 d v8 e
+; V with full range
+B V0 c V127 d V64 e
+; v+/v- overall volume change (fine)
+B v+8 V100 c v-16 V100 d v+0 V50 e
+; v)/v( overall volume change (rough)
+B v(2 v12 c v)1 v10 d v(0 v8 e v)0 v6 f
+; ) ( relative with %, ^) accent
+B v10 c ) d ( e )%10 f (%5 g
+
+; --- Part C: Detune and pitch edge cases ---
+; D (absolute), DD (relative), D0 (reset)
+C @1 D10 c DD-5 d D0 e DD+127 f DD-128 g
+; DM (master detune)
+C DM10 D0 c DM0 D10 d DM-5 e
+; B (bend range) and I (pitch bend) with extremes
+C B12 I0 c I4096 d I-8192 e I8191 f I0 g
+; DX (SSG pitch correction) - need SSG part
+G DX1 D10 c DX0 D10 d
+
+; --- Part D: Gate/staccato edge cases ---
+; Q with boundary values
+D @1 Q0 c Q1 d Q8 e
+; Q% fine staccato
+D Q%1 c Q%128 d Q%255 e
+; q with various formats
+D q0 c q1 d q%24 e ql8 f
+; q range
+D q2-4 c4 d4 e4 f4
+; q with minimum time
+D q,8 c4 d4 q,0 e4
+; q with both release and minimum
+D ql8,l16 c4 d8
+
+; --- Part E: TL set with +/- relative ---
+; O (TL) with slot, absolute value
+E @1 O1,100 c O2,+5 d O4,-10 e O8,0 f
+; Multiple slots
+E O15,50 c O3,+10 d
+
+; --- Part F: Hex and percent number parsing ---
+; Hex values with $
+F @1 v$0f c V$7f d t$78 e
+; Percent lengths
+F c%24 d%12 e%6 f%48 g%96
+
+; --- Part G: SSG tone/noise, envelope ---
+; P (tone/noise select), w (noise freq) with boundary
+G @1 P1 c P2 w0 d P3 w31 e P1 w+5 f w-10 g
+; SSG envelope with format 1 and format 2
+G E2,-1,24,1 c E31,18,4,15,2 d
+; EX (envelope speed mode)
+G EX1 E2,-1,24,1 c EX0 d
+
+; --- Part H: Hardware LFO edge cases ---
+; H with PMS only
+H @1 H0 c H7 d
+; H with PMS,AMS
+H H6,2 c H0,3 d
+; H with PMS,AMS,delay
+H H6,2,l4 c H7,3,24 d
+; # (HW LFO switch/depth)
+H H6,2 #1,5 c #0 d
+; #D (HW LFO delay)
+H H6,2 #1,5 #D24 c #D0 d
+

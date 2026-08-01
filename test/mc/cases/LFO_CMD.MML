@@ -1,0 +1,33 @@
+; Output: LFO_CMD.M
+; Console: LFO_CMD.OUT
+
+#Title LFO_CMD
+#Option /v/c
+
+; MWB - LFO waveform B (waveset case 'B', 0xbc byte -> command_exec 0xbc)
+A M24,1,8,2 MB12,2,4,1 MWB3 c d
+
+; MMA - LFO mask A explicit (lfomask_set case 'A', 0xc5 byte)
+A MMA1 c d
+
+; MMB - LFO mask B (lfomask_set case 'B', 0xba byte -> command_exec 0xba)
+A MMB1 c d
+
+; m command - partmask (0xc0 byte via parset)
+A m1 c m0 d e
+
+; *n,Bn - LFO switch with explicit B in second position (lfoswitch)
+A *1,B2 c d
+
+; *n,n - LFO switch with number in second position (lfoswitch default)
+A *A1,2 c d
+
+; *Bn - LFO switch B only (lfoswitch case 'B')
+A *B1 c d
+
+; MXB - extended LFO B (extlfo_set case 'B', 0xbb byte)
+A MXB1 c d
+
+; MPB - portamento B (portaset case 'B')
+A MPB-5,12 c d
+

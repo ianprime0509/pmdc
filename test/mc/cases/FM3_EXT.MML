@@ -1,0 +1,15 @@
+; Output: FM3_EXT.M
+; Console: FM3_EXT.OUT
+
+#Title FM3_EXT
+#Filename FM3_EXT.M
+#Option /v/c
+
+#FM3Extend X
+
+; Use arbitrary part mapping to FM3 extended channel
+D o4 l8 c d e f
+E o4 l8 g a b>c<
+
+; Simple reference melody on A for comparison
+A t120 o4 l8 c d e f g a b>c<

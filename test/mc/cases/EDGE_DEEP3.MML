@@ -1,0 +1,61 @@
+; Output: EDGE_DEEP3.M
+; Console: EDGE_DEEP3.OUT
+
+#Title EDGE_DEEP3
+#Option /v/c
+
+; Deep edge-case coverage part 3
+
+; --- Part A: Rhythm source edge cases ---
+; Rhythm trigger, dump, volume, pan
+K \V63 \b \s \h l4 \c \t \i
+K \b\s\h l4
+K \cp l4 \hp
+K \V-10 \b \V+5 \s
+K \vb31 \b \vs+2 \s \vc-5 \c
+K \vh15 \vt10 \vi20 \h \t \i
+K \lb \b \rs \s \mc \c \mh \h
+
+; --- Part B: Direct FM register write ---
+B @1 y$a4,127 c y$28,0 d y$00,$ff e
+
+; --- Part C: Fadeout, part mask, status, measure ---
+C @1 c d e F16 f g
+C m1 c m0 d e f
+C Z96 c d Z72 e f
+C ~10 c ~+5 d ~-2 e
+
+; --- Part D: Volume down settings ---
+D @1 DF+8 c DS-4 d DP128 e DR+16 f
+D DF0 c DS0 d DP0 e DR0 f
+
+; --- Part E: Slot mask, slot detune, slot keyon delay ---
+; s (slot mask) on FM3ch part
+C s3 @10 c d s12 @11 e f
+; sd (slot detune)
+C sd1,5 c sdd2,-3 d sd12,0 e
+; sk (slot keyon delay)
+E @1 sk3,8 c sk12,l16 d sk0 e
+
+; --- Part F: Effect triggers ---
+; N (FM effect)
+F @1 N1 c d N0 e
+; n (SSG effect)
+G @1 n5 c d n130 e n0 f
+
+; --- Part H: Nested loops ---
+H @1 [c d e]2 f
+H [c : d e]3 f
+H [[c d]2 e]2 f
+H c d e L f g a
+
+; --- Part I: Skip/comment controls ---
+; " toggle skip
+I @1 c " d e f " g
+; ' force end skip
+I c " d e f ' g a
+; | part limited
+AB @1 v10 |A c d |B e f | g a
+; |! inverted part limited
+AB @1 v10 |!A c d |!B e f | g a
+

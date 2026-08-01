@@ -1,0 +1,11 @@
+; Output: PCM_J.M
+; Console: PCM_J.OUT
+
+#Title PCM_J
+#Filename PCM_J.M
+#Option /v/c/p
+
+; PCM/J-part positive test. Targets J channel parsing; goal is compile.
+
+J o4 l4 c d e f
+J l8 g a b >c<

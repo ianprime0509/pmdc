@@ -1,0 +1,78 @@
+; Output: EDGE_DEEP5.M
+; Console: EDGE_DEEP5.OUT
+
+#Title EDGE_DEEP5
+#Option /v/c
+
+; Deep edge-case coverage part 5: rhythm paths, tempo, misc
+
+; --- Part A: Tempo edge cases ---
+; t (tempo BPM style) with +/-
+A @1 t120 c t+10 d t-20 e
+; T (timerB) with +/-
+A T200 c T+10 d T-20 e
+; Tempo with delta=0 edge case (di rollback)
+A t+0 c t-0 d
+
+; --- Part B: Grace note (S) with ornament interaction ---
+; S command with notes exercising ss_set paths
+B @1 S2,-1 c d e S4,+2 f g S0 a
+; S with tie parameter
+B S4,-2,1 c d e S0 f
+; S command disabled (S0) then re-enabled
+B S0 c S2,+1 d S0 e
+
+; --- Part C: Gate effect (ge_set) edge cases ---
+; q with notes exercises ge_set path
+C @1 q2 c4 d4 e4 q0 f4
+; q with gate + grace note interaction
+C S2,-1 q2 c4 d4 S0 q0 e4
+; q with larger values
+C q4 c2 d2 e2 q0 f4
+
+; --- Part D: Tie and length manipulation ---
+; Tie extends note
+D @1 c4&8 d2&4 e8&16
+; l= (replace length)
+D c4 =8 d4 =16 e4
+; Note with dots (futen normal path)
+D c4. d8.. e2. f16.
+
+; --- Part E: Mixed LFO commands in sequence ---
+; Rapid LFO switch changes
+E @1 M24,1,8,2 MB12,2,4,1 *A1,B2 c *B0 d *A3 e *0 f
+; LFO with delay-only (di[-2] rewrite path, both A and B)
+E MA24 c MB12 d M24 e
+
+; --- Part F: Portamento with slot detune ---
+; Portamento on FM part
+F @1 {c g}4 d {e b}2 f
+; Portamento with delay
+F {c g}4,8 d
+
+; --- Part G: SSG with envelope, noise, and volume ---
+; Multiple SSG envelope formats
+G @1 E2,-1,24,1 c d E31,18,4,15,2 e f
+; SSG noise + tone mix
+G P2 w15 c P3 d P1 e
+; SSG volume overflow (v+N with high vol)
+G v+15 v15 c v-15 v15 d
+
+; --- Part H: PCM with repeat_check (@n,start,end,release) ---
+; @0 with loop/release points
+J @0,100,-50,-50 c d e
+; PCM volume edge cases
+J V0 c V255 d V128 e
+; PCM with fine pan
+J px+64 c px-100 d px0,1 e
+
+; --- Part I: Various command boundary values ---
+; y (direct FM register write) with hex
+I @1 y$00,$00 c y$ff,$ff d y$a4,127 e
+; Z (measure length) boundary
+I Z1 c Z255 d
+; ~ (status write) boundary
+I ~0 c ~255 d ~+1 e ~-1 f
+; F (fadeout)
+I F1 c d F127 e f
+

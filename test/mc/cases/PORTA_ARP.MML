@@ -1,0 +1,39 @@
+; Output: PORTA_ARP.M
+; Console: PORTA_ARP.OUT
+
+#Title PORTA_ARP
+#Option /v/c
+
+; Portamento with grace note length (porta_end with comma)
+A {c g}4,8
+
+; Arpeggio with all 5 params: len, 1cnt, tieflag, gate, vol
+A {{c e g}}8,16,0,4,-2
+
+; Arpeggio with 3 params: len, 1cnt, tieflag=1
+A {{d f a}}4,8,1
+
+; Arpeggio with 4 params: len, 1cnt, tieflag=0, gate
+A {{e g b}}8,16,0,2
+
+; Portamento inside " skip (porta_end skip mode)
+A " {c g}4,8 " d e
+
+; Arpeggio inside " skip with all 5 params (bunsan_end skip)
+A " {{c e g}}8,16,0,4,-2 " f g
+
+; Note compression: same note repeated for press (prsok & 4 path)
+A c4&4 c4
+
+; Rest compression: r r consecutive
+A r4 r4 r8 r8
+
+; Portamento in skip with comma params
+A " {d a}4,8 " c
+
+; More press paths: consecutive same notes with ties
+A c8 c8 c8 c8
+
+; Rhythm notes for rhythm press paths
+K l4 \b \b \s \s \c \c
+

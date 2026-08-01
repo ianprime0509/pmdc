@@ -1,0 +1,31 @@
+; Output: LFOSWITCH.M
+; Console: LFOSWITCH.OUT
+
+#Title LFOSWITCH
+#Option /v/c
+
+; --- LFO Switch edge cases ---
+; Tests the * command with explicit A/B letters and comma-separated dual LFO
+
+; §9-3 Software LFO Switch (* *A *B)
+; Single LFO switch with default (no letter = LFO A = 0xf1)
+A M24,1,8,2 *1 c d
+
+; Explicit A letter (same as default)
+B M24,1,8,2 *A1 c d
+
+; Explicit B letter (LFO B = 0xbe)
+C M24,1,8,2 MB12,2,4,1 *B1 c d
+
+; Dual LFO: same target (A,A) - exercises the segment bug path
+D M24,1,8,2 MB12,2,4,1 *A1,A2 c d
+
+; Dual LFO: different targets (A,B)
+E M24,1,8,2 MB12,2,4,1 *A1,B2 c d
+
+; Dual LFO: default first, explicit B second
+F M24,1,8,2 MB12,2,4,1 *1,B2 c d
+
+; Dual LFO: explicit B first, explicit A second (B,A)
+G M24,1,8,2 MB12,2,4,1 *B1,A2 c d
+

@@ -1,0 +1,360 @@
+; Output: PMD_COMMANDS.M
+; Console: PMD_COMMANDS.OUT
+
+#Title PMD_COMMANDS
+#Option /v/c
+; PMD MML Command Test Suite (Positive Cases)
+; Based on PMDMML.txt v4.8 by M.Kajihara
+
+; --- §4 MML Commands - Pitch/Length Section ---
+
+; §4-1 Pitch/Length Specification (c/d/e/f/g/a/b/x)
+A c d e f g a b         ; Basic notes
+A c4 d8 e16 f32 g12     ; Different lengths
+A c. d8.. e1...         ; Dotted notes
+A c%24 d%12 e%6         ; Tick lengths
+A c+ d- e++ f-- g+-    ; Sharps and Flats
+A c4 x8 x16             ; Repeat last note (x)
+A _{+f} f4 =f4           ; Transposition override with '='
+
+; §4-2 Rest/Length Specification (r)
+A r r4 r8. r1.. r%24   ; Rests with lengths/dots/ticks
+
+; §4-3 Portamento Specification ({ })
+A {c g}4                ; Basic portamento C->G over 1/4 note
+A {c g}4,8              ; Portamento C->G over 1/4 note, delay 1/8 note
+G {o4 c o5 d}2          ; Portamento across octaves (SSG)
+J {c d}4                ; Portamento (PCM - behavior might vary by driver)
+
+; §4-4 Octave Specification (o)
+A o4 c o5 d o3 e        ; Octave specification
+
+; §4-5 Octave Up/Down (> <)
+A o4 c > d < e >> f << g  ; Octave up/down
+
+; §4-6 Octave Up/Down Symbol Inversion (X)
+A o4 c > d X < e > f X g  ; Octave toggle ('>' becomes down, '<' becomes up, then back)
+
+; §4-7 Overall Octave Change (o+ o-)
+G o-1 o4 c              ; Part G octave shifted down by 1
+H o+1 o4 d              ; Part H octave shifted up by 1
+
+; §4-8 Default Note Length Specification (l)
+A l8 c d e l4 f g l%24 a b ; Default length setting
+
+; §4-9 Processing of Note Length Specified Immediately Before (l= l+ l- l^)
+A c4 =8 d4 l=16 e4 +8 f2 l-8 g8 ^2 a16 l^4 b4. =8.. ; Modify previous length (+ needs space if after note)
+A c4 +8                 ; Needs space for '+'
+A c4 -8                 ; Needs space for '-'
+A c4 =8                 ; Needs space for '='
+A a8 =. b8 =..          ; Add dots using l=
+
+; §4-10 Tie/Slur Specification (& &&)
+A c4&c4                 ; Tie (notes joined)
+A d8&&d8                ; Slur (notes re-articulated smoothly)
+A e4&8                  ; Tie with length addition (e4 + e8)
+A f8&&4                 ; Slur with length specification (f8 then f4 slur)
+
+; §4-11 Whole Note Length Setting (C)
+A C192 l64 c d C96 l4 e   ; Whole note length setting (affects tempo interpretation)
+
+; §4-12 Note Cut-off Specification 1 (Q)
+A Q4 c4 d4 e4           ; Staccato (cut note to 4/8 = 1/2 length)
+A Q%128 c4 d4 e4        ; Fine Staccato (cut note to 128/256 = 1/2 length)
+A Q0 c4 d4              ; Legato (Q0 is default)
+
+; §4-13 Note Cut-off Specification 2 (q)
+A q2 c4 d4              ; Set release time (key-off 2 ticks before note end)
+A ql8 c2                ; Set release time using note length
+A q2-4 c4 d4 e4 f4      ; Random release time between 2 and 4 ticks
+A q,8 c4 d4             ; Set minimum sounding time (8 ticks)
+A ql8,l16 c4 d8         ; Release time l8, minimum time l16
+
+; §4-14 Transpose Specification (_ __)
+A _+2 c d e _-1 f g __+1 a __-2 b _0 c ; Transpose absolute/relative
+
+; §4-15 Transposition Setting (_{ })
+A _{+fcg} cdefgab>c<    ; Set sharps for F, C, G (G Major / E Minor)
+A _{-bea} cdefgab>c<    ; Set flats for B, E, A (F Major / D Minor)
+A _{=fcg} cdefgab>c<    ; Remove sharps/flats set previously
+
+; §4-16 Master Transpose Value Setting (_M)
+A _M+1 c _+1 d _0 e      ; Master transpose +1, then local +1, then local 0
+
+
+; --- §5 MML Commands - Volume Section ---
+
+; §5-1 Volume Specification 1 (v)
+A v15 c v8 d v0 e v16 f ; Volume v (0-16 FM/PCM)
+G v10 c v5 d v0 e       ; Volume v (SSG 0-15)
+
+; §5-2 Volume Specification 2 (V)
+A V127 c V64 d V0 e     ; Volume V (FM 0-127)
+J V255 c V128 d V0 e    ; Volume V (PCM 0-255)
+G V15 c V8 d V0 e       ; Volume V (SSG 0-15)
+
+; §5-3 Overall Volume Change 1 (v+ v-)
+A v+8 V100 c v-16 V100 d ; Overall volume change (fine adjustment)
+
+; §5-4 Overall Volume Change 2 (v) v()
+A v(2 v12 c v)1 v10 d   ; Overall volume change (rough 'v' level adjustment)
+
+; §5-5 Volume Relative Change () ()
+A v10 c ) d ( e )%10 f (%5 g ^) a (^%8 a ; Relative volume change +/- 1 (or more), fine %, accent ^
+
+
+; --- §6 MML Commands - Tone Specification Section ---
+
+; §6-1 Tone Number Specification (@)
+A @1 c d @10 e f        ; FM Tone number
+G @1 c @7 d             ; SSG Software Envelope number (@0-@9)
+J @0 c d @10 e f        ; PCM Tone number (@0-@255)
+J @0,100,-50,-50 g1     ; PCM Tone with loop/release points (+start, -end)
+;a @@128 c d e          ; PPZ Tone number @@ variant (requires PMDPPZ) - uncomment if needed
+;R0 @1 c @2 d @128 e     ; Rhythm Tone number (SSG Drum / PPS) R part only
+;K l8 R0                 ; Need K part to play R part
+
+; §6-2 FM Sound Source Used Slot Position Specification (s) (FM3ch parts C-F or extended)
+C s3 @10 c d s12 @11 e f ; FM Slot mask (use slots 1&2, then 3&4) (Requires FM3ch capable driver)
+
+; §6-3 FM Sound Source TL Value Setting (O)
+A O1,100 c O2,+5 d O4,-10 e O8,0 f ; FM TL set (slot, value / +/-relative)
+
+; §6-4 FM Sound Source FB Value Setting (FB)
+A FB5 c FB-2 d FB+1 e   ; FM Feedback set (value / +/-relative)
+
+; §6-5 SSG / OPM Tone/Noise Output Selection (P)
+G P2 w15 c P3 d P1 e    ; SSG Tone/Noise select (1=tone, 2=noise, 3=mix)
+;H P2 w15 c P1 d         ; OPM Noise select (ch H only) (Requires PMD.X) - uncomment if needed
+
+; §6-6 Noise Frequency Setting (w)
+G P2 w15 c w+5 d w-10 e ; Noise frequency set (0-31, higher=lower pitch)
+
+; §6-7 Rhythm Pattern Selection/Playback (R) (K part only)
+;K R0 R1 R2 [R0]3        ; Rhythm pattern select
+
+; §6-8 FM Sound Source SSG-EG Value Setting (SE) (OPN/OPNA only)
+A SE3,10 c SE15,0 d     ; FM SSG-EG set (slots, value 8-15=on)
+
+
+; --- §7 MML Commands - Detune Section ---
+
+; §7-1 Detune Setting (D DD)
+A D10 c DD-5 d D0 e     ; Detune set (absolute, relative)
+
+; §7-2 Detune Specification for Each Slot of FM Sound Source 3rd Channel Part (sd sdd)
+C sd1,5 c sdd2,-3 d sd12,0 e ; FM3ch Slot detune (slot, value / +/-relative)
+
+; §7-3 SSG Sound Source Pitch Correction Specification (DX)
+G DX1 D10 c DX0 D10 d   ; SSG Pitch correction mode (1=extended, 0=normal)
+
+; §7-4 Bend Range Setting (B)
+A B12 c B0 d            ; Bend range set (semitones for I+/-8192)
+
+; §7-5 Pitch Setting (I)
+A B12 I0 c I4096 d I-8192 e I0 f ; Pitch bend value set (-8192 to +8191)
+
+; §7-6 Master Detune Setting (DM)
+A DM10 D0 c DM0 D10 d   ; Master detune set
+
+
+; --- §8 MML Commands - Envelope Section ---
+
+; §8-1 SSG/PCM Software Envelope Specification (E)
+G E2,-1,24,1 c          ; SSG/PCM Envelope Format 1 (AL, DD, SR, RR)
+G E31,18,4,15,2 d       ; SSG/PCM Envelope Format 2 (AR, DR, SR, RR, SL, [AL=0])
+J E2,-2,4,1 e           ; PCM Envelope
+
+; §8-2 Software Envelope Speed Setting (EX)
+G EX1 E2,-1,24,1 c EX0 d ; Envelope speed mode (1=independent, 0=tempo dependent)
+
+
+; --- §9 MML Commands - LFO Section ---
+
+; §9-1 Software LFO Specification (M MA MB)
+A M24 c                 ; LFO delay set only (LFO1)
+A M24,1,8,2 d           ; LFO set (delay, speed, depthA, depthB) (LFO1)
+A Ml8,1,8,2 e           ; LFO set with note length delay (LFO1)
+A MB12,2,4,1 f          ; LFO2 set
+
+; §9-2 Software LFO Waveform Specification (MW MWA MWB)
+A MW1 M24,1,8,2 *1 c     ; LFO Waveform 1 (Sawtooth) for LFO1
+A MWA0 MBW3 *A1,B1 d e   ; LFO1 Waveform 0 (Triangle), LFO2 Waveform 3 (Random)
+
+; §9-3 Software LFO Switch (* *A *B)
+A M24,1,8,2 *1 c *2 d *3 e *0 f ; LFO Switch (1=Pitch, 2=Vol, 3=Both - Sync), 0=Off
+A M24,1,8,2 *5 c *6 d *7 e *4 f ; LFO Switch (5=Pitch, 6=Vol, 7=Both - Async), 4=Off
+A M24,1,8,2 MB12,2,4,1 *A1,B2 f *B0 g ; LFO1/LFO2 Switch independent
+
+; §9-4 Software LFO Slot Specification (MM MMA MMB) (FM only)
+A *2 M24,1,4,1 MM10 c    ; LFO Slot specification (Vol LFO affects slots 2&4)
+C *1 M24,1,4,1 MM3 d     ; LFO Slot specification (Pitch/Vol LFO affects slots 1&2 on FM3ch)
+
+; §9-5 Software LFO Speed Setting (MX MXA MXB)
+A MX1 M24,1,8,2 *1 c MX0 d ; LFO Speed mode (1=independent, 0=tempo dependent) for LFO1
+A MXA0 MXB1 *A1,B1 e f     ; LFO1 tempo dependent, LFO2 independent
+
+; §9-6 Rise/Fall Dedicated LFO Specification (MP MPA MPB)
+A MP-80 c               ; One-shot falling pitch LFO (LFO1)
+A MPA+10,12 d           ; One-shot rising pitch LFO (LFO1, delay 12)
+A MPB-5,l8,2 e          ; One-shot falling pitch LFO (LFO2, delay l8, speed 2)
+
+; §9-7 Setting Temporal Change of LFO Depth (MD MDA MDB)
+A *1 M24,1,2,2 MD2,1,10 c ; LFO Depth modulation (LFO1 depthA increases by 1 every 2 cycles, 10 times)
+A *B1 MB12,2,4,1 MDB1,-1 d ; LFO2 depthA decreases by 1 every cycle indefinitely
+
+; §9-10 Hardware LFO Speed, Delay Setting (H) (OPNA/OPM only)
+A H6 c                  ; Hardware LFO PMS=6 (OPNA/OPM)
+A H6,2 d                ; Hardware LFO PMS=6, AMS=2 (OPNA/OPM)
+A H6,2,l4 e             ; Hardware LFO PMS=6, AMS=2, Delay=l4 (OPNA/OPM)
+
+; §9-11 Hardware LFO Switch, Depth Setting (#) (OPNA only)
+A H6,2 #1,5 c #0 d      ; Hardware LFO switch/depth (OPNA only)
+
+; §9-12 Hardware LFO Frequency, Waveform, Depth Setting (## #f #w #p #a) (OPM only)
+;A ##100,0,20,10 c       ; Hardware LFO set all (OPM only) - uncomment if needed
+;A #f120 #w1 #p-10 #a5 d ; Hardware LFO individual set (OPM only) - uncomment if needed
+
+; §9-13 Hardware LFO Delay Setting (#D) (OPNA/OPM only)
+A H6,2 #1,5 #D24 c      ; Hardware LFO delay
+
+
+; --- §10 MML Commands - Loop Control Section ---
+
+; §10-1 Local Loop Setting ([ : ])
+A [ c d e ]2 f          ; Basic loop 2 times
+A [ c : d e ]3 f        ; Loop 3 times, skip d e on last iteration
+A [ [c d]2 e ]2 f      ; Nested loop
+
+; §10-2 Overall Loop Setting (L)
+A c d e L f g a         ; Overall loop point (repeats from L)
+
+
+; --- §11 MML Commands - Tempo Setting Section ---
+
+; §11-1 Tempo Setting 1 (t)
+A t120 c d t+10 e f t-20 g ; Tempo setting t (BPM based on C command)
+
+; §11-2 Tempo Setting 2 (T)
+A T200 c d T+10 e f T-20 g ; Tempo setting T (Direct TimerB value)
+
+
+; --- §12 MML Commands - Note Processing Commands ---
+
+; §12-1 Grace Note Setting (S)
+A S2,-1 c S4,+2 d Sl8,-3,0 e S0 f ; Grace note set (speed, depth, tie_flag=0)
+
+; §12-2 Pseudo Echo Setting (W)
+A W8,-1 c               ; Pseudo echo (delay 8 ticks, vol -1 rough step)
+A W12,-2,1 d            ; Pseudo echo (delay 12, vol -2 rough, continuous tie)
+A Wl8,%-10,3 e          ; Pseudo echo (delay l8, vol -10 fine, once only tie)
+A W0 f                  ; Pseudo echo off
+
+; §12-3 Keyon Delay Setting for Each Slot (sk) (FM only)
+A sk3,8 c               ; Slot keyon delay (slots 1&2 delay 8 ticks)
+A sk12,l16 d            ; Slot keyon delay (slots 3&4 delay l16)
+A sk0 e                 ; Slot keyon delay off
+
+; §12-4 Arpeggio Specification ({{ }})
+A {{ceg}}4 c            ; Basic Arpeggio C-E-G over 1/4 note (1 tick notes, tied)
+A {{cf>c<}}4,16,0,8,-2 d ; Arpeggio (note len 16 ticks, no tie, gate 8 ticks, vol -2 per cycle)
+
+
+; --- §13 MML Commands - Pan Setting Commands ---
+
+; §13-1 Pan Setting 1 (p)
+A p1 c p2 d p3 e        ; Panning (1=R/L, 2=L/R, 3=Center - depends on chip)
+J p1 c p2 d p3 e p0 f   ; Panning (PCM86: 0=Reverse Phase)
+
+; §13-2 Pan Setting 2 (px)
+J px+64 c px-100 d px0,1 e ; Fine Panning / Reverse Phase (PCM86 only)
+;a px+3 c px-2 d         ; Fine Panning (PPZ) - uncomment if needed
+
+
+; --- §14 MML Commands - Rhythm Sound Source Commands --- (Can be in any part, K used for convention)
+
+; §14-1 Rhythm Sound Source Shot/Dump Control (\b \s \c \h \t \i, \bp etc.)
+K \b \s \h l4 \c \t \i  ; Rhythm Source Trigger (BD, SN, HH, then CY, TOM, RIM)
+K \b\s\h l4             ; Trigger multiple simultaneously
+K \cp l4 \hp            ; Rhythm Source Dump (stop Cymbal, HiHat)
+
+; §14-2 Rhythm Sound Source Master Volume Setting (\V)
+K \V63 \b \V-10 \s \V+5 \c ; Rhythm Master Volume (0-63, absolute, +/- relative)
+
+; §14-3 Rhythm Sound Source Individual Volume Setting (\vb \vs \vc \vh \vt \vi)
+K \vb31 \b \vs+2 \s \vc-5 \c \vh15 \vt10 \vi20 ; Rhythm Individual Volume (0-31, absolute, +/- relative)
+
+; §14-4 Rhythm Sound Source Output Position Setting (\lb \mb \rb etc.)
+K \lb \b \rs \s \mc \c \mh \h \mt \t \li \i ; Rhythm Panning (l=left, m=mid, r=right)
+
+
+; --- §15 MML Commands - FM Sound Source LSI / Driver Control ---
+
+; §15-1 Direct Output to FM Sound Source LSI (y)
+A y$a4,127 c y$28,0 d   ; Direct FM register write (reg, value) - Use with caution!
+
+; §15-2 PDR Operation Mode Control (*) (K/R part only)
+;K *0 \b *1 \s          ; PDR Mode (0=Double, 1=Single etc. - Requires PDR) - uncomment if needed
+
+; §15-3 Fadeout Specification (F)
+A c d e F16 f g a       ; Fadeout start (speed 1-127)
+
+; §15-4 Sound Source Specific Volume Down Setting (DF DS DP DR)
+A DF+8 c DS-4 d DP128 e DR+16 f ; Sound source volume down set (+/- relative, absolute)
+
+; §15-5 FM Sound Effect Production (N)
+A N1 c d N0 e           ; FM Effect trigger (number 1-255, 0=stop)
+
+; §15-6 SSG Sound Effect Production (n)
+G n5 c d n130 e n0 f    ; SSG/PPS Effect trigger (1-127 SSG, 128-255 PPS, 0=stop)
+
+; §15-7 Part Mask Control (m)
+A c d m1 e f m0 g a     ; Part mask set (1=mask on/mute, 0=mask off/play)
+
+; §15-8 Measure Length Setting (Z)
+A Z96 c d Z72 e f       ; Measure length information (ticks per measure for driver info)
+
+; §15-9 Number Writing to Status1 (~)
+A ~10 c ~+5 d ~-2 e     ; Status1 write (for driver communication)
+
+; §15-10 PCM Specification Selection (A) (PMD86 only)
+;J A1 c A0 d            ; PCM Specification select (1=ADPCM match, 0=normal) - uncomment if needed
+
+
+; --- §16 MML Commands - Compilation Control ---
+
+; §16-1 Defined Variable Usage (!)
+!Foo c d e              ; Define string variable Foo
+!1 f g a                ; Define numeric variable 1
+A !Foo !1 b             ; Use variables
+
+; §16-2 MML Skip Control 1 (")
+A c " d e f " g         ; MML Skip inline ('" toggles skipping notes/rests)
+;"                       ; Skip start (block) - uncomment if needed
+;A d e                   ; Skipped
+;B f g                   ; Skipped
+;"                       ; Skip end (block) - uncomment if needed
+;A a b                   ; Not skipped
+
+; §16-3 MML Skip Control 2 (')
+A c " d e f ' g a       ; Forcibly end skip started by "
+
+; §16-3 Part Limited Specification (| |!)
+AB @1 v10 |A c d |B e f | g a ; Part limited specification (|Parts MML)
+AB @1 v10 |!A c d |!B e f | g a; Inverted part limited specification
+
+; §16-4 Compilation Abort (/)
+A c d e / f g a         ; Compile Abort for this part
+
+; §16-5 Comment Specification (;) (Used throughout)
+A c d e ; This is a comment until end of line
+
+; §16-6 Comment Specification 2 (`)
+A c d ` This is a comment ` e f ; Block/inline comment toggle
+;`                        ; Block comment start - uncomment if needed
+;This entire section
+;is commented out
+;`                        ; Block comment end - uncomment if needed
+
+; --- End of Test ---
+

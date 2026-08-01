@@ -1,0 +1,59 @@
+; Output: EDGES.M
+; Console: EDGES.OUT
+
+#Title EDGES
+#Option /v/c
+
+; --- LFO A/B explicit prefix commands ---
+; MA (explicit A prefix for LFO set)
+A MA24,1,8,2 *1 c d
+
+; MDA (explicit A prefix for depth set)
+A *1 M24,1,8,2 MDA2,1,10 c
+
+; MPA (portaset A, already tested) and MPB (portaset B)
+A MPB-5,12 c d
+
+; MXA/MXB (extlfo_set A/B)
+A MXA0 MXB1 *A1,B1 c d
+
+; MW without A/B suffix (waveset default)
+; and MWA (waveset A)
+A MW1 M24,1,8,2 *1 c MWA0 d
+
+; LFO switch with comma for two LFOs (triggers waveset second part)
+A M24,1,8,2 MB12,2,4,1 *A1,B2 c d
+
+; --- SSG Envelope with 5th/6th params (psgenvset) ---
+G E31,18,4,15,2 c d
+
+; --- SSG Envelope with 6th param (comma after 5th) ---
+G E31,18,4,15,2,3 e f
+
+; --- Note with = (no transposition, otoset) ---
+A _{+f} f4 =f4 c d e
+
+; --- Tie & without preceding note (tie_norm prsok&1==0) ---
+A @1 c&d e
+
+; --- Rhythm dump with p suffix (rs00) ---
+K " \bp \sp " l4 \b \s \c
+
+; --- Part limited |! inverted spec edge cases ---
+AB @1 v10 |!A c d e |!B f g a | b
+
+; --- PCM J with A command (adp_set) ---
+J @0 v10 A1 c d A0 e f
+
+; --- More slot keyon delay (sk0 path) ---
+A sk0 c d
+
+; --- SSG-EG with slot 4 and slot 8 (uncovered slot bits) ---
+B SE4,10 c SE8,12 d
+
+; --- Slur && with explicit length (sular path) ---
+A c4&&4 d
+
+; --- q with 0 (qcommand reset) ---
+A q0 c d e
+

@@ -1,0 +1,65 @@
+; Output: BEND_DETUNE.M
+; Console: BEND_DETUNE.OUT
+
+#Title BEND_DETUNE
+#Option /v/c
+
+; --- PMDMML Bend/Detune Interaction Tests ---
+
+; --- Baseline (No Bend, No Detune) ---
+A c4 d4 e4          ; Simple notes for reference
+
+; --- Bend Only ---
+A B12 I0 c4         ; Bend range 12 enabled, but I=0 (no bend effect)
+A B12 I4096 c4      ; Bend range 12, bend up (halfway to full range effect)
+A B12 I8191 c4      ; Bend range 12, bend up (almost full range)
+A B12 I-4096 c4     ; Bend range 12, bend down (halfway)
+A B12 I-8192 c4     ; Bend range 12, bend down (full range)
+A B2 I4096 c4       ; Smaller bend range (2 semitones), bend up halfway
+A B12 I2048 c4 I-2048 d4 I0 e4 ; Sequential bend changes
+
+; --- Detune Only (Bend Disabled) ---
+A B0 D10 c4         ; Bend disabled (B0), absolute detune +10
+A B0 D-5 c4         ; Bend disabled, absolute detune -5
+A B0 D10 c4 D-5 d4 D0 e4 ; Sequential absolute detune changes
+A B0 D10 c4 DD-15 d4 DD5 e4 ; Relative detune changes (starts D=10 -> D=-5 -> D=0)
+A B0 DM20 c4 d4 e4   ; Master detune +20 applied to all notes
+A B0 DM10 D5 c4 DD-8 d4 D0 e4 ; Master + Absolute + Relative (D=10+5=15 -> D=15-8=7 -> D=10+0=10)
+A B0 I4096 D10 c4   ; Bend disabled (B0), I command ignored, D10 applies
+
+; --- Bend Enabled THEN Detune Applied ---
+; According to 7-5 Note 2, D/DD *after* I should be applied correctly for the note following I.
+; The final pitch calculation involves both the I value (scaled by B) and the D/DM value.
+A B12 I4096 D10 c4      ; Bend up + Detune +10
+A B12 I-2048 D-5 c4     ; Bend down + Detune -5
+A B12 I0 D10 c4         ; Bend enabled but I=0, Detune +10 applies
+A B12 I4096 c4 D5 d4    ; Bend I=4096 for c4, then Detune becomes 5 for d4 (still with I=4096 bend)
+A B12 I4096 D10 c4 DD-15 d4 ; Bend I=4096 + Detune D=10 for c4, then D becomes 10-15=-5 for d4 (still with I=4096 bend)
+A B12 I4096 DM5 D10 c4  ; Bend I=4096 + Master Detune 5 + Detune 10 (Total detune 15) for c4
+A B12 I2048 DM-8 c4 D10 d4 DD-3 e4 ; Bend I=2048 + MD -8 + D=0 (Total Detune -8) for c4
+                         ;              -> Bend I=2048 + MD -8 + D=10 (Total Detune +2) for d4
+                         ;              -> Bend I=2048 + MD -8 + D=10-3=7 (Total Detune -1) for e4
+
+; --- Detune Applied BEFORE Enabling Bend ---
+; 7-5 Note 2: "When the bend range is set and this [I] command becomes valid,
+; PITCH/DETUNE values will be set for the first time when the next pitch command comes AFTER specification."
+; This implies D set *before* B is enabled might *not* apply to the note immediately following B+I,
+; or might be reapplied based on the new state. The exact behavior depends on implementation details.
+; Assuming D needs to be re-stated after B+I becomes active for it to apply alongside bend:
+A B0 D10 c4 B12 I2048 d4    ; c4 has D=10. d4 has B=12, I=2048. D=10 might NOT apply to d4 unless re-specified.
+A B0 D10 c4 B12 I2048 D10 d4 ; c4 has D=10. d4 explicitly gets D=10 *after* B/I are set, should apply alongside bend.
+A B0 DM5 c4 B12 I1024 d4    ; c4 has DM=5. d4 gets B=12, I=1024. DM=5 should still apply.
+A B0 DM5 c4 B12 I1024 D2 d4 ; c4 has DM=5. d4 gets B=12, I=1024, D=2. Total detune DM+D = 5+2=7 should apply.
+
+; --- Disabling Bend ---
+A B12 I4096 c4 B0 d4 D10 e4 ; c4 has bend. d4 has B=0 (no bend). e4 has B=0 and D=10.
+
+; --- Resetting Values ---
+A B12 I4096 D10 c4 I0 D0 d4 B0 e4 ; Progressively removing bend and detune effects
+
+; --- More Complex Sequence ---
+A DM-5 B12 I1024 D3 c4 DD2 d4 I-1024 D-1 e4 DD4 f4 B0 D10 g4 ; Combining DM, B, I, D, DD and B0 reset
+
+; --- Bend+Detune and multiple notes ---
+A B1 D-2 a a
+

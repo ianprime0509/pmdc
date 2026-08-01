@@ -1,0 +1,18 @@
+; Output: VOL_FLAGS.M
+; Console: VOL_FLAGS.OUT
+
+#Title VOL_FLAGS
+#Option /v/c
+
+; Hit VolDown_set with multiple flags, absolute and relative (macro requires two chars after #)
+#VA FS+3,PR-2,Z16
+
+; Exercise volume set paths (relative, absolute, bracketed)
+A l4 v10 c v+2 d v-4 e v(2 f v)1 g ) a ( b
+
+; Tie and simple loop
+A c&c
+A l8 [c d]2
+
+; Tempo hex and q-range
+A t$3c q2-4 c d e

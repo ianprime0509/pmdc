@@ -1,0 +1,44 @@
+; Output: MULTI_FEATURES.M
+; Console: MULTI_FEATURES.OUT
+
+#Title MULTI_FEATURES
+#Option /v/c
+#Octave Reverse
+#Zenlen 192
+#LoopDefault 2
+#Bendrange 12
+#Detune Extend
+#LFOSpeed Extend
+#EnvelopeSpeed Extend
+#PCMVolume Extend
+#Transpose 1
+#FM3Extend X
+#Volumedown FR+12,S-4,P+24
+
+; Volume down macro with multiple flags
+#VA FS+2,PR-3,Z12
+
+; Part A (FM) exercises octave reverse, transpose, q ranges, ties, loops
+A o4 l8 Q4 q2-4 c&2 d. e&1 f g ) a (^2 b )%3 >c <b
+A [c d e f]3 g a b ) c)^ )%4 d
+A _-2 {c g}4,8 X o+1 c> d< e
+
+; Part G (SSG) uses envelope, detune, noise, random LFO, transpose set/clear
+G EX1 E1,-2,2,1 DX1 w15 P3 v12 ql8,l16 g q,8 a q2-3 b q0 c
+G _{+fcg} c d e _{=fcg} f g a
+
+; Part J (PCM) hits pcm volume square/extend paths and v)/v(, relative changes
+J o3 l4 v10 V200 c v(2 d v)3 e v+16 f V0 g v-8 a
+J q2-4 c d e ql8,l16 f g
+
+; Part X (FM3 extend) uses slot mask, TL/FB, detune per slot, master detune
+X s3 @202 O3,10 FB3 sd6,-4 DM5 v12 c d e D10 f D0 g
+
+; Rhythm select part to cover R usage and relative volumes
+K l8 R0 R1 R0 )2 R1 )^3
+R0 @1 c @2 c @4 c @8 c
+R1 @1 c @64 c @128 c @256 c
+
+; Use master transpose reset in another line
+A _M0 c d e
+

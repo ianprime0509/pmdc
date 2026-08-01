@@ -1,0 +1,38 @@
+; Output: DEPTH_VOL.M
+; Console: DEPTH_VOL.OUT
+
+#Title DEPTH_VOL
+#Option /v/c
+
+; Named macro with prefix matching: define MyMacro, use prefix My
+!MyMacro c d e
+!MyOther f g a
+
+; Part A: exercises various uncovered paths
+; MD with speed=0 (depthset speed=0 path) and speed=0 with depth
+A *1 M24,1,8,2 MD0 c MD0,5 d
+
+; Volume up/down with vol_base > 1 (triggers 0xe3/0xe2 instead of 0xf4/0xf3)
+A v10 c )2 d (2 e )^2 f (^2 g
+
+; SSG-EG with all slot combinations (slot 4, 8 for uncovered branches)
+A SE4,10 c SE8,12 d SE15,0 e
+
+; Grace note with positive depth and tie flag
+A S2,+2 c S3,-1,1 d S0 e
+
+; Use named macro (exact match)
+A !MyMacro
+
+; Use named macro prefix (prefix match - MyO matches MyOther)
+A !MyOther
+
+; Rhythm dump with 'p' suffix
+K l4 \b \sp \cp \hp
+
+; Pseudo echo: vol > 1 for 0xe2 path
+A W8,-2 c W0 d
+
+; More depthset: MDB with speed=0
+A *B1 MB12,2,4,1 MDB0 c MDB0,3 d
+

@@ -1,0 +1,59 @@
+; Output: Q_GATE_ALT.M
+; Console: Q_GATE_ALT.OUT
+
+#Title Q_GATE_ALT
+#Option /v/c
+
+; --- PMDMML 'q' Command Tests ---
+
+; --- Basic Fixed Offset (q Num1) ---
+A q0 c4 d4 e4       ; q0: No early key-off (default behavior). c=24, d=24, e=24 ticks.
+A q1 c4 d4 e4       ; q1: Key-off 1 tick early. c=23, d=23, e=23 ticks sound.
+A q12 c4 d4 e4      ; q12: Key-off 12 ticks early. c=12, d=12, e=12 ticks sound.
+A q23 c4 d4 e4      ; q23: Key-off 23 ticks early. c=1, d=1, e=1 tick sounds.
+A q24 c4 d4 e4      ; q24: Offset >= length. Key-off happens at minimum time (effectively 1 tick).
+A q48 c2            ; q48: Offset >= length (c2=48 ticks). Key-off at min time.
+A ql8 c4            ; ql8: Use length. 1/8 note = 12 ticks offset. c sounds for 24-12=12 ticks.
+A ql16 c4           ; ql16: Use length. 1/16 note = 6 ticks offset. c sounds for 24-6=18 ticks.
+A ql4 c4            ; ql4: Offset=length (24 ticks). Key-off at min time (1 tick).
+A C192 ql8 c4       ; C192: c4=48 ticks. ql8 (1/8 of 192 = 24 ticks). c sounds for 48-24=24 ticks.
+A C96               ; Reset C
+
+; --- Persistence ---
+A q10 c4 d4 q5 e4 f4 q0 g4 ; q setting persists until changed.
+
+; --- Basic Minimum Duration (, Num3) ---
+A q,1 c4            ; Minimum duration 1 tick. (Has no real effect here as q default is 0 offset)
+A q,10 c8           ; c8=12 ticks. Min duration 10. Sounds for 10 ticks.
+A q,l16 c8          ; c8=12 ticks. Min duration l16 (6 ticks). Sounds for 6 ticks.
+A q,l4 c8           ; c8=12 ticks. Min duration l4 (24 ticks > note len). Sounds for note len (12 ticks).
+
+; --- Basic Random Offset (q Num1 - Num2) ---
+A q1-4 c4 c4 c4 c4  ; Random offset 1, 2, 3, or 4 ticks early.
+A q4-1 c4 c4 c4 c4  ; Range Num1 > Num2. Should behave like 1-4? (Manual implies range Num1..Num2) -> ASM suggests this is |Num2-Num1| range with flag. (Expected ASM: FE 04 B1 83)
+A ql16-l8 c4 c4     ; Random offset between 6 and 12 ticks early.
+A q4-4 c4 c4 c4     ; Zero range. Should be equivalent to q4. (ASM should only output FE 04).
+
+; --- Combination: Fixed Offset + Min Duration (q Num1, Num3) ---
+A q2,10 c8          ; c8=12 ticks. q2 wants key-off at 10. Min duration is 10. Result: Sounds for 10 ticks.
+A q10,2 c8          ; c8=12 ticks. q10 wants key-off at 2. Min duration is 2. Result: Sounds for 2 ticks.
+A q15,10 c8         ; c8=12 ticks. q15 wants key-off before min duration. Result: Sounds for 10 ticks.
+A ql8,l16 c4        ; c4=24 ticks. ql8 (12 offset) -> key-off at 12. Min l16 (6). Result: Sounds for 12 ticks.
+A ql4,l8 c8         ; c8=12 ticks. ql4 (24 offset) -> key-off at min time(1). Min l8 (12). Result: Sounds for 12 ticks.
+
+; --- Combination: Random Offset + Min Duration (q Num1 - Num2, Num3) ---
+A q1-10,5 c8        ; c8=12 ticks. Random offset 1..10. Min duration 5. Sounds for 5..11 ticks.
+A q1-10,15 c8       ; c8=12 ticks. Random offset 1..10. Min duration 15 (>len). Sounds for 12 ticks.
+A ql16-l8,l32 c4    ; c4=24 ticks. Random offset 6..12. Min duration l32 (3 ticks). Sounds for 12..18 ticks.
+
+; --- Interaction with Q ---
+A Q4 q2 c4          ; c4=24. Q4 target=12. q2 offset=2. Key-off at tick 10. Sounds 10 ticks.
+A Q8 q2 c4          ; c4=24. Q8 target=24. q2 offset=2. Key-off at tick 22. Sounds 22 ticks.
+A Q0 q2 c4          ; c4=24. Q0 target=no cut. q2 offset=2. Key-off at tick 22. Sounds 22 ticks.
+A Q4 q12 c4         ; c4=24. Q4 target=12. q12 offset=12. Key-off at tick 0 -> Min time (1 tick).
+A Q2 q12 c4         ; c4=24. Q2 target=6. q12 offset=12 (>target). Key-off at min time (1 tick).
+A Q4 ql8 c2         ; c2=48. Q4 target=24. ql8 offset=12. Key-off at tick 12. Sounds 12 ticks.
+A Q4 q2,10 c4       ; c4=24. Q4 target=12. q2 offset=2 -> key-off at 10. Min duration 10. Sounds 10 ticks.
+A Q4 q10,5 c4       ; c4=24. Q4 target=12. q10 offset=10 -> key-off at 2. Min duration 5. Sounds 5 ticks.
+A Q4 q15,10 c4      ; c4=24. Q4 target=12. q15 offset=15 -> key-off < 0. Min duration 10. Sounds 10 ticks.
+

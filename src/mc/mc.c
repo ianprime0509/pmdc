@@ -2303,7 +2303,7 @@ static void ppsfile_set(struct mc *mc, char *macro_start) {
         pcmextend_set(mc, macro_start);
         return;
     case 'S':
-        ppsfile_set(mc, macro_start);
+        mc->ppsfile_adr = mc->si;
         return;
     default:
         ps_error(mc);
@@ -3291,7 +3291,7 @@ static void fb_set(struct mc *mc) {
     if (*mc->si == '+' || *mc->si == '-') {
         // :3844
         uint8_t val = getnum(mc);
-        if (val + 7 >= 15) error(mc, 'F', 2);
+        if ((uint8_t)(val + 7) >= 15) error(mc, 'F', 2);
         *mc->di++ = 0x80 | val;
     } else {
         // :3837
@@ -3727,16 +3727,16 @@ static void ssgeg_set(struct mc *mc) {
     ssgeg_reg += 0x90;
 
     // :4366
-    if ((slot & 1) == 0) sss_set1slot(mc, ssgeg_reg, num);
+    if ((slot & 1) != 0) sss_set1slot(mc, ssgeg_reg, num);
     // :4369
     ssgeg_reg += 8;
-    if ((slot & 2) == 0) sss_set1slot(mc, ssgeg_reg, num);
+    if ((slot & 2) != 0) sss_set1slot(mc, ssgeg_reg, num);
     // :4374
     ssgeg_reg -= 4;
-    if ((slot & 4) == 0) sss_set1slot(mc, ssgeg_reg, num);
+    if ((slot & 4) != 0) sss_set1slot(mc, ssgeg_reg, num);
     // :4379
     ssgeg_reg += 8;
-    if ((slot & 8) == 0) sss_set1slot(mc, ssgeg_reg, num);
+    if ((slot & 8) != 0) sss_set1slot(mc, ssgeg_reg, num);
 
     // :4384
     olc0(mc);
@@ -5024,14 +5024,15 @@ static void vsetm1(struct mc *mc, uint8_t vol) {
 
 // :6007
 static void vss(struct mc *mc) {
-    mc->volss = getnum(mc);
+    uint8_t volss_raw = (uint8_t)getnum(mc);
+    mc->volss = (int8_t)volss_raw;
 #if !efc
     if (mc->part == pcmpart || mc->ongen == pcm_ex) {
-        vsetm1(mc, mc->nowvol);
+        vsetm1(mc, volss_raw);
         return;
     }
     if (mc->towns_flg == 1 && mc->part == rhythm2) {
-        vsetm1(mc, mc->nowvol);
+        vsetm1(mc, volss_raw);
         return;
     }
 #endif
@@ -5280,7 +5281,9 @@ static void sular(struct mc *mc) {
         return;
     }
     // :6273
-    ots002(mc, mc->di[-3]);
+    uint8_t onkai = mc->di[-3];
+    ots002(mc, onkai);
+    bp8(mc, onkai);
 }
 
 // :6279
@@ -5880,8 +5883,12 @@ static void lfoswitch(struct mc *mc, char cmd) {
     }
     // :7030
     if (lngset(mc, &n) != 0) error(mc, '*', 6);
-    // BUG: should be decrementing di
-    if (lfocmd == mc->di[-2]) mc->si -= 2;
+    // BUG in original ASM: "cmp bh,-2[di]" lacks ES: segment override,
+    // so it reads from DS:DI-2 (MML input area) instead of ES:DI-2
+    // (output buffer). The comparison almost never matches, making
+    // "sub si,2" effectively dead code.
+    // Covered by LFOSWITCH.MML *A1,A2 testcase.
+    // if (lfocmd == mc->di[-2]) mc->si -= 2;
     *mc->di++ = lfocmd;
     *mc->di++ = n;
     olc0(mc);

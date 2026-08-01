@@ -1,0 +1,32 @@
+; Output: HEADERS.M
+; Console: HEADERS.OUT
+
+#Title HEADERS
+#Option /v/c
+#Composer TestComposer
+#Arranger TestArranger
+#Memo Line1
+#Memo Line2
+#Tempo 150
+#Timer 200
+#JumpFlag 1
+
+; Backtick block comment test
+A ` this is skipped ` c d e f g
+
+; Named macro definitions
+!MyMacro c d e
+!MyOther f g a
+
+; Use named macros
+A !MyMacro !MyOther b
+
+; Tie with length addition that overflows 256 (c%200 + %200 = 400 > 256)
+A c%200&%200
+
+; T command (direct TimerB) inline
+A T200 c T+10 d T-5 e
+
+; Simple loop for lc coverage
+A [c d e]2
+

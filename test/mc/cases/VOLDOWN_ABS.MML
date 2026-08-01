@@ -1,0 +1,25 @@
+; Output: VOLDOWN_ABS.M
+; Console: VOLDOWN_ABS.OUT
+
+#Title VOLDOWN_ABS
+#Option /v/c
+
+; Absolute voldown for FM/SSG/Rhythm (flag=1 -> 0xff/0xfd/0xf9)
+; Relative PPZ voldown (flag=0 -> 0xf5)
+#Volumedown F8,S4,R2,Z+3
+
+; ADPCM flag to trigger 0xc0,0xf7 path on PCM part
+#ADPCM ON
+
+; FM part - exercises DF inline (absolute -> subcmd+1)
+A @1 v12 l4 c DF8 d DS4 e DP+2 f DR2 g DZ+1 a
+
+; SSG part
+G @1 v10 l4 c d e f
+
+; PCM part (triggers adpcm_flag output)
+J @0 v10 l4 c d e f
+
+; Rhythm part
+K l4 \V32 \b \s \c \h
+

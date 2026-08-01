@@ -1,0 +1,80 @@
+; Output: EDGE_DEEP2.M
+; Console: EDGE_DEEP2.OUT
+
+#Title EDGE_DEEP2
+#Option /v/c
+
+; Deep edge-case coverage part 2
+
+; --- Part A: Portamento edge cases ---
+; Basic portamento
+A @1 {c g}4 c
+; Portamento with delay
+A {c g}4,8 c
+; Portamento across octaves
+A {o4c o5d}2 c
+
+; --- Part B: Tie/slur combinations ---
+; Tie (single &)
+B @1 c4&c4 d8&d8 e2&e4
+; Slur (double &&)
+B d8&&d8 e4&&e4
+; Tie with length only (no second note)
+B f4&8 g8&4
+; Mixed tie and slur
+B c4&c4&&c4 d
+
+; --- Part C: Grace note edge cases ---
+; S with speed, depth
+C @1 S2,-1 c S4,+2 d
+; S with note length delay, negative depth, tie
+C Sl8,-3,0 c S0 d
+; S with larger values
+C S8,-8 c S1,+1 d S0 e
+
+; --- Part D: Pseudo echo edge cases ---
+; W with basic params
+D @1 W8,-1 c W12,-2,1 d
+; W with note length delay, fine volume
+D Wl8,%-10,3 c W0 d
+; W with boundary values
+D W1,-1 c W127,+127 d W0 e
+
+; --- Part E: Arpeggio edge cases ---
+; Basic arpeggio
+E @1 {{ceg}}4 c
+; Arpeggio with all params (note_len, tie, gate, vol)
+E {{cf>c<}}4,16,0,8,-2 c
+; Simple 2-note arpeggio
+E {{cd}}8 c
+
+; --- Part F: Note length edge cases ---
+; Dotted notes (futen)
+F @1 c4. d8.. e1... f16. g2.
+; Length modification commands
+F c4 =8 d4 +8 e2 -8 f4
+; l= l+ l- l^ (default length modification)
+F l4 l=8 c l+8 d l^8 e
+; Whole note length change
+F C192 l64 c d C96 l4 e
+
+; --- Part G: Transpose edge cases ---
+; _ absolute, __ relative
+G @1 _+12 c _-12 d __+1 e __-1 f _0 g
+; _M master transpose
+G _M+1 c _+1 d _0 e _M0 f
+; _{ } transposition set
+G _{+fcg} cdefgab>c<
+G _{-bea} cdefgab>c<
+G _{=fcg} cdefgab>c<
+
+; --- Part H: Octave edge cases ---
+; o with boundary values
+H @1 o1 c o8 d o2 e
+; > < multiple
+H o4 c >> d << e >>> f <<< g
+; X toggle
+H o4 c > d X < e > f X g
+; o+ o- overall octave shift - SSG/FM
+I @1 o+1 o4 c o-1 o4 d o+0 o4 e
+

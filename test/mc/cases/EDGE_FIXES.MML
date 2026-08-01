@@ -1,0 +1,41 @@
+; Output: EDGE_FIXES.M
+; Console: EDGE_FIXES.OUT
+
+#Title EDGE_FIXES
+#Option /v/c
+
+; Tests covering edge cases from bug fixes:
+; 1) fb_set with +/- relative values (uint8_t cast in bounds check)
+; 2) ssgeg_set slot bitmask (inverted conditions)
+; 3) vss sign handling (int8_t cast for negative volss)
+; 4) sular (missing bp8 call for tied notes after slur)
+
+; --- fb_set +/- edge cases ---
+; FB allows 0-7 absolute, or +/- relative adjustments
+; The bounds check uses (uint8_t)(val+7) >= 15
+A @1 FB0 c FB7 d FB+1 e FB-1 f FB+7 g FB-7 a
+
+; --- ssgeg_set slot bitmask ---
+; SE command: SE<slot>,<value>
+; slot is a bitmask: 1=slot1, 2=slot2, 4=slot3, 8=slot4, 15=all
+; Tests individual slots and combinations
+B @1 SE1,10 c SE2,11 d SE4,12 e SE8,13 f SE15,14 g SE3,9 a
+
+; --- vss: volume relative change with sign ---
+; v) and v( use volss internally; negative values need int8_t handling
+; v(N sets volss to -N (rough step), v)N sets volss to +N
+C @1 v10 v)2 c v(1 d v)0 e v(3 f
+
+; --- sular: tied note after slur ---
+; The & (tie) followed by a note exercises the sular path
+; which needs bp8 call for correct length compression
+D @1 c4&c4 d8&d8 e2&e4 f16&f16
+
+; --- Additional fb_set edge: large negative ---
+; FB-7 from FB7 should give 0 (boundary)
+E @1 FB7 c FB-7 d FB0 e FB+3 f
+
+; --- ssgeg with value 0 (off) and value 15 (max) ---
+F @1 SE15,8 c SE1,15 d SE15,0 e
+
+

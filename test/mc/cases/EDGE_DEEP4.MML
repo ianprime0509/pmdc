@@ -1,0 +1,57 @@
+; Output: EDGE_DEEP4.M
+; Console: EDGE_DEEP4.OUT
+
+#Title EDGE_DEEP4
+#Option /v/c
+#Detune extend
+#LFOSpeed extend
+#EnvelopeSpeed extend
+
+; Deep edge-case coverage part 4: overflow/underflow, PCM, headers
+
+; --- Part A: futen overflow (dotted note > 255 ticks) ---
+; C192 makes whole note 192 ticks
+; c1. = 192 + 96 = 288 > 255, triggers overflow path in futen
+A @1 C192 c1. d
+
+; --- Part B: Volume overflow in vset (FM) ---
+; v+127 then v15 should give vol = fmvol[15] + 127 which overflows
+; volss > 0 and overflow -> vol = 0x7f
+B @1 v+127 v15 c d
+; v-128 then v15 should underflow -> vol = 0
+B v-128 v15 e f
+
+; --- Part G: Volume overflow in vset (SSG) ---
+; volss > 0, ongen >= psg, overflow -> vol = 15
+G @1 v+15 v15 c d
+; volss < 0, underflow -> vol = 0
+G v-15 v15 e f
+
+; --- Part J: PCM volume paths (vsetm1) ---
+; Tests the PCM-specific vsetm1 path
+J @0 v10 c v0 d v16 e
+; vss for PCM (exercises vsetm1 with volss)
+J v+3 v10 c v-5 v10 d
+; V (direct volume) for PCM
+J V255 c V128 d V0 e
+
+; --- Part C: Accent in skip context ---
+; " ... " skip with ^) accent exercises bp8 acc_adr path
+C @1 v10 " ^)1 c " d e
+
+; --- Part D: #Detune extend effect ---
+; With #Detune extend, D command uses extended detune
+D @1 D10 c D-5 d D0 e DD+20 f
+
+; --- Part E: #LFOSpeed extend effect ---
+; With #LFOSpeed extend, LFO speed is tempo-independent
+E @1 M24,1,8,2 *1 c d MX0 e MX1 f
+
+; --- Part F: #EnvelopeSpeed extend effect ---
+; With #EnvelopeSpeed extend, envelope speed is tempo-independent
+G EX1 E2,-1,24,1 c EX0 d
+
+; --- Part H: Long dotted note on rhythm ---
+; Rhythm part futen overflow path uses 0x0f instead of 0xfb
+H @1 C192 c1. d
+

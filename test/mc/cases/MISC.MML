@@ -1,0 +1,31 @@
+; Output: MISC.M
+; Console: MISC.OUT
+
+#Title MISC
+#Option /v/c
+
+; volup )^%n (vol up with ^ and % prefix)
+A )^%2 c d
+
+; LFO switch *B1,A2 (lfoswitch second-half case 'A')
+A M24,1,8,2 MB12,2,4,1 *B1,A2 c d
+
+; @n,m on PCM part - repeat_check with 2 params
+J @1,2 c d
+
+; @n,m,o on PCM part - repeat_check with 3 params
+J @1,2,3 c d
+
+; @n,m,o,p on PCM part - repeat_check with all 4 params
+J @1,2,3,4 c d
+
+; Hardware LFO H command patterns
+A H2,1 c d
+
+; Tied rest (rest after note with &)
+A c4&r4 d
+
+; voldown (^%n path
+A (^%2 c d
+
+

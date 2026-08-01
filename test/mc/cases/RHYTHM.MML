@@ -1,0 +1,48 @@
+; Output: RHYTHM.M
+; Console: RHYTHM.OUT
+
+#Title RHYTHM
+#Filename RHYTHM.M
+#Option /v/c
+
+; Define simple SSG drum patterns in R part and play via K part
+K   R0 L [R1]2 R2
+R0  l16[@64c]4               ; SSG drum hits
+R1  l8 @1c@128c@2c@128c      ; Alternating drums
+R2  l8 @2c@2c@1c@1c           ; Ending roll
+
+; YM2608 rhythm sound source commands in an SSG rhythm part (K)
+K   \V63\vs31\vb31\vh15\vt31   ; rhythm volumes
+K   R3 L [R4]2 R5
+R3  l16[\sr]4
+R4  l8 \br\hr\sr\hr
+R5     \br\tr\tr\tr
+
+; Additional rhythm mixes to exercise more commands and parts
+K   R6 L [R7]3 R8
+R6  l16 \br \sr \hr \tr      ; mixed hits
+R7  l8  \hr\vh-6 \hr\vh+6     ; volume mod on hi-hat
+R8  l8  \br\vh-4 \tr \sr      ; tom/snare variation
+
+; Use alternate R definitions with tied playback and repeats
+K   R9 L [R10]2 [R11]
+R9  l8  \br r \sr r           ; spaced hits
+R10 l16 \tr \tr \hr \sr       ; fast fill
+R11 l8  \br\hr\sr\tr          ; ending fill
+
+; More rhythm voices (crash/ride/toms) and dynamic changes
+K   R12 L [R13]2 [R14]2 R15
+R12 l16 \cr \cr \br \sr       ; crash accents with bass+snare
+R13 l8  \hr\vh-8 \hr\vh+8      ; alternating hat levels
+R14 l8  \tr \tr \cr \br        ; toms with crash
+R15 l8  \sr\vh-4 \sr\vh+4 \br  ; snare swells with bass
+
+; Rhythm with pauses and mixed spacing
+K   R16 L [R17]2 R18
+R16 l16 \br r \sr r \hr r \tr r
+R17 l8  r \br r \cr r \sr      ; rests interleaved
+R18 l8  \hr\vh-10 \hr\vh+10 \tr ; hat swells and tom
+
+; Basic melody line for reference
+A t120 o4 v12 c d e f g a b>c<
+

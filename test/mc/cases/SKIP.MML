@@ -1,0 +1,38 @@
+; Output: SKIP.M
+; Console: SKIP.OUT
+
+#Title SKIP
+#Option /v/c
+
+; Exercise " skip mode with various constructs inside
+; " toggles skip, notes/ties/lengths/portamento/arpeggio inside skip are parsed but not emitted
+A c d " e&4 f4 {g >c}4 {{ceg}}4,16,0,8,-2 =8 ^2 r4 ' a b
+
+; Backtick block comment crossing multiple commands
+A c d ` skipped stuff here ` e f
+
+; Length multiply overflow: c%128 * 3 = 384 > 256, triggers lm_over
+A c%128^3
+
+; Grace note with tie=1 flag (third param)
+A S4,-2,1 c d S0 e
+
+; More length rewrite paths
+A c4 =. d8 =.. e2 +4
+
+; Volume overflow: v+ that exceeds max, v- that goes below 0
+A v+127 V0 c v-127 V127 d
+
+; SSG volume overflow paths
+G v15 c ) d ) e ( f ( g
+
+; Tie with explicit length causing overflow (needs len >= 256 total)
+; c%200 = 200 ticks, &%100 tries to add 100 -> 300 > 256
+A c%200&%100
+
+; Portamento in skip mode
+A " {c g}4 " c d
+
+; More " skip with length rewrite
+A c4 " =8 d4 +4 " e f
+
