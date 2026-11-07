@@ -1,30 +1,36 @@
-const std = @import("std");
-const log = std.log;
+pub fn main(init: std.process.Init) !u8 {
+    const gpa = init.gpa;
+    const arena = init.arena.allocator();
+    const io = init.io;
 
-pub fn main() !u8 {
-    const gpa = std.heap.smp_allocator;
-
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
-    if (args.len != 3) {
-        log.err("usage: harness MC-PATH TEST-DIR", .{});
+    var args = try init.minimal.args.toSlice(arena);
+    if (args.len >= 2 and std.mem.eql(u8, args[1], "--verbose")) {
+        args = args[2..];
+        verbose = true;
+    } else if (args.len >= 1) {
+        args = args[1..];
+    }
+    if (args.len != 2) {
+        log.err("usage: harness [--verbose] MC-PATH TEST-DIR", .{});
         return 1;
     }
-    const mc_path = args[1];
-    const test_dir_path = args[2];
+    const mc_path = args[0];
+    const test_dir_path = args[1];
+
+    const tmp_dir = try Io.Dir.cwd().createDirPathOpen(io, ".zig-cache/tmp", .{});
+    defer tmp_dir.close(io);
 
     // runTest will be using a different working directory for each test, so
     // it is easiest to use an absolute path for MC.
-    const mc_path_abs = try std.fs.cwd().realpathAlloc(gpa, mc_path);
-    defer gpa.free(mc_path_abs);
+    const mc_path_abs = try Io.Dir.cwd().realPathFileAlloc(io, mc_path, arena);
 
     var results: Results = .init;
-    var test_dir = try std.fs.cwd().openDir(test_dir_path, .{ .iterate = true });
-    defer test_dir.close();
+    const test_dir = try Io.Dir.cwd().openDir(io, test_dir_path, .{ .iterate = true });
+    defer test_dir.close(io);
     var test_dir_iterator = test_dir.iterate();
-    while (try test_dir_iterator.next()) |test_dir_entry| {
+    while (try test_dir_iterator.next(io)) |test_dir_entry| {
         if (std.mem.endsWith(u8, test_dir_entry.name, ".MML")) {
-            try runTest(gpa, test_dir_entry.name, test_dir, mc_path_abs, &results);
+            try runTest(gpa, io, test_dir_entry.name, test_dir, tmp_dir, mc_path_abs, &results);
         }
     }
     log.info("pass: {}, fail: {}", .{ results.n_pass, results.n_fail });
@@ -32,13 +38,28 @@ pub fn main() !u8 {
 }
 
 fn runTest(
-    gpa: std.mem.Allocator,
+    gpa: Allocator,
+    io: Io,
     mml_path: []const u8,
-    test_dir: std.fs.Dir,
+    test_dir: Io.Dir,
+    tmp_dir: Io.Dir,
     mc_path: []const u8,
     results: *Results,
 ) !void {
-    const mml = try test_dir.readFileAlloc(gpa, mml_path, std.math.maxInt(u16));
+    const Base64Encoder = std.base64.url_safe.Encoder;
+    var random_bytes: [12]u8 = undefined;
+    io.random(&random_bytes);
+    var run_dir_name_buf: [Base64Encoder.calcSize(random_bytes.len)]u8 = undefined;
+    const run_dir_name = Base64Encoder.encode(&run_dir_name_buf, &random_bytes);
+    const run_dir = try tmp_dir.createDirPathOpen(io, run_dir_name, .{});
+    defer {
+        run_dir.close(io);
+        tmp_dir.deleteTree(io, run_dir_name) catch {};
+    }
+
+    const data_limit: Io.Limit = .limited(std.math.maxInt(u16));
+
+    const mml = try test_dir.readFileAlloc(io, mml_path, gpa, data_limit);
     defer gpa.free(mml);
     var m_path_option: ?[]const u8 = null;
     var console_path_option: ?[]const u8 = null;
@@ -52,9 +73,7 @@ fn runTest(
         }
     }
 
-    var run_dir = std.testing.tmpDir(.{});
-    defer run_dir.cleanup();
-    try run_dir.dir.writeFile(.{
+    try run_dir.writeFile(io, .{
         .sub_path = mml_path,
         .data = mml,
     });
@@ -64,29 +83,29 @@ fn runTest(
     const console_path = console_path_option orelse
         return results.fail(mml_path, "missing console output file comment", .{});
 
-    const m_data = try test_dir.readFileAlloc(gpa, m_path, std.math.maxInt(u16));
+    const m_data = try test_dir.readFileAlloc(io, m_path, gpa, data_limit);
     defer gpa.free(m_data);
-    const console_data = try test_dir.readFileAlloc(gpa, console_path, std.math.maxInt(u16));
+    const console_data = try test_dir.readFileAlloc(io, console_path, gpa, data_limit);
     defer gpa.free(console_data);
 
-    var env_map: std.process.EnvMap = .init(gpa);
-    defer env_map.deinit();
-    const process_output = try std.process.Child.run(.{
-        .allocator = gpa,
+    var env: std.process.Environ.Map = .init(gpa);
+    defer env.deinit();
+    const process_output = try std.process.run(gpa, io, .{
         .argv = &.{ mc_path, mml_path },
-        .cwd_dir = run_dir.dir,
-        .env_map = &env_map,
-        .max_output_bytes = 4096,
+        .cwd = .{ .dir = run_dir },
+        .environ_map = &env,
+        .stdout_limit = .limited(4096),
+        .stderr_limit = .limited(4096),
     });
     defer gpa.free(process_output.stdout);
     defer gpa.free(process_output.stderr);
 
     switch (process_output.term) {
-        .Exited => |status| if (status != 0) return results.fail(mml_path, "compiler exited with status {}", .{status}),
+        .exited => |status| if (status != 0) return results.fail(mml_path, "compiler exited with status {}", .{status}),
         else => |term| return results.fail(mml_path, "compiler exited abnormally: {}", .{term}),
     }
 
-    const actual_m_data = run_dir.dir.readFileAlloc(gpa, m_path, std.math.maxInt(u16)) catch |err| switch (err) {
+    const actual_m_data = run_dir.readFileAlloc(io, m_path, gpa, data_limit) catch |err| switch (err) {
         error.FileNotFound => return results.fail(mml_path, "expected output file '{s}' not produced", .{m_path}),
         else => |other_err| return other_err,
     };
@@ -149,3 +168,24 @@ const Results = struct {
         results.n_fail += 1;
     }
 };
+
+var verbose = false;
+
+fn logFn(
+    comptime level: log.Level,
+    comptime scope: @EnumLiteral(),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    if (!verbose and level != .err) return;
+    log.defaultLog(level, scope, format, args);
+}
+
+pub const std_options: std.Options = .{
+    .logFn = logFn,
+};
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const log = std.log;

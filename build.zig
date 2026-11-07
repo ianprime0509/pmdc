@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -32,7 +30,7 @@ pub fn build(b: *std.Build) void {
     const mc_test_run = b.addRunArtifact(mc_test_harness_exe);
     mc_test_run.addFileArg(mc_exe.getEmittedBin());
     mc_test_run.addDirectoryArg(b.path("test/mc/cases"));
-    mc_test_run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
+    mc_test_run.addCheck(.{ .expect_term = .{ .exited = 0 } });
     // This ensures the tests are always re-run, even if test cases are changed.
     // Zig's cache system doesn't look at the contents of the test cases
     // directory when deciding if a cached result can be used.
@@ -78,3 +76,5 @@ fn addMc(
         .root_module = mod,
     });
 }
+
+const std = @import("std");
