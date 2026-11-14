@@ -77,6 +77,19 @@ struct test_ctx {
 
     const char *pmdopt;
 
+    // The installed FM timer handler.
+    void (*fm_timer_handler)(struct pmd *);
+    unsigned fm_timer_installs;
+    unsigned fm_timer_removals;
+
+    // Timer callback observations, recorded separately per callback.
+    unsigned fm_calls;
+    unsigned efc_calls;
+    uint8_t cb_fm_int5_flag;
+    uint8_t cb_efc_int5_flag;
+    uint8_t cb_timer_aflag;
+    uint8_t cb_timer_bflag;
+
     // Mock PPZ8 driver calls.
     unsigned ppz_fifo_stops;
     unsigned ppz_keyoffs[8];
@@ -161,10 +174,40 @@ static void test_hw_outb(uint16_t port, uint8_t value, void *user_data) {
     ctx->write_count++;
 }
 
+static void test_hw_install_fm_timer(void (*handler)(struct pmd *),
+                                     void *user_data) {
+    struct test_ctx *c = user_data;
+    CHECK(user_data == &ctx);
+    c->fm_timer_handler = handler;
+    c->fm_timer_installs++;
+}
+
+static void test_hw_remove_fm_timer(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->fm_timer_handler = NULL;
+    ctx->fm_timer_removals++;
+}
+
 static const struct pmd_hw test_hw = {
     .inb = test_hw_inb,
     .outb = test_hw_outb,
+    .install_fm_timer_handler = test_hw_install_fm_timer,
+    .remove_fm_timer_handler = test_hw_remove_fm_timer,
 };
+
+static void test_fm_callback(void *user_data) {
+    struct pmd *pmd = user_data;
+    ctx.fm_calls++;
+    ctx.cb_fm_int5_flag = pmd->int5_flag;
+    ctx.cb_timer_bflag = pmd->TimerBflag;
+}
+
+static void test_efc_callback(void *user_data) {
+    struct pmd *pmd = user_data;
+    ctx.efc_calls++;
+    ctx.cb_efc_int5_flag = pmd->int5_flag;
+    ctx.cb_timer_aflag = pmd->TimerAflag;
+}
 
 #if ppz
 static void mock_ppz8_fifo_stop(void *user_data) {
@@ -247,13 +290,26 @@ static void report_unwind(const char *who) {
 static bool run_resident(struct pmd *pmd, const char *cmdline) {
     ctx.reads = 0;
     ctx.write_count = 0;
+    ctx.fm_timer_installs = 0;
     if (setjmp(ctx.jmp) == 0) {
         pmd_resident_main(pmd, (char *)cmdline);
+        // A board-present run installs the driver's FM timer handler; the
+        // no-board path never touches the hardware vtable hooks.
+        if (pmd->board != 0) {
+            CHECK_EQ(ctx.fm_timer_installs, 1);
+            CHECK(ctx.fm_timer_handler != NULL);
+        } else {
+            CHECK_EQ(ctx.fm_timer_installs, 0);
+        }
         return true;
     }
     report_unwind("pmd_resident_main");
     return false;
 }
+
+// Runs pmd_resident_main against the variant's board script so the driver
+// installs its FM timer handler. Each variant's board setup defines it.
+static bool run_board_resident(struct pmd *pmd);
 
 // Runs pmd_change_main. Returns its result unless it unwound, in which case
 // ctx.exited records the exit.
@@ -1237,6 +1293,12 @@ static const struct test_io board_script[] = {
     {0x38a, 0xc0},
 };
 
+static bool run_board_resident(struct pmd *pmd) {
+    ctx_reset();
+    set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    return run_resident(pmd, "");
+}
+
 static void test_board_present(void) {
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
@@ -1422,6 +1484,13 @@ static const struct test_io va_board_script[] = {
     {0x44, 0x00},
 };
 
+static bool run_board_resident(struct pmd *pmd) {
+    ctx_reset();
+    set_script(va_board_script,
+               sizeof(va_board_script) / sizeof(va_board_script[0]));
+    return run_resident(pmd, "");
+}
+
 static void test_board_present(void) {
     ctx_reset();
     set_script(va_board_script,
@@ -1491,6 +1560,13 @@ static const struct test_io board_script[] = {
     {0x188, 0x00},
     {0x18a, 0xc0}, // int5
 };
+
+static bool run_board_resident(struct pmd *pmd) {
+    ctx_reset();
+    set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    ctx.pad_read = 0x08; // BUSY clear, BRDY set
+    return run_resident(pmd, "");
+}
 
 static void test_board_present(void) {
     ctx_reset();
@@ -1562,6 +1638,14 @@ static const struct test_io board_script[] = {
     {0x188, 0x00},
 };
 
+static bool run_board_resident(struct pmd *pmd) {
+    ctx_reset();
+    set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    // BRDY never arrives, which is how the RAM check spots a YMF288.
+    ctx.pad_read = 0x00;
+    return run_resident(pmd, "");
+}
+
 static void test_board_present(void) {
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
@@ -1621,6 +1705,14 @@ static const struct test_io board_script[] = {
     {0x45, 0x01}, // VA+BOARD2 check
 };
 
+static bool run_board_resident(struct pmd *pmd) {
+    ctx_reset();
+    set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    // BRDY always arrives, so the RAM check finds no ADPCM.
+    ctx.pad_read = 0x08;
+    return run_resident(pmd, "");
+}
+
 static void test_board_present(void) {
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
@@ -1678,6 +1770,15 @@ static const struct test_io board_script[] = {
     {0x08c, 0x00},
     {0x08e, 0x00},
 };
+
+static bool run_board_resident(struct pmd *pmd) {
+    ctx_reset();
+    set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    // BUSY clear, BRDY set; the ADPCM read-back does not match, which does not
+    // matter to the timer tests.
+    ctx.pad_read = 0x08;
+    return run_resident(pmd, "");
+}
 
 // The ADPCM RAM is expected to return the pattern pcmstore wrote
 // (ADRAMCHK.ASM:385); the two leading bytes are the reads pget discards
@@ -1883,6 +1984,294 @@ static void test_board_ext_drivers(void) {
 }
 #endif
 
+// Invokes the installed handler, turning a hardware-script failure into a
+// reported failure instead of unwinding into a dead frame.
+static void run_fm_handler(struct pmd *pmd) {
+    if (setjmp(ctx.jmp) != 0) {
+        report_unwind("fm_timer_handler");
+        return;
+    }
+    ctx.fm_timer_handler(pmd);
+}
+
+// The status reads consumed by one installed-handler invocation: opnint's
+// pending check (two reads), FM_Timer_main's rdychk (two reads) and its 27h
+// status read, then opnint's recheck (two reads). `pending` is the value
+// opnint's check sees and `status` the value the 27h read returns.
+static void fire_fm_timer(struct pmd *pmd, uint8_t pending, uint8_t status) {
+    uint16_t port1 = pmd->fm1_port1;
+    const struct test_io script[] = {
+#if vsync
+        // :7524-7531 and :7606-7613 read port 2 to stop and restore VSync.
+        {2, 0x00},
+#endif
+        {port1, 0x00},
+        {port1, pending},
+        {port1, 0x00},
+        {port1, 0x00},
+        {port1, status},
+        {port1, 0x00},
+        {port1, 0x00},
+#if vsync
+        {2, 0x00},
+#endif
+    };
+    set_script(script, sizeof(script) / sizeof(script[0]));
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    run_fm_handler(pmd);
+    CHECK_EQ(ctx.script_pos, ctx.script_len);
+}
+
+// Runs the variant's board-present resident setup, which installs the FM timer
+// handler, and seeds the timer state that phase 5's data_init will own.
+static struct pmd *new_timer_pmd(void) {
+    struct pmd *pmd = alloc_pmd();
+    pmd_init(pmd);
+    CHECK(run_board_resident(pmd));
+    CHECK(ctx.fm_timer_handler != NULL);
+    pmd->TimerAtime = 10;
+    pmd->lastTimerAtime = 20;
+    pmd->play_flag = 0;
+    pmd->ch3mode = 0x3f;
+    return pmd;
+}
+
+static void test_timer_a(void) {
+    struct pmd *pmd = new_timer_pmd();
+
+    fire_fm_timer(pmd, 1, 1);
+
+    CHECK_EQ(pmd->TimerAtime, 11);
+    // Timer B did not run, so it did not record the bar counter.
+    CHECK_EQ(pmd->lastTimerAtime, 20);
+    CHECK_EQ(pmd->TimerAflag, 0);
+    CHECK_EQ(pmd->TimerBflag, 0);
+    // The nesting counter returns to its previous value.
+    CHECK_EQ(pmd->int5_flag, 0);
+    // :7669-7678 the 27h address and ch3mode reset the timer flags.
+    CHECK(has_write(pmd->fm1_port1, 0x27));
+    CHECK(has_write(pmd->fm1_port2, 0x3f));
+
+    free_pmd(pmd);
+}
+
+static void test_timer_b(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->play_flag = 1;
+
+    fire_fm_timer(pmd, 2, 2);
+
+    CHECK_EQ(pmd->TimerAtime, 10);
+#if sync
+    // :7726-7729 Timer B is inert under MIDI sync, so it does not record the
+    // bar counter.
+    CHECK_EQ(pmd->lastTimerAtime, 20);
+#else
+    // :7747-7751 Timer B stores the bar counter so Timer A can detect a whole
+    // bar, so it records the unchanged count here.
+    CHECK_EQ(pmd->lastTimerAtime, 10);
+#endif
+    CHECK_EQ(pmd->TimerAflag, 0);
+    CHECK_EQ(pmd->TimerBflag, 0);
+    CHECK_EQ(pmd->int5_flag, 0);
+
+    free_pmd(pmd);
+}
+
+static void test_timer_ab(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->play_flag = 1;
+
+    fire_fm_timer(pmd, 3, 3);
+
+    // :7706 Timer B runs before Timer A for a simultaneous interrupt, so the
+    // recorded counter is the one from before Timer A's increment.
+    CHECK_EQ(pmd->TimerAtime, 11);
+#if sync
+    // :7726-7729 Timer B is inert under MIDI sync.
+    CHECK_EQ(pmd->lastTimerAtime, 20);
+#else
+    CHECK_EQ(pmd->lastTimerAtime, 10);
+#endif
+    CHECK_EQ(pmd->TimerAflag, 0);
+    CHECK_EQ(pmd->TimerBflag, 0);
+    CHECK_EQ(pmd->int5_flag, 0);
+
+    free_pmd(pmd);
+}
+
+static void test_timer_status_zero(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->play_flag = 1;
+
+    // :7701-7706 The two `dec ah; jz` tests fall through to both handlers when
+    // the 27h status is 0, which opnint's own check cannot produce because it
+    // would already have returned. Preserve the original's behavior.
+    fire_fm_timer(pmd, 1, 0);
+
+    CHECK_EQ(pmd->TimerAtime, 11);
+#if sync
+    // :7726-7729 Timer B is inert under MIDI sync.
+    CHECK_EQ(pmd->lastTimerAtime, 20);
+#else
+    CHECK_EQ(pmd->lastTimerAtime, 10);
+#endif
+    CHECK_EQ(pmd->int5_flag, 0);
+
+    free_pmd(pmd);
+}
+
+// :7499 int5_flag is a nesting counter, not a reentrancy guard: a handler
+// entered while it is already set keeps counting and still runs its work.
+static void test_timer_nesting(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->play_flag = 1;
+    pmd->fmint = (struct pmd_int_handler){test_fm_callback, pmd};
+    pmd->intfook_flag = 1;
+
+    pmd->int5_flag = 1;
+    fire_fm_timer(pmd, 2, 2);
+#if sync
+    // :7726-7729 Timer B is inert under MIDI sync, so no callback observes the
+    // counter.
+    CHECK_EQ(pmd->lastTimerAtime, 20);
+#else
+    CHECK_EQ(ctx.cb_fm_int5_flag, 2);
+    CHECK_EQ(pmd->lastTimerAtime, 10);
+#endif
+    CHECK_EQ(pmd->TimerBflag, 0);
+    CHECK_EQ(pmd->int5_flag, 1);
+
+    // The counter is a byte, so consecutive interrupts wrap it rather than
+    // saturating or refusing the second one.
+    pmd->int5_flag = 0xff;
+    fire_fm_timer(pmd, 2, 2);
+#if !sync
+    CHECK_EQ(ctx.cb_fm_int5_flag, 0);
+#endif
+    CHECK_EQ(pmd->int5_flag, 0xff);
+
+    free_pmd(pmd);
+}
+
+static void test_timer_callbacks(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->play_flag = 1;
+    pmd->fmint = (struct pmd_int_handler){test_fm_callback, pmd};
+    pmd->efcint = (struct pmd_int_handler){test_efc_callback, pmd};
+    pmd->intfook_flag = 3;
+
+    fire_fm_timer(pmd, 3, 3);
+
+#if sync
+    // :7726-7729 Timer B is inert under MIDI sync, so its callback does not
+    // run; Timer A's still does.
+    CHECK_EQ(ctx.fm_calls, 0);
+#else
+    CHECK_EQ(ctx.fm_calls, 1);
+    // :7755-7757 The Timer B callback runs after its flag is cleared, while
+    // int5_flag still counts the handler as active.
+    CHECK_EQ(ctx.cb_timer_bflag, 0);
+    CHECK_EQ(ctx.cb_fm_int5_flag, 1);
+#endif
+    CHECK_EQ(ctx.efc_calls, 1);
+    // :7822-7824 The Timer A callback runs after its flag is cleared and while
+    // int5_flag still counts the handler as active.
+    CHECK_EQ(ctx.cb_efc_int5_flag, 1);
+    CHECK_EQ(ctx.cb_timer_aflag, 0);
+    CHECK_EQ(pmd->int5_flag, 0);
+
+    // The intfook_flag bits gate the callbacks.
+    ctx.fm_calls = 0;
+    ctx.efc_calls = 0;
+    pmd->intfook_flag = 0;
+    fire_fm_timer(pmd, 3, 3);
+    CHECK_EQ(ctx.fm_calls, 0);
+    CHECK_EQ(ctx.efc_calls, 0);
+    // int5_flag returns to zero between interrupts because the handler has no
+    // early-return guard.
+    CHECK_EQ(pmd->int5_flag, 0);
+
+    free_pmd(pmd);
+}
+
+#if sync
+static void test_timer_sync(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->play_flag = 1;
+
+    // :7726-7729 The timer's Timer B path is inert under MIDI sync.
+    fire_fm_timer(pmd, 2, 2);
+    CHECK_EQ(pmd->TimerAtime, 10);
+    CHECK_EQ(pmd->lastTimerAtime, 20);
+
+    // :7728 opnint_sub runs the same work for the AH=FFh entry point.
+    pmd_opnint_sub(pmd);
+    CHECK_EQ(pmd->lastTimerAtime, 10);
+    CHECK_EQ(pmd->TimerBflag, 0);
+
+    free_pmd(pmd);
+}
+#endif
+
+#if vsync
+static void test_timer_vsync(void) {
+    struct pmd *pmd = new_timer_pmd();
+    // :7524-7531 and :7606-7613 stop VSync around the handler and restore it
+    // afterwards; fire_fm_timer scripts the two port 2 reads.
+    fire_fm_timer(pmd, 1, 1);
+
+    CHECK(has_write(2, 0x04));
+    CHECK(has_write(2, 0x00));
+    CHECK_EQ(pmd->TimerAtime, 11);
+    CHECK_EQ(pmd->int5_flag, 0);
+
+    free_pmd(pmd);
+}
+
+// A Timer A handler invocation whose entry and exit port 2 reads are scripted
+// separately, so the restore can be observed against the saved state.
+static void fire_vsync_timer(struct pmd *pmd, uint8_t saved, uint8_t live) {
+    uint16_t port1 = pmd->fm1_port1;
+    const struct test_io script[] = {
+        {2, saved},
+        {port1, 0x00},
+        {port1, 1},
+        {port1, 0x00},
+        {port1, 0x00},
+        {port1, 1},
+        {port1, 0x00},
+        {port1, 0x00},
+        {2, live},
+    };
+    set_script(script, sizeof(script) / sizeof(script[0]));
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    run_fm_handler(pmd);
+    CHECK_EQ(ctx.script_pos, ctx.script_len);
+}
+
+// :7606-7613 The restore puts back the state saved on entry rather than
+// unconditionally restarting VSync.
+static void test_timer_vsync_restore(void) {
+    struct pmd *pmd = new_timer_pmd();
+
+    // VSync was already stopped on entry, so it stays stopped.
+    fire_vsync_timer(pmd, 0x04, 0x04);
+    CHECK(has_write(2, 0x04));
+    CHECK(!has_write(2, 0x00));
+
+    // :7607-7610 `and al,dl` restores the saved bit only when the live read
+    // still has it set; it is not forced back on.
+    fire_vsync_timer(pmd, 0x04, 0x00);
+    CHECK(has_write(2, 0x04));
+    CHECK(has_write(2, 0x00));
+
+    free_pmd(pmd);
+}
+#endif
+
 int main(void) {
     struct pmd *pmd = new_pmd();
 
@@ -1920,6 +2309,19 @@ int main(void) {
 #endif
 #if ppz
     test_board_ext_drivers();
+#endif
+    test_timer_a();
+    test_timer_b();
+    test_timer_ab();
+    test_timer_status_zero();
+    test_timer_nesting();
+    test_timer_callbacks();
+#if sync
+    test_timer_sync();
+#endif
+#if vsync
+    test_timer_vsync();
+    test_timer_vsync_restore();
 #endif
 
     if (failures != 0) {

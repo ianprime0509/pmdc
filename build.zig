@@ -94,6 +94,24 @@ pub fn build(b: *std.Build) void {
         pmd_test_step.dependOn(&header_check.step);
     }
 
+    // sync and vsync are not features of any shipped variant, but the timer
+    // paths they guard must still be compiled and exercised.
+    const extra_test_features = [_]struct {
+        name: []const u8,
+        features: []const PmdFeature,
+    }{
+        .{ .name = "sync", .features = &.{.sync} },
+        .{ .name = "vsync", .features = &.{.vsync} },
+    };
+    for (extra_test_features) |extra| {
+        const pmd_test_exe = addPmdTest(b, extra.name, target, optimize, lang_num);
+        addFeatures(pmd_test_exe.root_module, extra.features);
+        const pmd_test_run = b.addRunArtifact(pmd_test_exe);
+        pmd_test_run.has_side_effects = true;
+        pmd_test_run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+        pmd_test_step.dependOn(&pmd_test_run.step);
+    }
+
     const mc_test_harness_mod = b.createModule(.{
         .root_source_file = b.path("test/mc/harness.zig"),
         .target = b.graph.host,
