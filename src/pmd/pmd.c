@@ -585,19 +585,31 @@ PMDC_NORETURN static void error_exit(struct pmd *pmd, int status);
 // :173
 static void print_mes(struct pmd *pmd, const char *mes);
 // :218
-static PMDC_UNUSED void _wait(struct pmd *pmd);
+static void _wait(struct pmd *pmd);
 // :223
 static PMDC_UNUSED void _waitP(struct pmd *pmd);
 // :230
 static PMDC_UNUSED void _rwait(struct pmd *pmd);
 // :242
-static void rdychk(struct pmd *pmd, uint16_t port);
+static uint8_t rdychk(struct pmd *pmd, uint16_t port);
+// EFCDRV.ASM:118
+static void effplay(struct pmd *pmd);
+// :392
+static void fm_efcplay(struct pmd *pmd);
+// :440
+static void mstart(struct pmd *pmd);
+// :883
+static void mstop(struct pmd *pmd);
+// :900
+static void mmain(struct pmd *pmd);
 #if board2
 // :1029
 static PMDC_UNUSED void sel46(struct pmd *pmd);
 // :1039
 static PMDC_UNUSED void sel44(struct pmd *pmd);
 #endif
+// :5967
+static void fadeout(struct pmd *pmd);
 // :6173
 static PMDC_UNUSED void opnset44(struct pmd *pmd, uint16_t dx);
 #if board2
@@ -608,6 +620,20 @@ static PMDC_UNUSED void opnset46(struct pmd *pmd, uint16_t dx);
 static PMDC_UNUSED void opnset(struct pmd *pmd, uint16_t dx);
 // :6253
 static PMDC_UNUSED uint8_t get07(struct pmd *pmd);
+// :7492
+static void opnint(struct pmd *pmd);
+// :7663
+static void FM_Timer_main(struct pmd *pmd);
+// :7725
+static void TimerB_main(struct pmd *pmd);
+// :7764
+static void TimerA_main(struct pmd *pmd);
+// :7831
+static void syousetu_count(struct pmd *pmd);
+// :7844
+static void settempo_b(struct pmd *pmd);
+// :7864
+static void rew(struct pmd *pmd);
 // :8385
 static void resident_exit_end(struct pmd *pmd);
 // :8555
@@ -973,7 +999,7 @@ static void print_mes(struct pmd *pmd, const char *mes) {
 }
 
 // The delay loops are calibrated CPU loops (WAIT.INC) that are intentionally
-// not implemented; they are no-delay points until the call sites land.
+// not implemented and remain no-delay points.
 // :218
 static void _wait(struct pmd *pmd) {
     (void)pmd;
@@ -993,12 +1019,33 @@ static void _rwait(struct pmd *pmd) {
 }
 
 // :242
-// Discards one status read, then waits for the BUSY bit to clear.
-static void rdychk(struct pmd *pmd, uint16_t port) {
+// Discards one status read, then waits for the BUSY bit to clear. The original
+// leaves the final read in AL, which opnint's timer checks inspect; callers
+// that write a register discard it.
+static uint8_t rdychk(struct pmd *pmd, uint16_t port) {
+    uint8_t al;
     (void)inb(pmd, port);
-    while (inb(pmd, port) & 0x80) {
+    while ((al = inb(pmd, port)) & 0x80) {
     }
+    return al;
 }
+
+// EFCDRV.ASM:118
+// Phase 8 stub: no-op until the effect driver is translated.
+static void effplay(struct pmd *pmd) { (void)pmd; }
+
+// :392
+// Phase 8 stub: no-op until the effect driver is translated.
+static void fm_efcplay(struct pmd *pmd) { (void)pmd; }
+// :440
+// Phase 5 stub: no-op until the sequencer is translated.
+static void mstart(struct pmd *pmd) { (void)pmd; }
+// :883
+// Phase 5 stub: no-op until the sequencer is translated.
+static void mstop(struct pmd *pmd) { (void)pmd; }
+// :900
+// Phase 5 stub: no-op until the sequencer is translated.
+static void mmain(struct pmd *pmd) { (void)pmd; }
 
 #if board2
 // :1029
@@ -1015,6 +1062,10 @@ static PMDC_UNUSED void sel44(struct pmd *pmd) {
     pmd->fmsel = 0;
 }
 #endif
+
+// :5967
+// Phase 5 stub: no-op until the sequencer is translated.
+static void fadeout(struct pmd *pmd) { (void)pmd; }
 
 // The original brackets every register write with pushf/cli/sti and restores
 // the interrupt flag afterwards. The host owns that exclusion (see the
@@ -1055,6 +1106,169 @@ static PMDC_UNUSED uint8_t get07(struct pmd *pmd) {
     _waitP(pmd);
     return inb(pmd, pmd->fm1_port2);
 }
+
+// :7492
+// The FM timer interrupt handler. The host installs it through
+// pmd_hw.install_fm_timer_handler and calls it when the FM IRQ fires.
+static void opnint(struct pmd *pmd) {
+    // :7493 The original's cli/cld, PIC mask (:7517-7522), EOI (:7533), old
+    // INT 5h handler chaining (:7578-7595), and private stack switch
+    // (:7501-7508) are host-owned.
+    // :7499 int5_flag is a nesting counter, not a reentrancy guard.
+    pmd->int5_flag++;
+
+#if vsync
+    // :7524-7531 stop VSync for the duration of the handler.
+    uint8_t vsync_save = inb(pmd, 2);
+    outb(pmd, 2, (uint8_t)(vsync_save | 4));
+#endif
+
+INT_check:
+#if pcm
+    // TODO(phase 8): read 0a468h and run fifo_main when the FIFO interrupt bit
+    // is set, then restart at INT_check (:7540-7550).
+#endif
+#if ppz
+    // TODO(phase 8): dispatch PPZ8's directly callable FM entry when
+    // ppz_call_seg is 2 (:7556).
+#endif
+    // :7561-7566
+    if ((rdychk(pmd, pmd->fm1_port1) & 3) != 0) {
+        FM_Timer_main(pmd);
+        goto INT_check;
+    }
+
+    // :7571 opnint_fin
+
+#if vsync
+    // :7606-7613 `or dl,11111011b` then `and al,dl`: the saved VSync bit is
+    // restored only when the live read still has it set.
+    outb(pmd, 2, (uint8_t)(inb(pmd, 2) & (vsync_save | 0xfb)));
+#endif
+
+    // :7633
+    pmd->int5_flag--;
+}
+
+// :7663
+// Confirms which timer fired, resets both timer flags, and dispatches to the
+// per-timer handlers.
+static void FM_Timer_main(struct pmd *pmd) {
+    // :7669-7678 Read the status through the 27h address and write ch3mode
+    // back: writing it clears both timer flags.
+    (void)rdychk(pmd, pmd->fm1_port1);
+    outb(pmd, pmd->fm1_port1, 0x27);
+    _wait(pmd);
+    uint8_t ch3mode = pmd->ch3mode;
+    uint8_t status = inb(pmd, pmd->fm1_port1);
+    outb(pmd, pmd->fm1_port2, ch3mode);
+
+    // :7680
+    status &= 3;
+
+    // :7685-7688 The original re-enables interrupts unless disint is 1; the
+    // host owns that exclusion.
+
+    // :7701-7712 `dec ah; jz` twice: 1 = Timer A, 2 = Timer B, and anything
+    // else (including the impossible 0) falls through to both, Timer B first.
+    // BUG: a 0 status therefore runs both handlers instead of being ignored,
+    // though opnint's own check makes it unreachable in practice.
+    if (status == 1) {
+        TimerA_main(pmd);
+    } else if (status == 2) {
+        TimerB_main(pmd);
+    } else {
+        TimerB_main(pmd);
+        TimerA_main(pmd);
+    }
+}
+
+// :7725
+// Timer B work: the music start/stop handshake and the sequencer tick.
+#if sync
+// The MIDI sync build advances the music from the sync source, so the timer
+// handler's Timer B path is inert; the AH=FFh entry point (:7728 opnint_sub)
+// runs the same work through pmd_opnint_sub.
+static void TimerB_main(struct pmd *pmd) { (void)pmd; }
+
+void pmd_opnint_sub(struct pmd *pmd) {
+#else
+static void TimerB_main(struct pmd *pmd) {
+#endif
+    // :7730
+    pmd->TimerBflag = 1;
+
+    // :7732-7742
+    if (pmd->music_flag != 0) {
+        if ((pmd->music_flag & 1) != 0) mstart(pmd);
+        if ((pmd->music_flag & 2) != 0) mstop(pmd);
+    }
+
+    // :7744-7752
+    if (pmd->play_flag != 0) {
+        mmain(pmd);
+        settempo_b(pmd);
+        syousetu_count(pmd);
+        pmd->lastTimerAtime = pmd->TimerAtime;
+    }
+    // :7753
+    pmd->TimerBflag = 0;
+
+    // :7755-7757
+    if ((pmd->intfook_flag & 1) != 0 && pmd->fmint.fn != NULL) {
+        pmd->fmint.fn(pmd->fmint.user_data);
+    }
+}
+
+// :7764
+// Timer A work: the bar counter, the effect drivers, and the stop-key check.
+static void TimerA_main(struct pmd *pmd) {
+    // :7765
+    pmd->TimerAflag = 1;
+
+    // :7767
+    pmd->TimerAtime++;
+
+    // :7769-7773
+    if ((pmd->TimerAtime & 7) == 0) {
+        fadeout(pmd);
+        rew(pmd);
+    }
+
+    // :7776-7783
+    if (pmd->effon != 0 &&
+        (pmd->ppsdrv_flag == 0 || (pmd->psgefcnum & 0x80) == 0)) {
+        effplay(pmd);
+    }
+
+    // :7786-7788
+    if (pmd->fm_effec_flag != 0) fm_efcplay(pmd);
+
+    if (pmd->key_check != 0 && pmd->play_flag != 0) {
+        // TODO(phase 5): the CTRL+ESC / GRPH+ESC / REW stop-key check. The
+        // keyboard state comes from pmd_hw.read_key_state; on a match the
+        // original sets music_flag |= 2 for the next Timer B and clears
+        // fadeout_flag (:7791-7818).
+    }
+
+    // :7820
+    pmd->TimerAflag = 0;
+
+    // :7822-7824
+    if ((pmd->intfook_flag & 2) != 0 && pmd->efcint.fn != NULL) {
+        pmd->efcint.fn(pmd->efcint.user_data);
+    }
+}
+
+// :7831
+// Phase 5 stub: no-op until the sequencer is translated.
+static void syousetu_count(struct pmd *pmd) { (void)pmd; }
+// :7844
+// Phase 5 stub: no-op until the sequencer is translated.
+static void settempo_b(struct pmd *pmd) { (void)pmd; }
+// :7864
+// Phase 5 stub: no-op until the sequencer is translated.
+static void rew(struct pmd *pmd) { (void)pmd; }
 
 // :8385
 // The original continues into `resident_exit` (INT 21h/AH=31h) and stays
@@ -1173,8 +1387,8 @@ static void fm_check(struct pmd *pmd) {
 // :8899
 // Reads the board's interrupt level, reports the chip, and initializes the
 // PPSDRV/PPZ8 state. DOS vector installation and the PIC mask/EOI setup
-// (:9020) are host-owned: pmd_hw.install_fm_timer_handler provides the timer
-// source in the timer phase.
+// (:9020) are host-owned; pmd_resident_main installs the handler through
+// pmd_hw.install_fm_timer_handler.
 static void int_init(struct pmd *pmd) {
     // :8904
     rdychk(pmd, pmd->fm1_port1);
@@ -2255,15 +2469,15 @@ void pmd_resident_main(struct pmd *pmd, char *cmdline) {
 #endif
 
         // :8752 The INT 5h vector save/install is omitted: the host owns the
-        // interrupt source, and the timer phase installs the handler through
-        // pmd_hw.install_fm_timer_handler.
+        // interrupt source and installs the driver's handler here.
+        pmd->hw->install_fm_timer_handler(opnint, pmd->user_data);
     }
 
     // :8773 The INT 60h vector save/install is omitted: the typed public
     // functions replace the register dispatcher.
 
     // :8790 opnint_start is playback-dependent (data_init, opn_init, mstop,
-    // setint) and arrives with the timer and sequencer phases.
+    // setint) and arrives with the sequencer phase.
 
     // :8800
     if (pmd->message_flag != 0) {
