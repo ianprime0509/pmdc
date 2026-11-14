@@ -481,8 +481,8 @@ enum pmd_change_result {
 // The fields follow the original data area order (:7975 onwards) as closely as
 // practical. The INT 60h register save area (ds_push/dx_push/ah_push/al_push),
 // the PIC mask/EOI addresses (eoi_*/mask_*), the private interrupt stack
-// (ss_push/sp_push), int60_result, and the PPZ8 call address (ppz_call_ofs/
-// ppz_call_seg, replaced by the ppz8 vtable pointer) are omitted: the typed
+// (ss_push/sp_push), int60_result, and the PPZ8 call address (ppz_call_ofs,
+// replaced by pmd_drv_ppz8.fm_int) are omitted: the typed
 // interface replaces the register dispatcher, reports rejections through typed
 // returns instead of int60_result, and leaves interrupt masking to the host.
 struct pmd {
@@ -621,6 +621,9 @@ struct pmd {
     uint16_t slot_detune3;
     uint16_t slot_detune4;
     // :8100
+    // wait_check's results. The original never initializes them, and
+    // wait_check only runs from fm_check's board-present path, so they are
+    // indeterminate until then.
     uint16_t wait_clock;
     uint16_t wait1_clock;
     uint8_t ff_tempo;
@@ -670,6 +673,12 @@ struct pmd {
     uint8_t ch3mode_push;
     uint8_t ppz_voldown;
     uint8_t _ppz_voldown;
+    // :8144
+    // PPZ8 availability state. The original stores PPZ8's call segment here:
+    // 0 = unavailable, 1 = available through the ordinary INT 7Fh calls, and
+    // 2 = the directly callable FM entry from 0409h was obtained. The port
+    // keeps only the state; the entry itself is pmd_drv_ppz8.fm_int.
+    uint8_t ppz_call_seg;
     // :8145
     uint8_t p86_freq;
     // :8147
@@ -710,6 +719,11 @@ struct pmd {
     // its "2608" with "F288" to report a YMF288 (ADRAMCHK.ASM:62). Sized for the
     // longest variant's string, including its null terminator.
     char mes_ongen1[7];
+    // :10854
+    // The interrupt-number bits (0Eh & C0h) that int_init read, compared
+    // against each candidate port by the resident OPN initialization. Only the
+    // non-VA builds use it.
+    uint8_t opn_0eh;
 
     // Non-resident area (:10852 onwards).
     // :10853

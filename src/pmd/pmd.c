@@ -122,31 +122,19 @@ enum {
 #include "strings_jp.h"
 #endif
 
-// The delay loops are calibrated CPU loops (WAIT.INC) that are intentionally
-// not implemented; they are no-delay points until the call sites land.
-// :218
-static PMDC_UNUSED void _wait(struct pmd *pmd);
-// :223
-static PMDC_UNUSED void _waitP(struct pmd *pmd);
-// :230
-static PMDC_UNUSED void _rwait(struct pmd *pmd);
-
-// :218
-static void _wait(struct pmd *pmd) {
-    (void)pmd;
-    // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
+// Writes one character (DOS INT 21h/AH=2 in the original).
+static void print_char(struct pmd *pmd, char c) {
+    pmd->sys->putc(c, pmd->user_data);
 }
 
-// :223
-static void _waitP(struct pmd *pmd) {
-    (void)pmd;
-    // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
+// The register accesses below go through pmd_hw; these two wrappers only keep
+// the transcription of the original's `in`/`out` sequences readable.
+static uint8_t inb(struct pmd *pmd, uint16_t port) {
+    return pmd->hw->inb(port, pmd->user_data);
 }
 
-// :230
-static void _rwait(struct pmd *pmd) {
-    (void)pmd;
-    // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
+static void outb(struct pmd *pmd, uint16_t port, uint8_t value) {
+    pmd->hw->outb(port, value, pmd->user_data);
 }
 
 // :7925
@@ -552,6 +540,257 @@ static const uint8_t empty_dataarea[] = {
     0x80,
 };
 
+#if board2 && adpcm && !ademu
+// ADRAMCHK.ASM:385
+// The ADPCM RAM test pattern. The original's buffer is exactly 32 bytes with no
+// terminator; the extra byte here is never sent.
+static const char check_code[] = "*+=-PMD ADPCM RAM Check Data-=+*";
+#endif
+
+// :10568
+// Byte offsets of int_num and port_num inside pmd->mes_int, which is the
+// original's mutable resident message.
+enum {
+    mes_int_int_num = 4,
+    mes_int_port_num = 11,
+};
+
+// :10749
+// The interrupt number and level for each value of the FM register 0Eh
+// interrupt bits. The original also stores a DOS vector offset at +2 of each
+// entry; the host owns vector installation, so it is omitted.
+static const struct {
+    char num;
+    uint8_t level;
+} vector_table[4] = {
+    {'0', 3},  // int0
+    {'6', 13}, // int6
+    {'4', 10}, // int4
+    {'5', 12}, // int5
+};
+
+// An option handler. `cmd` is the original's DS:SI and from_env is set while
+// parsing PMDOPT, where a usage error abandons parsing instead of exiting.
+// Returns false when option parsing must stop.
+typedef bool (*pmd_option_fn)(struct pmd *pmd, const char **cmd, bool from_env);
+
+// :10759 one entry of the original's 3-byte option tables
+struct pmd_option {
+    char name;
+    pmd_option_fn fn;
+};
+
+// :151
+PMDC_NORETURN static void error_exit(struct pmd *pmd, int status);
+// :173
+static void print_mes(struct pmd *pmd, const char *mes);
+// :218
+static PMDC_UNUSED void _wait(struct pmd *pmd);
+// :223
+static PMDC_UNUSED void _waitP(struct pmd *pmd);
+// :230
+static PMDC_UNUSED void _rwait(struct pmd *pmd);
+// :242
+static void rdychk(struct pmd *pmd, uint16_t port);
+#if board2
+// :1029
+static PMDC_UNUSED void sel46(struct pmd *pmd);
+// :1039
+static PMDC_UNUSED void sel44(struct pmd *pmd);
+#endif
+// :6173
+static PMDC_UNUSED void opnset44(struct pmd *pmd, uint16_t dx);
+#if board2
+// :6200
+static PMDC_UNUSED void opnset46(struct pmd *pmd, uint16_t dx);
+#endif
+// :6218
+static PMDC_UNUSED void opnset(struct pmd *pmd, uint16_t dx);
+// :6253
+static PMDC_UNUSED uint8_t get07(struct pmd *pmd);
+// :8385
+static void resident_exit_end(struct pmd *pmd);
+// :8555
+static bool _set_option(struct pmd *pmd, const struct pmd_option *table,
+                        const char *cmd);
+// :8604
+static void memchk_init(struct pmd *pmd);
+#if !va
+// :8707
+static void opninit_loop(struct pmd *pmd);
+#endif
+// :8845
+static void fm_check(struct pmd *pmd);
+// :8899
+static void int_init(struct pmd *pmd);
+// :9036
+static bool ppsdrv_check(struct pmd *pmd);
+#if ppz
+// :9110
+static bool ppz8_check(struct pmd *pmd);
+#endif
+#if !va
+// :9174
+static void opnset_fmc(struct pmd *pmd, uint16_t dx, uint16_t ax);
+#endif
+// :9196
+static bool port_check(struct pmd *pmd);
+#if !va
+// :9314
+static bool check_86b(struct pmd *pmd);
+#if !pcm
+// :9406
+static PMDC_UNUSED bool check_spb(struct pmd *pmd);
+#endif
+// :9468
+static void set_port(struct pmd *pmd, uint16_t dx);
+#endif
+// :9511
+static void put_status(struct pmd *pmd);
+// :9598
+static uint8_t sp_key_display(uint8_t key);
+// :9715
+static void put8(struct pmd *pmd, uint8_t al);
+// :9726
+static void p8_oneset(struct pmd *pmd, uint8_t *al, uint8_t dl,
+                      bool *printed);
+// :9753
+static bool resident_cut_main(struct pmd *pmd, const char **cmd,
+                              bool from_env);
+// :9927
+static bool set_option(struct pmd *pmd, const struct pmd_option *table,
+                       const char *cmd, bool from_env);
+// :9928
+static char lodsb(const char **cmd);
+// :9958
+static bool muslng_get(struct pmd *pmd, const char **cmd, bool from_env);
+// :9967
+static bool voilng_get(struct pmd *pmd, const char **cmd, bool from_env);
+// :9976
+static bool efclng_get(struct pmd *pmd, const char **cmd, bool from_env);
+// :9985
+static bool fmvd_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10046
+static bool keycheck(struct pmd *pmd, const char **cmd, bool from_env);
+// :10067
+static bool grph_special_set(struct pmd *pmd, const char **cmd,
+                             bool from_env);
+// :10081
+static bool rew_special_set(struct pmd *pmd, const char **cmd,
+                            bool from_env);
+// :10095
+static bool esc_special_set(struct pmd *pmd, const char **cmd,
+                            bool from_env);
+// :10109
+static bool disint_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10122
+static bool notshot_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10135
+static bool notstop_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10148
+static bool ppsdrv_reset(struct pmd *pmd, const char **cmd, bool from_env);
+// :10164
+static bool ppz_reset(struct pmd *pmd, const char **cmd, bool from_env);
+// :10228
+static bool waitclk_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10245
+static bool fftempo_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10259
+static bool adpcmwait_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10269
+static bool pcm86vol_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10284
+static bool portsel_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10304
+static bool message_clear_set(struct pmd *pmd, const char **cmd,
+                              bool from_env);
+// :10314
+static bool get_comline_number(const char **cmd, uint8_t *out);
+// :10350
+static void print_16(struct pmd *pmd, uint16_t ax);
+// :10366
+static void p16_oneset(struct pmd *pmd, uint16_t *ax, uint16_t bx,
+                       bool *printed);
+// :10440
+PMDC_NORETURN static bool pmderr_5(struct pmd *pmd, const char **cmd,
+                                   bool from_env);
+// :10444
+PMDC_NORETURN static bool pmderr_6(struct pmd *pmd, const char **cmd,
+                                   bool from_env);
+// :10452
+PMDC_NORETURN static void pmderr_main(struct pmd *pmd, const char *mes);
+// :10462
+static bool hz_usage(struct pmd *pmd, const char **cmd, bool from_env);
+// :10467
+static bool usage(struct pmd *pmd, bool from_env);
+// :10485
+static bool hz_set(struct pmd *pmd, const char **cmd, bool from_env);
+// :10513
+static void wait_check(struct pmd *pmd);
+#if board2 && adpcm && !ademu
+// ADRAMCHK.ASM:11
+static void adpcm_ram_check(struct pmd *pmd);
+// ADRAMCHK.ASM:72
+static bool pcmstore(struct pmd *pmd, const uint8_t *data);
+// ADRAMCHK.ASM:237
+static void pcmst_exit(struct pmd *pmd);
+// ADRAMCHK.ASM:284
+static void pcmread(struct pmd *pmd, uint8_t *data);
+// ADRAMCHK.ASM:354
+static void pget(struct pmd *pmd);
+// ADRAMCHK.ASM:378
+static bool pcmcompare(const uint8_t *data);
+#endif
+
+// :10759
+// The options accepted by pmd_resident_main.
+static const struct pmd_option resident_option[] = {
+    {'H', hz_usage},
+    {'M', muslng_get},
+    {'V', voilng_get},
+    {'E', efclng_get},
+    {'K', keycheck},
+    {'D', fmvd_set},
+    {'I', disint_set},
+    {'N', notshot_set},
+    {'F', notstop_set},
+    {'P', ppsdrv_reset},
+    {'Z', ppz_reset},
+    {'W', waitclk_set},
+    {'G', fftempo_set},
+    {'A', adpcmwait_set},
+    {'S', pcm86vol_set},
+    {'O', portsel_set},
+    {'R', pmderr_5},
+    {'C', message_clear_set},
+    {0, NULL},
+};
+
+// :10798
+// The options accepted by pmd_change_main.
+static const struct pmd_option status_option[] = {
+    {'H', hz_usage},
+    {'R', resident_cut_main},
+    {'K', keycheck},
+    {'D', fmvd_set},
+    {'I', disint_set},
+    {'N', notshot_set},
+    {'F', notstop_set},
+    {'P', ppsdrv_reset},
+    {'Z', ppz_reset},
+    {'W', waitclk_set},
+    {'G', fftempo_set},
+    {'A', adpcmwait_set},
+    {'S', pcm86vol_set},
+    {'M', pmderr_6},
+    {'V', pmderr_6},
+    {'E', pmderr_6},
+    {'Y', pmderr_6},
+    {'O', pmderr_6},
+    {'C', message_clear_set},
+    {0, NULL},
+};
+
 void pmd_init(struct pmd *pmd) {
 #define lengthof(arr) (sizeof((arr)) / sizeof((arr)[0]))
 
@@ -723,19 +962,1344 @@ void pmd_init(struct pmd *pmd) {
 #undef lengthof
 }
 
-// :8471
-void pmd_resident_main(struct pmd *pmd, char *cmdline) {
+// :151
+PMDC_NORETURN static void error_exit(struct pmd *pmd, int status) {
+    pmd->sys->exit(status, pmd->user_data);
+}
+
+// :173
+static void print_mes(struct pmd *pmd, const char *mes) {
+    pmd->sys->print(mes, pmd->user_data);
+}
+
+// The delay loops are calibrated CPU loops (WAIT.INC) that are intentionally
+// not implemented; they are no-delay points until the call sites land.
+// :218
+static void _wait(struct pmd *pmd) {
     (void)pmd;
-    (void)cmdline;
-    // Filled in when option parsing and the hardware probe are translated
-    // (phase 3).
+    // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
+}
+
+// :223
+static void _waitP(struct pmd *pmd) {
+    (void)pmd;
+    // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
+}
+
+// :230
+static void _rwait(struct pmd *pmd) {
+    (void)pmd;
+    // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
+}
+
+// :242
+// Discards one status read, then waits for the BUSY bit to clear.
+static void rdychk(struct pmd *pmd, uint16_t port) {
+    (void)inb(pmd, port);
+    while (inb(pmd, port) & 0x80) {
+    }
+}
+
+#if board2
+// :1029
+static PMDC_UNUSED void sel46(struct pmd *pmd) {
+    pmd->fm_port1 = pmd->fm2_port1;
+    pmd->fm_port2 = pmd->fm2_port2;
+    pmd->fmsel = 1;
+}
+
+// :1039
+static PMDC_UNUSED void sel44(struct pmd *pmd) {
+    pmd->fm_port1 = pmd->fm1_port1;
+    pmd->fm_port2 = pmd->fm1_port2;
+    pmd->fmsel = 0;
+}
+#endif
+
+// The original brackets every register write with pushf/cli/sti and restores
+// the interrupt flag afterwards. The host owns that exclusion (see the
+// interrupt/timer section of the plan), so these helpers perform the I/O only.
+//
+// :6173
+static PMDC_UNUSED void opnset44(struct pmd *pmd, uint16_t dx) {
+    rdychk(pmd, pmd->fm1_port1);
+    outb(pmd, pmd->fm1_port1, (uint8_t)(dx >> 8));
+    _waitP(pmd);
+    outb(pmd, pmd->fm1_port2, (uint8_t)dx);
+}
+
+#if board2
+// :6200
+static PMDC_UNUSED void opnset46(struct pmd *pmd, uint16_t dx) {
+    rdychk(pmd, pmd->fm2_port1);
+    outb(pmd, pmd->fm2_port1, (uint8_t)(dx >> 8));
+    _waitP(pmd);
+    outb(pmd, pmd->fm2_port2, (uint8_t)dx);
+}
+#endif
+
+// :6218
+static PMDC_UNUSED void opnset(struct pmd *pmd, uint16_t dx) {
+    rdychk(pmd, pmd->fm_port1);
+    outb(pmd, pmd->fm_port1, (uint8_t)(dx >> 8));
+    _waitP(pmd);
+    outb(pmd, pmd->fm_port2, (uint8_t)dx);
+}
+
+// :6253
+// Reads PSG register 07h. The original requires its callers to run with
+// interrupts disabled.
+static PMDC_UNUSED uint8_t get07(struct pmd *pmd) {
+    rdychk(pmd, pmd->fm1_port1);
+    outb(pmd, pmd->fm1_port1, 7);
+    _waitP(pmd);
+    return inb(pmd, pmd->fm1_port2);
+}
+
+// :8385
+// The original continues into `resident_exit` (INT 21h/AH=31h) and stays
+// resident; pmd_resident_main's return is the port's residency transition.
+static void resident_exit_end(struct pmd *pmd) {
+    // :8391 voice area
+    if (pmd->voicedat_lng != 0) {
+        memset(pmd->tondat, 0, (size_t)pmd->voicedat_lng * 1024);
+    }
+
+    // :8399 effect area: 128 little-endian 0100h entries and then 80h.
+    if (pmd->effecdat_lng != 0) {
+        for (unsigned i = 0; i < 128; i++) {
+            pmd->efcdat[2 * i] = 0x00;
+            pmd->efcdat[2 * i + 1] = 0x01;
+        }
+        pmd->efcdat[256] = 0x80;
+    }
+}
+
+// :8555
+// The PMDOPT option scan: the original uses opt_sp_push to remember that a
+// usage error is not fatal here.
+static bool _set_option(struct pmd *pmd, const struct pmd_option *table,
+                        const char *cmd) {
+    return set_option(pmd, table, cmd, true);
+}
+
+// :8604
+// The original counts the resident size in 64-byte paragraphs and compares it
+// against the largest MCB block it can get. The host owns the memory, so the
+// resident data area itself is the bound: the largest allowed configuration
+// ends exactly at the end of dataarea. This check must stay unconditional,
+// because the 40KB limit at :8582 only runs for a command line, while PMDOPT
+// can request buffers that do not fit.
+static void memchk_init(struct pmd *pmd) {
+    unsigned paragraphs = (unsigned)pmd->mmldat_lng * 64;
+    paragraphs += (unsigned)pmd->voicedat_lng * 64;
+    paragraphs += (unsigned)pmd->effecdat_lng * 64;
+    if (paragraphs > sizeof(pmd->dataarea) / 16) {
+        pmderr_main(pmd, pmderror_mes7);
+    }
+}
+
+#if !va
+// :8707
+// Writes the initial register values to every candidate port whose 0Eh
+// interrupt-number bits match the board int_init detected.
+static void opninit_loop(struct pmd *pmd) {
+    for (unsigned i = 0; i < 4; i++) {
+        uint16_t dx = (uint16_t)(0x088 + (i << 8));
+
+        uint8_t ah = 0xff;
+        bool present = false;
+        for (unsigned n = 0; n < 256; n++) {
+            ah &= inb(pmd, dx);
+            if ((ah & 0x80) == 0) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) continue; // no sound chip on this port
+
+        rdychk(pmd, dx);
+        outb(pmd, dx, 0x0e);
+        if ((inb(pmd, dx + 2) & 0xc0) != pmd->opn_0eh) continue;
+
+        opnset_fmc(pmd, dx, 0x2900);
+        opnset_fmc(pmd, dx, 0x2400);
+        opnset_fmc(pmd, dx, 0x2500);
+        opnset_fmc(pmd, dx, 0x2600);
+        opnset_fmc(pmd, dx, 0x273f);
+    }
+}
+#endif
+
+// :8845
+// Detects the FM board, selects its ports, and sets up the wait counts and the
+// ADPCM state.
+static void fm_check(struct pmd *pmd) {
+    if (!port_check(pmd)) {
+        // :8884
+        pmd->board = 0;
+        if (pmd->message_flag != 0) {
+            print_mes(pmd, mes_warning);
+            print_mes(pmd, mes_not_board);
+        }
+        return;
+    }
+
+    // :8852
+    pmd->fm_port1 = pmd->fm1_port1;
+    pmd->fm_port2 = pmd->fm1_port2;
+#if !va
+    // :8860 writes the detected port into the resident "Port 88H" text.
+    pmd->mes_int[mes_int_port_num] = (char)('0' + (pmd->fm1_port2 >> 8));
+#endif
+
+    // :8866
+    wait_check(pmd);
+
+    // :8872
+#if board2 && adpcm
+    opnset44(pmd, 0x2983); // 2608 on
+#if ademu
+    pmd->pcm_gs_flag = 1; // ADPCM is emulated and not used
+#else
+    adpcm_ram_check(pmd); // ADRAMCHK.ASM
+#endif
+#else
+    pmd->pcm_gs_flag = 1; // ADPCM is not used
+#endif
+    pmd->board = 1;
+}
+
+// :8899
+// Reads the board's interrupt level, reports the chip, and initializes the
+// PPSDRV/PPZ8 state. DOS vector installation and the PIC mask/EOI setup
+// (:9020) are host-owned: pmd_hw.install_fm_timer_handler provides the timer
+// source in the timer phase.
+static void int_init(struct pmd *pmd) {
+    // :8904
+    rdychk(pmd, pmd->fm1_port1);
+    outb(pmd, pmd->fm1_port1, 7);
+    _wait(pmd); // PSG write wait
+    outb(pmd, pmd->fm1_port2, 0x3f);
+
+    rdychk(pmd, pmd->fm1_port1);
+    outb(pmd, pmd->fm1_port1, 0x0e);
+    _wait(pmd); // PSG read wait
+    uint8_t al = inb(pmd, pmd->fm1_port2) & 0xc0;
+#if !va
+    pmd->opn_0eh = al;
+#endif
+    // :8929 The original rotates the two interrupt-number bits into a 4-byte
+    // table index and then multiplies by 4; the two steps cancel out.
+    pmd->mes_int[mes_int_int_num] = vector_table[al >> 6].num;
+    pmd->int_level = vector_table[al >> 6].level;
+
+    // :8942
+    if (pmd->message_flag != 0) {
+        print_mes(pmd, pmd->mes_int);
+        print_mes(pmd, pmd->ongen != 0 ? pmd->mes_ongen1 : mes_ongen0);
+#if board2 && !ademu
+#if pcm
+        print_mes(pmd, mes_pcm);
+#endif
+#if adpcm
+        print_mes(pmd, pmd->pcm_gs_flag != 0 ? mes_only : mes_adpcm);
+#endif
+#endif
+        print_mes(pmd, mes_int2);
+    }
+
+    // :8971 PPSDRV check and the kp_rhythm_flag default it drives.
+    if (pmd->ppsdrv_flag != 0xff) {
+        if (pmd->kp_rhythm_flag == 0xff) {
+            pmd->kp_rhythm_flag = (uint8_t)(pmd->ppsdrv_flag ^ 1);
+        }
+    } else if (ppsdrv_check(pmd)) {
+        pmd->ppsdrv_flag = 1;
+        if (pmd->kp_rhythm_flag == 0xff) pmd->kp_rhythm_flag = 0;
+    } else {
+        pmd->ppsdrv_flag = 0;
+        if (pmd->kp_rhythm_flag == 0xff) pmd->kp_rhythm_flag = 1;
+    }
+    if (pmd->message_flag != 0 && pmd->ppsdrv_flag == 1) {
+        print_mes(pmd, mes_ppsdrv);
+    }
+
+#if ppz
+    // :9008 PPZ8 negotiation. The 0410h handshake returns PPZ8's interrupt
+    // level; the directly callable FM entry from 0409h is represented by
+    // pmd_drv_ppz8.fm_int, so both the level match and a non-NULL entry are
+    // required for the direct call (ppz_call_seg >= 2). 1901h forbids removal.
+    if (ppz8_check(pmd)) {
+        pmd->ppz_call_seg = 1;
+        if (pmd->ppz8->get_irq_level(pmd->user_data) ==
+                (uint8_t)(pmd->int_level + 8) &&
+            pmd->ppz8->fm_int != NULL) {
+            pmd->ppz_call_seg = 2;
+        }
+        pmd->ppz8->set_removal_protection(true, pmd->user_data);
+        if (pmd->message_flag != 0) print_mes(pmd, mes_ppz8);
+    }
+#endif
+}
+
+// :9036
+// PPSDRV is available when the host supplies its vtable; the original checks
+// INT 64h's resident signature instead.
+static bool ppsdrv_check(struct pmd *pmd) { return pmd->pps != NULL; }
+
+#if ppz
+// :9110
+// Same as ppsdrv_check for PPZ8 (INT 7Fh in the original).
+static bool ppz8_check(struct pmd *pmd) { return pmd->ppz8 != NULL; }
+#endif
+
+#if !va
+// :9174
+// OPN out for the 088/188/288/388 initialization: address to DX, data to DX+2.
+static void opnset_fmc(struct pmd *pmd, uint16_t dx, uint16_t ax) {
+    // The original delays 256 `loop $` iterations before each write (:9179,
+    // :9184); the host backend owns the chip timing.
+    outb(pmd, dx, (uint8_t)(ax >> 8));
+    outb(pmd, dx + 2, (uint8_t)ax);
+}
+#endif
+
+// :9196
+// Probes the FM board and fills in fm1_port1/2, fm2_port1/2, and ongen.
+// Returns false when no board was found (the original's carry flag). A NULL hw
+// models a host without a board and is rejected before any vtable dereference.
+static bool port_check(struct pmd *pmd) {
+    if (pmd->hw == NULL) return false;
+    // The original brackets its probe sequences with cli/sti and uses inline
+    // `loop $` settle delays; the host owns exclusion and chip timing.
+#if va
+    pmd->fm1_port1 = 0x44;
+    pmd->fm1_port2 = 0x45;
+    pmd->fm2_port1 = 0x46;
+    pmd->fm2_port2 = 0x47;
+    // :9205 VA+NORM check (PMDVA1).
+    pmd->ongen = 0;
+    outb(pmd, 0x44, 0x0b);
+    outb(pmd, 0x45, 0xaa);
+    if (inb(pmd, 0x45) != 0xaa) return false;
+    // :9218 VA+BOARD2 check (PMDVA).
+    outb(pmd, 0x44, 0xff);
+    uint8_t n = inb(pmd, 0x45);
+#if board2
+    if (n != 1) return false;
+    pmd->ongen = 1;
+#else
+    if (n == 1) pmd->ongen = 1;
+    // :9231 otherwise this is the plain VA board: found with ongen = 0.
+#endif
+    return true;
+#elif board2 && (pcm || ppz)
+    // :9240 98+86B check (PMD86/PMDPPZ): an 86 board is required.
+    return check_86b(pmd);
+#elif board2
+    // :9246 98+SPB check (PMDB2).
+    if (check_spb(pmd)) return true;
+    return check_86b(pmd);
+#else
+    // :9255 98+NORM check (PMD).
+    if (check_spb(pmd)) return true;
+    if (check_86b(pmd)) return true;
+
+    // :9262 the 088h-388h YM2203-class cards.
+    pmd->ongen = 0;
+    uint8_t tries = 4;
+    uint16_t dx = 0x088;
+    if (pmd->port_sel != -1) {
+        dx = (uint16_t)((dx & 0xff) | (pmd->port_sel << 8));
+        tries = 1;
+    }
+    for (;;) {
+        outb(pmd, dx, 0x0b);
+        outb(pmd, dx + 2, 0xaa);
+        if (inb(pmd, dx + 2) == 0xaa) {
+            set_port(pmd, dx);
+            return true;
+        }
+        if (--tries == 0) return false;
+        dx = (uint16_t)(dx + 0x100);
+    }
+#endif
+}
+
+#if !va
+// :9314
+// Probes for an 86 board at port_sel or 188h/288h and switches the NEC OPNA
+// on. Returns false when no board was found (the original's carry flag).
+static bool check_86b(struct pmd *pmd) {
+    pmd->ongen = 1;
+    // :9323 The original recognises an EPSON machine through absolute reads of
+    // the ROM at 0FD80:0002/0004 and then rejects the 86 board below a
+    // PC-286VE. Those PC-98-specific reads are omitted, so epson_flag stays 0
+    // and an EPSON host is treated like any other.
+    // :9334 No NEC OPNA ID port means no 86 board.
+    uint8_t al = inb(pmd, 0xa460);
+    if (al == 0xff) return false;
+    outb(pmd, 0x5f, al);
+    outb(pmd, 0xa460, (uint8_t)(al & 0xfc)); // NEC OPNA off
+
+    uint8_t tries = 2;
+    uint16_t dx = 0x188;
+    if (pmd->port_sel != -1) {
+        dx = (uint16_t)((dx & 0xff) | (pmd->port_sel << 8));
+        tries = 1;
+    }
+    for (;;) {
+        outb(pmd, dx, 0xff);
+        if (inb(pmd, dx + 2) == 1) { // YM2608?
+            uint8_t bl = inb(pmd, dx + 4);
+            if ((uint8_t)((inb(pmd, dx + 6) & bl) + 1) == 0) break;
+        }
+        if (--tries == 0) return false;
+        dx = (uint16_t)(dx + 0x100);
+    }
+
+    // :9133
+    al = inb(pmd, 0xa460);
+    outb(pmd, 0x5f, al);
+    outb(pmd, 0xa460, (uint8_t)((al & 0xfc) | 1)); // NEC OPNA on
+    uint8_t v = inb(pmd, 0xa66e);
+    outb(pmd, 0x5f, v);
+    outb(pmd, 0xa66e, (uint8_t)(v & 0xfe)); // a66e B0: 1 = mute
+    // :9390 The original's optional EPSON 24KHz display-mode write (`out 6Eh`
+    // with AL=1) is omitted together with the ROM reads above: it only runs
+    // when epson_flag is set, which is now always 0.
+#if pcm
+    // :9152 stop_86pcm (PCMDRV86.ASM) stops PCM playback before the port is
+    // used; it arrives with the PCM86 driver in phase 8.
+#endif
+    set_port(pmd, dx);
+    return true;
+}
+
+#if !pcm
+// :9406
+// Probes for an SPB (YM2608) at port_sel or 088h-388h. Returns false when no
+// board was found.
+static PMDC_UNUSED bool check_spb(struct pmd *pmd) {
+    pmd->ongen = 1;
+    // The EPSON ROM reads are omitted as in check_86b (:9412). Unlike
+    // check_86b, an EPSON machine only skips the OPNA off write here.
+    uint8_t al = inb(pmd, 0xa460);
+    if (al != 0xff) {
+        outb(pmd, 0x5f, al);
+        outb(pmd, 0xa460, (uint8_t)(al & 0xfc)); // NEC OPNA off
+    }
+
+    uint8_t tries = 4;
+    uint16_t dx = 0x088;
+    if (pmd->port_sel != -1) {
+        dx = (uint16_t)((dx & 0xff) | (pmd->port_sel << 8));
+        tries = 1;
+    }
+    for (;;) {
+        outb(pmd, dx, 0xff);
+        if (inb(pmd, dx + 2) == 1) { // YM2608?
+            uint8_t bl = inb(pmd, dx + 4);
+            if ((uint8_t)((inb(pmd, dx + 6) & bl) + 1) != 0) {
+                set_port(pmd, dx);
+                return true;
+            }
+        }
+        if (--tries == 0) return false;
+        dx = (uint16_t)(dx + 0x100);
+    }
+}
+#endif
+
+// :9468
+// Sets fm1/fm2 from the base port a probe matched.
+static void set_port(struct pmd *pmd, uint16_t dx) {
+    pmd->fm1_port1 = dx;
+    pmd->fm1_port2 = (uint16_t)(dx + 2);
+    pmd->fm2_port1 = (uint16_t)(dx + 4);
+    pmd->fm2_port2 = (uint16_t)(dx + 6);
+}
+#endif
+
+// :9511
+static void put_status(struct pmd *pmd) {
+    // :9515 data buffer sizes
+    print_mes(pmd, changemes_01);
+    put8(pmd, pmd->mmldat_lng);
+    print_mes(pmd, changemes_02);
+    put8(pmd, pmd->voicedat_lng);
+    print_mes(pmd, changemes_03);
+    put8(pmd, pmd->effecdat_lng);
+
+    // :9531 volume adjustments
+    print_mes(pmd, changemes_1);
+    put8(pmd, pmd->_fm_voldown);
+    print_mes(pmd, crlf);
+    print_mes(pmd, changemes_2);
+    put8(pmd, pmd->_ssg_voldown);
+    print_mes(pmd, crlf);
+#if board2
+    print_mes(pmd, changemes_3);
+    put8(pmd, pmd->_pcm_voldown);
+    print_mes(pmd, crlf);
+#if ppz
+    print_mes(pmd, changemes_3z);
+    put8(pmd, pmd->_ppz_voldown);
+    print_mes(pmd, crlf);
+#endif
+    print_mes(pmd, changemes_4);
+    put8(pmd, pmd->_rhythm_voldown);
+    print_mes(pmd, crlf);
+
+    // :9578 SSG drum rhythm
+    print_mes(pmd, changemes_5);
+    print_mes(pmd, pmd->kp_rhythm_flag != 0 ? changemes_5a : changemes_5b);
+#endif
+
+    // :9586
+    print_mes(pmd, changemes_6);
+    print_mes(pmd, pmd->key_check != 0 ? changemes_6a : changemes_6b);
+
+    // :9596 key masks
+    print_mes(pmd, changemes_7);
+    put8(pmd, sp_key_display(pmd->esc_sp_key));
+    print_mes(pmd, crlf);
+    print_mes(pmd, changemes_8);
+    put8(pmd, sp_key_display(pmd->grph_sp_key));
+    print_mes(pmd, crlf);
+    print_mes(pmd, changemes_8b);
+    put8(pmd, sp_key_display(pmd->rew_sp_key));
+    print_mes(pmd, crlf);
+
+    // :9624
+    print_mes(pmd, changemes_9);
+    print_mes(pmd, pmd->fade_stop_flag != 0 ? changemes_6a : changemes_6b);
+
+    // :9632
+    print_mes(pmd, changemes_10);
+    print_mes(pmd, pmd->disint != 0 ? changemes_6a : changemes_6b);
+
+    // :9640
+    print_mes(pmd, changemes_11);
+    print_mes(pmd, pmd->ppsdrv_flag != 0 ? changemes_6a : changemes_6b);
+#if ppz
+    // :9647
+    print_mes(pmd, changemes_11_);
+    print_mes(pmd, pmd->ppz_call_seg != 0 ? changemes_6a : changemes_6b);
+#endif
+
+    // :9656
+    print_mes(pmd, changemes_12);
+    print_16(pmd, pmd->wait_clock);
+    print_mes(pmd, changemes_12a);
+    print_16(pmd, (uint16_t)(pmd->wait_clock * pmd->wait1_clock));
+    print_mes(pmd, changemes_12b);
+
+    // :9668
+    print_mes(pmd, changemes_13);
+    print_16(pmd, pmd->ff_tempo);
+    print_mes(pmd, crlf);
+
+#if board2 && adpcm && !ademu
+    // :9677
+    print_mes(pmd, changemes_14);
+    if (pmd->adpcm_wait == 0) {
+        print_mes(pmd, changemes_14a);
+    } else if (pmd->adpcm_wait == 1) {
+        print_mes(pmd, changemes_14b);
+    } else {
+        print_mes(pmd, changemes_14c);
+    }
+#endif
+#if board2 && pcm
+    // :9690
+    print_mes(pmd, changemes_15);
+    print_mes(pmd, pmd->_pcm86_vol != 0 ? changemes_15b : changemes_15a);
+
+    // :9700
+    print_mes(pmd, changemes_16);
+    print_mes(pmd, changemes_16a[pmd->p86_freq]);
+    if (pmd->p86_freq != 8) print_mes(pmd, changemes_16b);
+#endif
+}
+
+// :9598
+// The VA variants store key masks rotated; the status shows the three-bit
+// value.
+static uint8_t sp_key_display(uint8_t key) {
+#if va
+    return (uint8_t)(((key << 3) | (key >> 5)) & 0x07);
+#else
+    return key;
+#endif
+}
+
+// :9715
+// Prints AL as a decimal number without leading zeros.
+static void put8(struct pmd *pmd, uint8_t al) {
+    bool printed = false;
+    p8_oneset(pmd, &al, 100, &printed);
+    p8_oneset(pmd, &al, 10, &printed);
+    print_char(pmd, (char)('0' + al));
+}
+
+// :9726
+static void p8_oneset(struct pmd *pmd, uint8_t *al, uint8_t dl, bool *printed) {
+    char dh = '0';
+    while (*al >= dl) {
+        *al = (uint8_t)(*al - dl);
+        dh++;
+    }
+    if (*printed || dh != '0') {
+        print_char(pmd, dh);
+        *printed = true;
+    }
+}
+
+// :9753
+// /R. The original's resident_cut_main never returns: it prints mes_cut and
+// exits. The port's removal sequence lands in pmd_resident_cut (phase 6), and
+// pmd_change_main reports PMD_CHANGE_REMOVED instead.
+static bool resident_cut_main(struct pmd *pmd, const char **cmd,
+                              bool from_env) {
+    (void)cmd;
+    (void)from_env;
+    // TODO(phase 6): pmd_resident_cut is still a no-op, so the
+    // PMD_CHANGE_REMOVED that pmd_change_main returns for this option is a
+    // forward declaration rather than a report that the driver is down.
+    // Nothing may rely on it until the shutdown sequence lands.
+    pmd_resident_cut(pmd);
+    return false;
+}
+
+// :9927
+// Scans `cmd` for slash/dash options and dispatches them through `table`
+// (:9939). Returns true at the end of the command line, false when parsing
+// must stop: a bad PMDOPT option (`usage`) or /R.
+static bool set_option(struct pmd *pmd, const struct pmd_option *table,
+                       const char *cmd, bool from_env) {
+    for (;;) {
+        unsigned char c = (unsigned char)lodsb(&cmd);
+        if (c == '/' || c == '-') {
+            c = (unsigned char)lodsb(&cmd) & 0xdf;
+            const struct pmd_option *entry = table;
+            for (;;) {
+                if (entry->name == 0) return usage(pmd, from_env);
+                if ((unsigned char)entry->name == c) break;
+                entry++;
+            }
+            if (!entry->fn(pmd, &cmd, from_env)) return false;
+            continue;
+        }
+        if (c < ' ') return true;
+        if (c == ' ') continue;
+        return usage(pmd, from_env);
+    }
+}
+
+// :9928
+// Reads one option character. The original's lodsb always advances SI; this
+// cursor stops on the null terminator, which no handler reads past.
+static char lodsb(const char **cmd) {
+    if (**cmd == '\0') return '\0';
+    return *(*cmd)++;
+}
+
+// :9958
+static bool muslng_get(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
+    pmd->mmldat_lng = n;
+    return true;
+}
+
+// :9967
+static bool voilng_get(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
+    pmd->voicedat_lng = n;
+    return true;
+}
+
+// :9976
+static bool efclng_get(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
+    pmd->effecdat_lng = n;
+    return true;
+}
+
+// :9985
+// /DF, /DS, /DP, /DZ, /DR.
+static bool fmvd_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    unsigned char c = (unsigned char)lodsb(cmd) & 0xdf;
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
+    switch (c) {
+    case 'F':
+        pmd->fm_voldown = n;
+        pmd->_fm_voldown = n;
+        return true;
+    case 'S':
+        pmd->ssg_voldown = n;
+        pmd->_ssg_voldown = n;
+        return true;
+    case 'P':
+        pmd->pcm_voldown = n;
+        pmd->_pcm_voldown = n;
+        return true;
+    case 'Z':
+        pmd->ppz_voldown = n;
+        pmd->_ppz_voldown = n;
+        return true;
+    case 'R':
+        pmd->rhythm_voldown = n;
+        pmd->_rhythm_voldown = n;
+        return true;
+    default:
+        return usage(pmd, from_env);
+    }
+}
+
+// :10046
+// /K, /KG, /KR, /KE, and /K-.
+static bool keycheck(struct pmd *pmd, const char **cmd, bool from_env) {
+    unsigned char c = (unsigned char)**cmd;
+    if (c == '-') {
+        (*cmd)++;
+        pmd->key_check = 1;
+        return true;
+    }
+    c &= 0xdf;
+    if (c == 'G') {
+        (*cmd)++;
+        return grph_special_set(pmd, cmd, from_env);
+    }
+    if (c == 'R') {
+        (*cmd)++;
+        return rew_special_set(pmd, cmd, from_env);
+    }
+    if (c == 'E') {
+        (*cmd)++;
+        return esc_special_set(pmd, cmd, from_env);
+    }
+    pmd->key_check = 0;
+    return true;
+}
+
+// :10067
+// The original ignores get_comline_number's carry flag here, so a missing
+// number stores 0 rather than being a usage error.
+static bool grph_special_set(struct pmd *pmd, const char **cmd,
+                            bool from_env) {
+    uint8_t n;
+    (void)from_env;
+    (void)get_comline_number(cmd, &n);
+#if va
+    n = (uint8_t)(((n >> 3) | (n << 5)) & 0xe0); // ror al,3 + mask
+#endif
+    pmd->grph_sp_key = n;
+    return true;
+}
+
+// :10081
+// The original ignores get_comline_number's carry flag here, so a missing
+// number stores 0 rather than being a usage error.
+static bool rew_special_set(struct pmd *pmd, const char **cmd,
+                           bool from_env) {
+    uint8_t n;
+    (void)from_env;
+    (void)get_comline_number(cmd, &n);
+#if va
+    n = (uint8_t)(((n >> 3) | (n << 5)) & 0xe0);
+#endif
+    pmd->rew_sp_key = n;
+    return true;
+}
+
+// :10095
+// The original ignores get_comline_number's carry flag here, so a missing
+// number stores 0 rather than being a usage error.
+static bool esc_special_set(struct pmd *pmd, const char **cmd,
+                           bool from_env) {
+    uint8_t n;
+    (void)from_env;
+    (void)get_comline_number(cmd, &n);
+#if va
+    n = (uint8_t)(((n >> 3) | (n << 5)) & 0xe0);
+#endif
+    pmd->esc_sp_key = n;
+    return true;
+}
+
+// :10109
+static bool disint_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    (void)from_env;
+    if (**cmd == '-') {
+        (*cmd)++;
+        pmd->disint = 0;
+    } else {
+        pmd->disint = 1;
+    }
+    return true;
+}
+
+// :10122
+static bool notshot_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    (void)from_env;
+    if (**cmd == '-') {
+        (*cmd)++;
+        pmd->kp_rhythm_flag = 1;
+    } else {
+        pmd->kp_rhythm_flag = 0;
+    }
+    return true;
+}
+
+// :10135
+static bool notstop_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    (void)from_env;
+    if (**cmd == '-') {
+        (*cmd)++;
+        pmd->fade_stop_flag = 1;
+    } else {
+        pmd->fade_stop_flag = 0;
+    }
+    return true;
+}
+
+// :10148
+static bool ppsdrv_reset(struct pmd *pmd, const char **cmd, bool from_env) {
+    (void)from_env;
+    if (**cmd != '-') {
+        pmd->ppsdrv_flag = 0;
+        return true;
+    }
+    (*cmd)++;
+    pmd->ppsdrv_flag = ppsdrv_check(pmd) ? 1 : 0;
+    return true;
+}
+
+// :10164
+static bool ppz_reset(struct pmd *pmd, const char **cmd, bool from_env) {
+    (void)from_env;
+    // The original runs this with interrupts disabled (pushf/cli/popf); the
+    // host owns that exclusion.
+#if ppz
+    if (**cmd == '-') {
+        (*cmd)++;
+        if (ppz8_check(pmd)) {
+            // :10204 the same 0410h/0409h negotiation as int_init
+            pmd->ppz_call_seg = 1;
+            if (pmd->ppz8->get_irq_level(pmd->user_data) ==
+                    (uint8_t)(pmd->int_level + 8) &&
+                pmd->ppz8->fm_int != NULL) {
+                pmd->ppz_call_seg = 2;
+            }
+            pmd->ppz8->set_removal_protection(true, pmd->user_data); // 1901h
+        } else {
+            pmd->ppz_call_seg = 0;
+        }
+    } else {
+        if (ppz8_check(pmd)) {
+            pmd->ppz8->fifo_interrupt_stop(pmd->user_data); // 12h
+            for (uint8_t ch = 0; ch < 8; ch++) {
+                pmd->ppz8->keyoff(ch, pmd->user_data); // 0200h-0207h
+            }
+            pmd->ppz8->set_removal_protection(false, pmd->user_data); // 1900h
+        }
+        pmd->ppz_call_seg = 0; // :10193
+    }
+#else
+    (void)pmd;
+    if (**cmd == '-') (*cmd)++;
+#endif
+    return true;
+}
+
+// :10228
+static bool waitclk_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) {
+        wait_check(pmd);
+        return true;
+    }
+    if (n == 0) return usage(pmd, from_env);
+    pmd->wait_clock = n;
+    return true;
+}
+
+// :10245
+static bool fftempo_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) {
+        pmd->ff_tempo = 250;
+        return true;
+    }
+    if (n == 0) return usage(pmd, from_env);
+    pmd->ff_tempo = n;
+    return true;
+}
+
+// :10259
+// /A. The original ignores the carry flag, so a missing number sets 0.
+static bool adpcmwait_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    (void)get_comline_number(cmd, &n);
+    if (n >= 3) return usage(pmd, from_env);
+    pmd->adpcm_wait = n;
+    return true;
+}
+
+// :10269
+static bool pcm86vol_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    (void)from_env;
+    bool match = **cmd != '-';
+    if (!match) (*cmd)++;
+    pmd->pcm86_vol = match ? 1 : 0;
+    pmd->_pcm86_vol = match ? 1 : 0;
+    return true;
+}
+
+// :10284
+static bool portsel_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
+#if va
+    // :10291 the VA variants accept the option but have a fixed port.
+    (void)pmd;
+#else
+    if (n >= 4) return usage(pmd, from_env);
+    pmd->port_sel = (int8_t)n;
+    // :10299 re-probe the board on the selected port.
+    fm_check(pmd);
+#endif
+    return true;
+}
+
+// :10304
+static bool message_clear_set(struct pmd *pmd, const char **cmd,
+                              bool from_env) {
+    (void)cmd;
+    (void)from_env;
+    pmd->message_flag = 0;
+    return true;
+}
+
+// :10314
+// Reads a decimal number through *cmd. On success the cursor stops on the first
+// non-digit; otherwise it is left untouched. The value is 0 on failure, which
+// is what the original returns in AL with the carry flag set. Digits wrap at
+// 255 like the original's 8-bit BL.
+static bool get_comline_number(const char **cmd, uint8_t *out) {
+    const char *p = *cmd;
+    uint8_t n = 0;
+    bool found = false;
+    for (;;) {
+        unsigned digit = (unsigned char)(*p - '0');
+        if (digit >= 10) break;
+        n = (uint8_t)(n * 10 + digit);
+        p++;
+        found = true;
+    }
+    if (found) *cmd = p;
+    *out = n;
+    return found;
+}
+
+// :10350
+// Prints AX as a decimal number without leading zeros.
+static void print_16(struct pmd *pmd, uint16_t ax) {
+    bool printed = false;
+    p16_oneset(pmd, &ax, 10000, &printed);
+    p16_oneset(pmd, &ax, 1000, &printed);
+    p16_oneset(pmd, &ax, 100, &printed);
+    p16_oneset(pmd, &ax, 10, &printed);
+    print_char(pmd, (char)('0' + ax));
+}
+
+// :10366
+static void p16_oneset(struct pmd *pmd, uint16_t *ax, uint16_t bx,
+                       bool *printed) {
+    char dl = '0';
+    while (*ax >= bx) {
+        *ax = (uint16_t)(*ax - bx);
+        dl++;
+    }
+    if (*printed || dl != '0') {
+        print_char(pmd, dl);
+        *printed = true;
+    }
+}
+
+// :10440
+// PMDC_NORETURN rather than void: the option table holds bool handlers, and
+// this one never returns to its caller.
+PMDC_NORETURN static bool pmderr_5(struct pmd *pmd, const char **cmd,
+                                   bool from_env) {
+    (void)cmd;
+    (void)from_env;
+    pmderr_main(pmd, pmderror_mes5);
+}
+
+// :10444
+PMDC_NORETURN static bool pmderr_6(struct pmd *pmd, const char **cmd,
+                                   bool from_env) {
+    (void)cmd;
+    (void)from_env;
+    pmderr_main(pmd, pmderror_mes6);
+}
+
+// :10452
+PMDC_NORETURN static void pmderr_main(struct pmd *pmd, const char *mes) {
+    print_mes(pmd, mes);
+    error_exit(pmd, 1);
+}
+
+// :10462
+// /H, and /HZ through the Z check.
+static bool hz_usage(struct pmd *pmd, const char **cmd, bool from_env) {
+    unsigned char c = (unsigned char)lodsb(cmd) & 0xdf;
+    if (c == 'Z') return hz_set(pmd, cmd, from_env);
+    return usage(pmd, from_env);
+}
+
+// :10467
+// Prints the usage text and exits with status 255. While parsing PMDOPT the bad
+// option is reported instead and parsing is abandoned, so the command line
+// still applies (:10469).
+static bool usage(struct pmd *pmd, bool from_env) {
+    if (from_env) {
+        print_mes(pmd, mes_warning);
+        print_mes(pmd, mes_kankyo);
+        return false;
+    }
+    print_mes(pmd, mes_usage);
+    error_exit(pmd, 255);
+}
+
+// :10485
+// /HZ: downloads one of the HZDATA.INC frequency tables into the resident
+// PCM86 table.
+static bool hz_set(struct pmd *pmd, const char **cmd, bool from_env) {
+    uint8_t n;
+    if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
+    if (n >= 9) return usage(pmd, from_env);
+#if board2 && pcm
+    pmd->p86_freq = n;
+    // :10499 the auto setting (8) copies the resident table onto itself, which
+    // leaves the current frequency table unchanged.
+    if (n != 8) {
+        memcpy(pmd->pcm_tune_data, hzdata[n], sizeof(pmd->pcm_tune_data));
+    }
+#endif
+    return true;
+}
+
+// :10513
+// WAIT.INC measures the CPU's `loop $` speed through the PIT, which is a
+// DOS/PC-specific calibration and is intentionally not implemented: the delay
+// loops (_wait, _waitP, _rwait) remain no-delay points. Both counts are 1
+// rather than 0 because ADRAMCHK.ASM loops on wait_clock directly, and an 8086
+// LOOP with CX=0 runs 65536 times. The VA build's hardcoded V30 estimate
+// (:10514) is replaced by the same placeholder because no delay is performed.
+// The original returns AX/CX; the port stores both fields directly.
+static void wait_check(struct pmd *pmd) {
+    pmd->wait_clock = 1;
+    pmd->wait1_clock = 1;
+}
+
+#if board2 && adpcm && !ademu
+// ADRAMCHK.ASM:11
+// Checks the ADPCM RAM and sets pcm_gs_flag (0 = ADPCM available).
+static void adpcm_ram_check(struct pmd *pmd) {
+    uint8_t check_data[32];
+    uint8_t wait = pmd->adpcm_wait;
+
+    pmd->adpcm_wait = 2;
+    memset(check_data, 0, sizeof(check_data));
+    if (pcmstore(pmd, check_data)) goto found_ymf288;
+
+    // :29 The saved speed skips the faster settings.
+    if (wait != 2 && wait != 1) {
+        pmd->adpcm_wait = 0;
+        pcmstore(pmd, (const uint8_t *)check_code);
+        pcmread(pmd, check_data);
+        if (pcmcompare(check_data)) goto arc_found_exit;
+    }
+    if (wait != 2) {
+        pmd->adpcm_wait = 1;
+        pcmstore(pmd, (const uint8_t *)check_code);
+        pcmread(pmd, check_data);
+        if (pcmcompare(check_data)) goto arc_found_exit;
+    }
+    pmd->adpcm_wait = 2;
+    pcmstore(pmd, (const uint8_t *)check_code);
+    pcmread(pmd, check_data);
+    if (!pcmcompare(check_data)) goto arc_no_exit;
+
+arc_found_exit: // :57 the ADPCM RAM is present
+    pmd->pcm_gs_flag = 0;
+    return;
+
+found_ymf288: // :61
+    // ADRAMCHK.ASM:62 overwrites the "2608" in mes_ongen1 with "F288".
+    memcpy(pmd->mes_ongen1 + 2, "F288", 4);
+arc_no_exit:
+    pmd->pcm_gs_flag = 1;
+}
+
+// ADRAMCHK.ASM:72
+// Sends 32 bytes of `data` to the ADPCM RAM through the 86 board. Returns true
+// when the low-speed BRDY poll times out, which is how the original detects a
+// YMF288 (ADRAMCHK.ASM:137).
+static bool pcmstore(struct pmd *pmd, const uint8_t *data) {
+    opnset46(pmd, 0x0001);
+    opnset46(pmd, 0x1017); // all masked except BRDY
+    opnset46(pmd, 0x1080);
+    opnset46(pmd, 0x0060);
+    opnset46(pmd, 0x0102); // x8
+    opnset46(pmd, 0x0cff);
+    opnset46(pmd, 0x0dff);
+    opnset46(pmd, 0x02ff); // address 1fffh
+    opnset46(pmd, 0x031f);
+    opnset46(pmd, 0x04ff);
+    opnset46(pmd, 0x05ff);
+
+    uint16_t port1 = pmd->fm2_port1;
+    uint16_t port2 = pmd->fm2_port2;
+    unsigned count = 32;
+
+    // The original's cli_sub/sti_sub (:252, :269) only mask the PIC for the
+    // duration of the transfer; the host owns that exclusion.
+    if (pmd->adpcm_wait == 0) {
+        // ADRAMCHK.ASM:210 high-speed
+        (void)inb(pmd, port1);
+        while (inb(pmd, port1) & 0x80) {
+        }
+        outb(pmd, port1, 8); // PCMDAT
+        _waitP(pmd);
+        for (; count != 0; count--) {
+            outb(pmd, port2, *data++);
+            while ((inb(pmd, port1) & 0x08) == 0) { // BRDY
+            }
+        }
+    } else if (pmd->adpcm_wait == 1) {
+        // ADRAMCHK.ASM:179 medium speed
+        (void)inb(pmd, port1);
+        while (inb(pmd, port1) & 0x80) {
+        }
+        outb(pmd, port1, 8); // PCMDAT
+        for (; count != 0; count--) {
+            _waitP(pmd);
+            outb(pmd, port2, *data++);
+            while ((inb(pmd, port1) & 0x08) == 0) { // BRDY
+            }
+        }
+    } else {
+        // ADRAMCHK.ASM:116 low speed
+        for (; count != 0; count--) {
+            while (inb(pmd, port1) & 0x80) {
+            }
+            outb(pmd, port1, 8); // PCMDAT
+            _waitP(pmd);
+            outb(pmd, port2, *data++);
+
+            (void)inb(pmd, port1);
+            unsigned polls = 0;
+            while ((inb(pmd, port1) & 0x08) == 0) { // BRDY
+                if (++polls == 10000) {
+                    pcmst_exit(pmd);
+                    return true;
+                }
+            }
+
+            while (inb(pmd, port1) & 0x80) {
+            }
+            outb(pmd, port1, 0x10);
+            _waitP(pmd);
+            outb(pmd, port2, 0x80); // BRDY reset
+        }
+    }
+    pcmst_exit(pmd);
+    return false;
+}
+
+// ADRAMCHK.ASM:237
+static void pcmst_exit(struct pmd *pmd) {
+    opnset46(pmd, 0x1000);
+    opnset46(pmd, 0x1080);
+    opnset46(pmd, 0x0001);
+}
+
+// ADRAMCHK.ASM:284
+// Reads 32 bytes of ADPCM RAM back into `data`.
+static void pcmread(struct pmd *pmd, uint8_t *data) {
+    opnset46(pmd, 0x0001);
+    opnset46(pmd, 0x1000);
+    opnset46(pmd, 0x1080);
+    opnset46(pmd, 0x0020);
+    opnset46(pmd, 0x0102); // x8
+    opnset46(pmd, 0x0cff);
+    opnset46(pmd, 0x0dff);
+    opnset46(pmd, 0x02ff); // address 1fffh
+    opnset46(pmd, 0x031f);
+    opnset46(pmd, 0x04ff);
+    opnset46(pmd, 0x05ff);
+
+    pget(pmd);
+    pget(pmd);
+
+    uint16_t port1 = pmd->fm2_port1;
+    for (unsigned count = 0; count < 32; count++) {
+        while (inb(pmd, port1) & 0x80) {
+        }
+        outb(pmd, port1, 8);
+        (void)inb(pmd, port1);
+        while ((inb(pmd, port1) & 0x08) == 0) { // BRDY
+        }
+        (void)inb(pmd, port1);
+        while (inb(pmd, port1) & 0x80) {
+        }
+        *data++ = inb(pmd, pmd->fm2_port2);
+        opnset46(pmd, 0x1080);
+    }
+    opnset46(pmd, 0x0001);
+}
+
+// ADRAMCHK.ASM:354
+// Reads one byte through the ADPCM data register. The original calls this
+// twice after the transfer setup, discarding both reads.
+static void pget(struct pmd *pmd) {
+    while (inb(pmd, pmd->fm2_port1) & 0x80) {
+    }
+    outb(pmd, pmd->fm2_port1, 8);
+    _waitP(pmd);
+    (void)inb(pmd, pmd->fm2_port2);
+    opnset46(pmd, 0x1080);
+}
+
+// ADRAMCHK.ASM:378
+// Returns true when the read-back matches the test pattern.
+static bool pcmcompare(const uint8_t *data) {
+    return memcmp(check_code, data, sizeof(check_code) - 1) == 0;
+}
+#endif
+
+// :8384
+// The original's comstart prints the title and then either falls into
+// resident_main or dispatches to change_main; the host's lifecycle decides
+// which path runs, so each entry point prints the banner itself.
+void pmd_resident_main(struct pmd *pmd, char *cmdline) {
+    // :8390
+    print_mes(pmd, mes_title);
+
+    // :8481 The option defaults, the empty data area, the rhythm shot flags,
+    // the part work areas, and the interrupt/effect state come from pmd_init.
+
+    // :8517
+    fm_check(pmd);
+
+    // :8542
+    char *env = pmd->sys->getenv("PMDOPT", pmd->user_data);
+    if (env != NULL) {
+        // A bad PMDOPT option prints a warning and abandons the environment
+        // options; the command line still applies.
+        (void)_set_option(pmd, resident_option, env);
+    }
+
+    // :8569
+    if (*cmdline != '\0') {
+        (void)set_option(pmd, resident_option, cmdline, false);
+
+        // :8582 At least 1KB of music data and at most 40KB for the three
+        // buffers, with the original's 8-bit carry checks.
+        unsigned total = pmd->mmldat_lng;
+        if (total < 1) pmderr_main(pmd, pmderror_mes2);
+        total += pmd->voicedat_lng;
+        if (total > 0xff) pmderr_main(pmd, pmderror_mes3);
+        total += pmd->effecdat_lng;
+        if (total > 0xff) pmderr_main(pmd, pmderror_mes3);
+        if (total >= 41) pmderr_main(pmd, pmderror_mes3);
+
+        // :8596 resmes_set writes the "PMD ver." marker into the PSP command
+        // tail for the resident check; the host's lifecycle replaces that
+        // check.
+    }
+
+    // :8604
+    memchk_init(pmd);
+
+    // :8639
+    // The resident_size bookkeeping is folded into memchk_init; the host owns
+    // the allocation.
+    pmd->mmlbuf = pmd->dataarea + 1;
+    pmd->tondat = pmd->dataarea + pmd->mmldat_lng * 1024;
+    pmd->efcdat = pmd->tondat + pmd->voicedat_lng * 1024;
+
+    if (pmd->board != 0) {
+        // :8687
+        int_init(pmd);
+
+#if va
+        // :8690
+        opnset44(pmd, 0x2900);
+        opnset44(pmd, 0x2400);
+        opnset44(pmd, 0x2500);
+        opnset44(pmd, 0x2600);
+        opnset44(pmd, 0x273f);
+#else
+        // :8707
+        opninit_loop(pmd);
+#endif
+
+        // :8752 The INT 5h vector save/install is omitted: the host owns the
+        // interrupt source, and the timer phase installs the handler through
+        // pmd_hw.install_fm_timer_handler.
+    }
+
+    // :8773 The INT 60h vector save/install is omitted: the typed public
+    // functions replace the register dispatcher.
+
+    // :8790 opnint_start is playback-dependent (data_init, opn_init, mstop,
+    // setint) and arrives with the timer and sequencer phases.
+
+    // :8800
+    if (pmd->message_flag != 0) {
+        print_mes(pmd, mes_wait1);
+        print_16(pmd, pmd->wait_clock);
+        print_mes(pmd, mes_wait2);
+        print_16(pmd, (uint16_t)(pmd->wait_clock * pmd->wait1_clock));
+        print_mes(pmd, mes_wait3);
+
+        // :8814
+        print_mes(pmd, mes_exit);
+        if (pmd->key_check != 0) print_mes(pmd, mes_key);
+    }
+
+    // :8830 Releasing the DOS environment block is host-owned.
+
+    // :8385
+    resident_exit_end(pmd);
 }
 
 // :9490
 enum pmd_change_result pmd_change_main(struct pmd *pmd, char *cmdline) {
-    (void)pmd;
-    (void)cmdline;
-    // Filled in when the status option machinery is translated (phase 3).
+    // :8390
+    print_mes(pmd, mes_title);
+
+    if (*cmdline != '\0') {
+        if (!set_option(pmd, status_option, cmdline, false)) {
+            // resident_cut_main (/R) stops the parse; pmd_resident_cut is the
+            // phase 6 removal sequence. The only other early stop is a PMDOPT
+            // usage error, which cannot happen while parsing the command line.
+            return PMD_CHANGE_REMOVED;
+        }
+        print_mes(pmd, changemes_0);
+    }
+
+    put_status(pmd);
     return PMD_CHANGE_OK;
 }
 
