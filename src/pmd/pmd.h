@@ -3,12 +3,17 @@
 
 #include <stdint.h>
 
+#ifdef __GNUC__
 // The standard C noreturn attribute is not a property of function types and
 // can't be used on function pointers, so we can't use it here.
-#ifdef __GNUC__
 #define PMDC_NORETURN __attribute__((noreturn))
+// TODO: PMDC_UNUSED is defined solely for the benefit of implementing the
+// plan phase by phase, so things used only in later phases aren't flagged
+// by the compiler. It will be removed at the end of the plan.
+#define PMDC_UNUSED __attribute__((unused))
 #else
 #define PMDC_NORETURN
+#define PMDC_UNUSED
 #endif
 
 struct pmd;
@@ -23,7 +28,7 @@ struct pmd;
 //
 // To increase the flexibility of possible system function implementations, all
 // vtable functions accept a user_data parameter, which is passed as the
-// user_data set in the mc "global" structure.
+// user_data set in the pmd "global" structure.
 struct pmd_sys {
     // DOS INT 21,2
     void (*putc)(char c, void *user_data);
@@ -47,17 +52,27 @@ struct pmd_sys {
 
 // The vtable for hardware interaction functions.
 struct pmd_hw {
-    // TODO: which ports are used?
-    // Need to document this so implementers know what needs to be filled in.
+    // Raw port I/O. The driver accesses the configured FM chip ports
+    // (fm1_port1/2, fm2_port1/2 and the derived fm_port1/2), including the PSG
+    // registers 0Eh/0Fh that INT 60H function 16h reads the joystick through,
+    // the 0AAh probe value that port_check writes and reads back through the FM
+    // data port, and the OPNA ID port 0A460h, which it reads and switches off
+    // and on. An implementation must model the FM chip and the OPNA ID port;
+    // other control ports may be recorded or ignored.
     uint8_t (*inb)(uint16_t port, void *user_data);
     void (*outb)(uint16_t port, uint8_t v, void *user_data);
 
-    // Installs the PMD FM timer interrupt handler.
+    // Installs the PMD FM timer interrupt handler. The host calls handler(pmd)
+    // whenever the FM interrupt fires; the host owns the interrupt source and
+    // the exclusion that the original obtained through cli and the PIC.
     void (*install_fm_timer_handler)(void (*handler)(struct pmd *), void *user_data);
-    // Synchronously stops callbacks; no callback may be active after return.
+    // Synchronously stops callbacks; no callback may be active after return,
+    // and it is harmless when no handler is installed.
     void (*remove_fm_timer_handler)(void *user_data);
 
     // Optional normalized PMD_KEY_* state. A NULL hook means no keys pressed.
+    // The driver translates these bits to the original PC-98 or VA
+    // representations instead of exposing BIOS addresses or VA ports.
     uint8_t (*read_key_state)(void *user_data);
 };
 
@@ -102,6 +117,17 @@ struct pmd {
 
     // :8337
     uint8_t dataarea[1 + 40 * 1024];
+    // :10567
+    // Mutable copy of the original's resident mes_int/int_num/port_num run:
+    // the interrupt number (:8937) and the FM port (:8860) are written into it
+    // before it is printed. Sized for the longest variant's string, including
+    // its null terminator.
+    char mes_int[17];
+    // :10578
+    // Mutable copy of the original's mes_ongen1: the ADPCM RAM check overwrites
+    // its "2608" with "F288" to report a YMF288 (ADRAMCHK.ASM:62). Sized for the
+    // longest variant's string, including its null terminator.
+    char mes_ongen1[7];
     // :10853
     int8_t port_sel;
 

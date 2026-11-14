@@ -17,6 +17,42 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run all tests");
 
+    const pmd_exe = addPmd(b, "pmd", target, optimize, lang_num);
+    b.installArtifact(pmd_exe);
+
+    const pmd86_exe = addPmd(b, "pmd86", target, optimize, lang_num);
+    pmd86_exe.root_module.addCMacro("board2", "1");
+    pmd86_exe.root_module.addCMacro("pcm", "1");
+    b.installArtifact(pmd86_exe);
+
+    const pmdb2_exe = addPmd(b, "pmdb2", target, optimize, lang_num);
+    pmdb2_exe.root_module.addCMacro("board2", "1");
+    pmdb2_exe.root_module.addCMacro("adpcm", "1");
+    b.installArtifact(pmdb2_exe);
+
+    const pmdppz_exe = addPmd(b, "pmdppz", target, optimize, lang_num);
+    pmdppz_exe.root_module.addCMacro("board2", "1");
+    pmdppz_exe.root_module.addCMacro("adpcm", "1");
+    pmdppz_exe.root_module.addCMacro("ppz", "1");
+    b.installArtifact(pmdppz_exe);
+
+    const pmdppze_exe = addPmd(b, "pmdppze", target, optimize, lang_num);
+    pmdppze_exe.root_module.addCMacro("board2", "1");
+    pmdppze_exe.root_module.addCMacro("adpcm", "1");
+    pmdppze_exe.root_module.addCMacro("ademu", "1");
+    pmdppze_exe.root_module.addCMacro("ppz", "1");
+    b.installArtifact(pmdppze_exe);
+
+    const pmdva_exe = addPmd(b, "pmdva", target, optimize, lang_num);
+    pmdva_exe.root_module.addCMacro("va", "1");
+    pmdva_exe.root_module.addCMacro("board2", "1");
+    pmdva_exe.root_module.addCMacro("adpcm", "1");
+    b.installArtifact(pmdva_exe);
+
+    const pmdva1_exe = addPmd(b, "pmdva1", target, optimize, lang_num);
+    pmdva1_exe.root_module.addCMacro("va", "1");
+    b.installArtifact(pmdva1_exe);
+
     const mc_test_harness_mod = b.createModule(.{
         .root_source_file = b.path("test/mc/harness.zig"),
         .target = b.graph.host,
@@ -70,6 +106,45 @@ fn addMc(
             "mc.c",
             "mc_main.c",
             "mc_stdio.c",
+        },
+        .flags = cflags,
+    });
+
+    return b.addExecutable(.{
+        .name = name,
+        .root_module = mod,
+    });
+}
+
+fn addPmd(
+    b: *std.Build,
+    name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    lang_num: u16,
+) *std.Build.Step.Compile {
+    const cflags: []const []const u8 = &.{
+        // Zig suppresses warnings from clang, so -Werror is the only way to
+        // get them.
+        "-Werror",
+        "-Wall",
+        "-Wextra",
+        "-pedantic",
+        "-std=c11",
+    };
+
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addCMacro("lang", b.fmt("{}", .{lang_num}));
+    mod.addCSourceFiles(.{
+        .root = b.path("src/pmd"),
+        .files = &.{
+            "pmd.c",
+            "pmd_main.c",
+            "pmd_stdio.c",
         },
         .flags = cflags,
     });
