@@ -49,6 +49,9 @@ fn addMc(
     lang_num: u16,
 ) *std.Build.Step.Compile {
     const cflags: []const []const u8 = &.{
+        // Zig suppresses warnings from clang, so -Werror is the only way to
+        // get them.
+        "-Werror",
         "-Wall",
         "-Wextra",
         "-pedantic",

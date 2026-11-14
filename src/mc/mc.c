@@ -46,26 +46,32 @@ static void write16(uint8_t *ptr, uint16_t val) {
     ptr[0] = val;
     ptr[1] = val >> 8;
 }
+#if !efc
 static void write32(uint8_t *ptr, uint32_t val) {
     ptr[0] = val;
     ptr[1] = val >> 8;
     ptr[2] = val >> 16;
     ptr[3] = val >> 24;
 }
+#endif
 
+#if !efc
 static uint16_t lodsw(struct mc *mc) {
     uint16_t val = read16(mc->sib);
     mc->sib += 2;
     return val;
 }
+#endif
 static void stosw(struct mc *mc, uint16_t val) {
     write16(mc->di, val);
     mc->di += 2;
 }
+#if !efc
 static void stosd(struct mc *mc, uint32_t val) {
     write32(mc->di, val);
     mc->di += 4;
 }
+#endif
 
 // Data offset helpers
 //
@@ -86,7 +92,9 @@ static uint8_t *m_buf(struct mc *mc) { return mc->m_buf + 1; }
 #endif
 static uint8_t *mbuf_end(struct mc *mc) { return mc->m_buf + sizeof(mc->m_buf) - 1; }
 
+#if !efc
 static char *part_chr(struct mc *mc) { return mc->part_mes + 5; }
+#endif
 
 // :8009
 static const char *err_table[36] = {
@@ -301,6 +309,8 @@ static const uint8_t oplprg_table[] = {
     1,  1,7,
 };
 
+#if !efc
+
 // LC.INC:481
 static const uint32_t num_data[] = {
     1000000000,
@@ -313,6 +323,8 @@ static const uint32_t num_data[] = {
     100,
     10,
 };
+
+#endif
 
 // :50
 PMDC_NORETURN static void msdos_exit(struct mc *mc);
@@ -346,12 +358,16 @@ static void rt(struct mc *mc);
 #endif
 // :1118
 static void cm_init(struct mc *mc);
+#if !hyouka
 // :1219
 static void nd_s_opl_loop(struct mc *mc);
 // :1251
 static void nd_s_loop(struct mc *mc);
+#endif
+#if !efc
 // :1296
 static void memow_loop0(struct mc *mc, char **adr);
+#endif
 #if !hyouka
 // :1417
 static void write_ff(struct mc *mc);
@@ -366,8 +382,13 @@ static void read_fffile(struct mc *mc);
 static int get_option(struct mc *mc, bool is_mml, bool is_env);
 // :2074
 static void macro_set(struct mc *mc);
+#if !efc
+// :2217
+static void ppzfile_set(struct mc *mc);
+#endif
 // :2118
 PMDC_NORETURN static void ps_error(struct mc *mc);
+#if !efc
 // :2132
 static void pcmfile_set(struct mc *mc, char c2, char *macro_start);
 // :2149
@@ -408,6 +429,7 @@ static void tempo_set(struct mc *mc);
 static void tempo_set2(struct mc *mc);
 // :2493
 static void zenlen_set(struct mc *mc);
+#endif
 // :2508
 static void FM3Extend_set(struct mc *mc, char c2);
 // :2544
@@ -424,12 +446,16 @@ static void option_set(struct mc *mc);
 static void bend_set(struct mc *mc);
 // :2641
 static void include_set(struct mc *mc);
+#if !efc
 // :2804
 static int partcheck(char c);
+#endif
 // :2821
 static char *set_strings(struct mc *mc, char *out);
+#if !efc
 // :2838
 static char *set_strings2(struct mc *mc, char *out);
+#endif
 // :2865
 static int move_next_param(struct mc *mc);
 // :2894
@@ -456,12 +482,14 @@ static void olc02(struct mc *mc);
 static bool olc03(struct mc *mc);
 // :3391
 static bool olc_skip2(struct mc *mc);
+#if !efc
 // :3419
 static bool skip_mml(struct mc *mc);
 // :3451
 static bool part_not_found(struct mc *mc);
 // :3462
 static bool part_found(struct mc *mc);
+#endif
 // :3662
 static void adp_set(struct mc *mc, char cmd);
 // :3673
@@ -514,6 +542,7 @@ static void syousetu_lng_set(struct mc *mc, char cmd);
 static void hardlfo_set(struct mc *mc, char cmd);
 // :4460
 static void hardlfo_onoff(struct mc *mc, char cmd);
+#if !efc
 // :4504
 static void hdelay_set(struct mc *mc);
 // :4506
@@ -536,6 +565,7 @@ static void wf_set(struct mc *mc);
 static void pmd_set(struct mc *mc);
 // :4572
 static void amd_set(struct mc *mc);
+#endif
 // :4585
 static void octrev(struct mc *mc, char cmd);
 // :4593
@@ -634,12 +664,16 @@ static void parset(struct mc *mc, uint8_t dh, uint8_t dl);
 static void tempoa(struct mc *mc, char cmd);
 // :5740
 static void tempob(struct mc *mc, char cmd);
+#if !efc
 // :5753
 static void tset(struct mc *mc, uint8_t timerb);
 // :5761
 static void tempo_ss(struct mc *mc, uint8_t subcmd);
+#endif
+#if tempo_old_flag
 // :5784
 static uint8_t timerb_get(uint8_t tempo);
+#endif
 // :5802
 static uint8_t get_clock(struct mc *mc, char cmd);
 // :5824
@@ -654,10 +688,12 @@ static void vseta(struct mc *mc, char cmd);
 static void vset(struct mc *mc, uint8_t vol);
 // :5956
 static void vsetb(struct mc *mc, char cmd);
+#if !efc
 // :5973
 static void vsetm(struct mc *mc, uint8_t vol);
 // :5988
 static void vsetm1(struct mc *mc, uint8_t vol);
+#endif
 // :6007
 static void vss(struct mc *mc);
 // :6025
@@ -671,9 +707,9 @@ static void neirochg(struct mc *mc, char cmd);
 static void rhyprg(struct mc *mc, uint16_t prg);
 // :6095
 static void psgprg(struct mc *mc, uint8_t prg);
-#endif
 // :6114
 static void repeat_check(struct mc *mc, uint8_t prg);
+#endif
 // :6153
 static void set_prg(struct mc *mc, uint8_t prg);
 // :6171
@@ -816,6 +852,7 @@ static void p16_oneset(struct mc *mc, uint16_t *n, uint16_t div, bool *seen_digi
 static void usage(struct mc *mc);
 // :7985
 static void space_cut(struct mc *mc);
+#if !efc
 // LC.INC:5
 static void _print_mes(struct mc *mc, const char *mes);
 // LC.INC:13
@@ -857,8 +894,11 @@ static void print_length(struct mc *mc);
 static void print_32(struct mc *mc, uint32_t n);
 // LC.INC:454
 static void sub_pr(struct mc *mc, uint32_t *n, uint32_t div, bool *seen_digits);
+#endif
+#if !hyouka
 // DISKPMD.INC:61
 static int diskwrite(struct mc *mc, const char *filename, void *data, uint16_t n);
+#endif
 // DISKPMD.INC:112
 static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static 128]);
 // DISKPMD.INC:250
@@ -867,10 +907,12 @@ static bool sjis_check(char c);
 static int redhnd(struct mc *mc, void *file, void *dest, uint16_t n, uint16_t *read);
 // DISKPMD.INC:280
 static int clohnd(struct mc *mc, void *file);
+#if !hyouka
 // DISKPMD.INC:291
 static void *makhnd(struct mc *mc, const char *filename);
 // DISKPMD.INC:303
 static int wrihnd(struct mc *mc, void *file, void *data, uint16_t n);
+#endif
 
 // :3493
 static const struct mc_com default_comtbl[] = {
@@ -1918,6 +1960,8 @@ static void cm_init(struct mc *mc) {
     mc->deflng = mc->zenlen >> 2;
 }
 
+#if !hyouka
+
 // :1219
 static void nd_s_opl_loop(struct mc *mc) {
     for (int i = 0; i < 256; i++) {
@@ -1944,6 +1988,10 @@ static void nd_s_loop(struct mc *mc) {
     }
 }
 
+#endif
+
+#if !efc
+
 // :1296
 static void memow_loop0(struct mc *mc, char **adr) {
     mc->si = *adr;
@@ -1956,6 +2004,8 @@ static void memow_loop0(struct mc *mc, char **adr) {
         *mc->di++ = 0;
     }
 }
+
+#endif
 
 #if !hyouka
 
@@ -2208,15 +2258,21 @@ static void macro_set(struct mc *mc) {
     *mc->linehead = ';';
 }
 
+#if !efc
+
 // :2217
 static void ppzfile_set(struct mc *mc) {
     mc->ppzfile_adr = mc->si;
 }
 
+#endif
+
 // :2118
 PMDC_NORETURN static void ps_error(struct mc *mc) {
     error(mc, '#', 7);
 }
+
+#if !efc
 
 // :2132
 // c2: ah
@@ -2288,6 +2344,7 @@ static void pcmextend_set(struct mc *mc, char *macro_start) {
         *partchr++ = *mc->si++;
     }
 #else
+    (void)macro_start;
     ps_error(mc);
 #endif
 }
@@ -2522,6 +2579,8 @@ static void zenlen_set(struct mc *mc) {
     mc->deflng = n >> 2;
 }
 
+#endif
+
 // :2508
 // c2: ah
 static void FM3Extend_set(struct mc *mc, char c2) {
@@ -2561,6 +2620,8 @@ static void file_name_set(struct mc *mc) {
         *filename++ = *mc->si++;
     }
     *filename = 0;
+#else
+    (void)mc;
 #endif
 }
 
@@ -2693,11 +2754,15 @@ static void include_set(struct mc *mc) {
     mc->si = cr_ptr;
 }
 
+#if !efc
+
 // :2804
 // c: al
 static int partcheck(char c) {
     return c < 'L' || c == 'R' || (uint8_t)c > 0x7f;
 }
+
+#endif
 
 // :2821
 static char *set_strings(struct mc *mc, char *out) {
@@ -2708,6 +2773,8 @@ static char *set_strings(struct mc *mc, char *out) {
     return out;
 }
 
+#if !efc
+
 // :2838
 static char *set_strings2(struct mc *mc, char *out) {
     while (*mc->si == '\t' || *mc->si == 0x1b || !is_cntrl(*mc->si)) {
@@ -2716,6 +2783,8 @@ static char *set_strings2(struct mc *mc, char *out) {
     *out++ = 0;
     return out;
 }
+
+#endif
 
 // :2865
 static int move_next_param(struct mc *mc) {
@@ -3082,6 +3151,8 @@ static bool olc_skip2(struct mc *mc) {
     }
 }
 
+#if !efc
+
 // :3419
 // Returns true if the line should continue being compiled.
 static bool skip_mml(struct mc *mc) {
@@ -3156,6 +3227,8 @@ static bool part_found(struct mc *mc) {
         if (!is_graph(c)) return true;
     }
 }
+
+#endif
 
 // :3662
 static void adp_set(struct mc *mc, char cmd) {
@@ -3836,6 +3909,8 @@ static void hardlfo_onoff(struct mc *mc, char cmd) {
 #endif
 }
 
+#if !efc
+
 // :4504
 static void hdelay_set(struct mc *mc) {
     hdelay_set2(mc, '#');
@@ -3907,6 +3982,8 @@ static void amd_set(struct mc *mc) {
     *mc->di++ = 0xd8;
     *mc->di++ = getnum(mc) & 0x7f;
 }
+
+#endif
 
 // :4585
 static void octrev(struct mc *mc, char cmd) {
@@ -4804,6 +4881,8 @@ static void tempob(struct mc *mc, char cmd) {
 #endif
 }
 
+#if !efc
+
 // :5753
 static void tset(struct mc *mc, uint8_t timerb) {
     if (timerb >= 251) error(mc, 't', 2);
@@ -4826,6 +4905,10 @@ static void tempo_ss(struct mc *mc, uint8_t subcmd) {
     }
 }
 
+#endif
+
+#if tempo_old_flag
+
 // :5784
 static uint8_t timerb_get(uint8_t tempo) {
     uint8_t timerb = 256 - 0x112c / tempo;
@@ -4833,6 +4916,8 @@ static uint8_t timerb_get(uint8_t tempo) {
     if ((rem & 0x80) != 0) timerb--;
     return timerb;
 }
+
+#endif
 
 // :5802
 static uint8_t get_clock(struct mc *mc, char cmd) {
@@ -4995,6 +5080,8 @@ static void vsetb(struct mc *mc, char cmd) {
     vset(mc, vol);
 }
 
+#if !efc
+
 // :5973
 static void vsetm(struct mc *mc, uint8_t vol) {
     if (mc->pcm_vol_ext == 1) {
@@ -5021,6 +5108,8 @@ static void vsetm1(struct mc *mc, uint8_t vol) {
     mc->nowvol = vol;
     parset(mc, 0xfd, vol);
 }
+
+#endif
 
 // :6007
 static void vss(struct mc *mc) {
@@ -5125,8 +5214,6 @@ static void psgprg(struct mc *mc, uint8_t prg) {
     olc0(mc);
 }
 
-#endif
-
 // :6114
 static void repeat_check(struct mc *mc, uint8_t prg) {
     if (*mc->si != ',') {
@@ -5161,6 +5248,8 @@ static void repeat_check(struct mc *mc, uint8_t prg) {
     stosw(mc, getnum(mc));
     olc0(mc);
 }
+
+#endif
 
 // :6153
 static void set_prg(struct mc *mc, uint8_t prg) {
@@ -5920,7 +6009,7 @@ static void psgenvset(struct mc *mc, char cmd) {
     mc->si++;
     mc->di[-1] = (mc->di[-1] & 0x0f) | (getnum(mc) << 4);
     // :7085
-    uint8_t al;
+    uint8_t al = 0;
     if (*mc->si == ',') {
         // :7088
         mc->si++;
@@ -6460,6 +6549,8 @@ static void space_cut(struct mc *mc) {
     while (*mc->si == ' ') mc->si++;
 }
 
+#if !efc
+
 // LC.INC:5
 static void _print_mes(struct mc *mc, const char *mes) {
     if (mc->print_flag != 0) print_mes(mc, mes);
@@ -6808,6 +6899,10 @@ static void sub_pr(struct mc *mc, uint32_t *n, uint32_t div, bool *seen_digits) 
     }
 }
 
+#endif
+
+#if !hyouka
+
 // DISKPMD.INC:61
 static int diskwrite(struct mc *mc, const char *filename, void *data, uint16_t n) {
     void *file = makhnd(mc, filename);
@@ -6816,6 +6911,8 @@ static int diskwrite(struct mc *mc, const char *filename, void *data, uint16_t n
     if (clohnd(mc, file) != 0) return 1;
     return 0;
 }
+
+#endif
 
 // DISKPMD.INC:112
 static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static 128]) {
@@ -6876,6 +6973,8 @@ static int clohnd(struct mc *mc, void *file) {
     return mc->sys->close(file, mc->user_data);
 }
 
+#if !hyouka
+
 // DISKPMD.INC:291
 static void *makhnd(struct mc *mc, const char *filename) {
     return mc->sys->create(filename, mc->user_data);
@@ -6885,3 +6984,5 @@ static void *makhnd(struct mc *mc, const char *filename) {
 static int wrihnd(struct mc *mc, void *file, void *data, uint16_t n) {
     return mc->sys->write(file, data, n, mc->user_data);
 }
+
+#endif
