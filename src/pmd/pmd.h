@@ -460,6 +460,9 @@ enum {
     // When no board is present the original leaves AL untouched, so the typed
     // interface reports an explicit sentinel instead.
     PMD_FF_MUSIC_NO_BOARD = PMD_NO_BOARD,
+    // The original's reentrancy rule rejected the call (int60_result == -1);
+    // AL is left untouched there, so the port reports it explicitly too.
+    PMD_FF_MUSIC_REJECTED = 0xfe,
 };
 
 // The result of pmd_change_main.
@@ -802,13 +805,21 @@ struct pmd {
 // and part_data_table point into it.
 void pmd_init(struct pmd *pmd);
 // Initializes the program as resident: parses options and the command line,
-// sets up the buffers, and, with a board present, the FM timer handler.
+// sets up the buffers, and, with a board present, the FM timer handler. The
+// original only served the entries below from a resident PMD, so this must run
+// before any of them, including pmd_change_main.
 void pmd_resident_main(struct pmd *pmd, char *cmdline);
-// Handles updated options for an already resident program.
+// Handles updated options for an already resident program. Only valid after
+// pmd_resident_main; the original reached change_main (:9490) only from the
+// process instance that found PMD already resident.
 enum pmd_change_result pmd_change_main(struct pmd *pmd, char *cmdline);
-// Stops the driver: removes the FM timer handler and silences the board.
-// Returns after the driver no longer touches the hardware; the host still owns
-// and may discard the struct pmd.
+// Stops the driver: with a board present, removes the FM timer handler, and
+// silences the board. Only valid after pmd_resident_main. Where the original
+// exited (:9806) this returns with the removal complete, and removal is final:
+// the host must call pmd_init and pmd_resident_main again before further use.
+// The host still owns and may discard the struct pmd. Exits with cantcut_mes
+// while rescut_cant is set, which pmd_set_fm_int/pmd_set_efc_int do when given
+// a callback.
 void pmd_resident_cut(struct pmd *pmd);
 
 // The INT 60h function table (:6366), one typed function per entry. Each
@@ -816,12 +827,18 @@ void pmd_resident_cut(struct pmd *pmd);
 // n_int60_jumptable (:7294), where entries that are not listed there use
 // `nothing` and therefore do nothing at all without a board.
 //
+// The original's reint_chk table (:6360) rejects some entries while a timer
+// handler or another INT 60h call is active. With a board present, a rejected
+// call changes nothing: the value-returning functions report it through their
+// result, and the others do nothing. Every function may be called from the
+// timer callbacks that reint_chk permits.
+//
 // Starts playback. AH=00h. Returns false when a timer is running and the
-// request is deferred (AH=FFh). Without a board this does nothing and returns
-// true.
-bool pmd_mstart_f(struct pmd *pmd);
-// Stops playback. AH=01h. Returns false when a timer is running (AH=FFh).
+// request is deferred (AH=FFh), or when the reentrancy rule rejected the call.
 // Without a board this does nothing and returns true.
+bool pmd_mstart_f(struct pmd *pmd);
+// Stops playback. AH=01h. Returns false when a timer is running (AH=FFh) or
+// the call was rejected. Without a board this does nothing and returns true.
 bool pmd_mstop_f(struct pmd *pmd);
 // Starts a fade in or out by setting the fade speed. AH=02h, AL=speed. Without
 // a board the speed is left unchanged.
@@ -894,8 +911,10 @@ void pmd_pause_on(struct pmd *pmd);
 // Resumes playback. AH=1Bh. Without a board this does nothing.
 void pmd_pause_off(struct pmd *pmd);
 // Fast-forwards to the given bar. AH=1Ch, DX=bar. Returns 0 on success, 1 when
-// the music ended before the requested bar, 2 when the music is stopped, or
-// PMD_FF_MUSIC_NO_BOARD with no board.
+// the music ended before the requested bar, 2 when the music is stopped,
+// PMD_FF_MUSIC_NO_BOARD with no board, or PMD_FF_MUSIC_REJECTED when the
+// reentrancy rule rejected the call. The host must serialize it with the timer
+// callback, as the original did by masking the FM interrupt.
 uint8_t pmd_ff_music(struct pmd *pmd, uint16_t bar);
 // Returns the address of the given memo string. AH=1Dh, AL=memo number. NULL
 // when the module has no memo or the number is out of range. Works without a
