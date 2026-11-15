@@ -1239,6 +1239,7 @@ static void test_change_options(void) {
     CHECK_EQ(result, PMD_CHANGE_REMOVED);
     char expected[test_out_size] = "";
     append(expected, sizeof(expected), mes_title);
+    append(expected, sizeof(expected), mes_cut);
     CHECK_OUTPUT_EQUALS(expected);
     free_pmd(pmd);
 
@@ -2051,6 +2052,28 @@ static void fire_fm_timer(struct pmd *pmd, uint8_t pending, uint8_t status) {
     CHECK_EQ(ctx.script_pos, ctx.script_len);
 }
 
+// The same for a handler invocation whose timer work reaches the sequencer and
+// so the hardware: only the reads up to the timer dispatch are scripted, and
+// the rest read the idle pad.
+static void fire_fm_timer_busy(struct pmd *pmd, uint8_t pending, uint8_t status) {
+    uint16_t port1 = pmd->fm1_port1;
+    const struct test_io script[] = {
+#if vsync
+        {2, 0x00},
+#endif
+        {port1, 0x00},
+        {port1, pending},
+        {port1, 0x00},
+        {port1, 0x00},
+        {port1, status},
+    };
+    set_script(script, sizeof(script) / sizeof(script[0]));
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    run_fm_handler(pmd);
+    CHECK_EQ(ctx.script_pos, ctx.script_len);
+}
+
 // Runs the variant's board-present resident setup, which installs the FM timer
 // handler, and seeds the timer state that phase 5's data_init will own.
 static struct pmd *new_timer_pmd(void) {
@@ -2772,8 +2795,9 @@ static void test_playback_psg_envelope(void) {
     free_pmd(pmd);
 }
 
-// :7864 the rewind key is GRPH+SHIFT, distinct from GRPH+CTRL; with the phase 6
-// ff_music stub the observable effect is that playback and tempo are untouched.
+// :7864 the rewind key is GRPH+SHIFT, distinct from GRPH+CTRL (fast forward).
+// A rewind restarts the module and skips to the previous bar; this module ends
+// during the skip, which is ff_music_main's past-the-end path.
 static void test_playback_rewind_key(void) {
     struct pmd *pmd = setup_playback();
     static const uint8_t part[] = {0x40, 1, 0x80};
@@ -2788,13 +2812,22 @@ static void test_playback_rewind_key(void) {
     pmd->TimerB_speed = 0;
     ctx.keys = PMD_KEY_GRPH | PMD_KEY_SHIFT;
 
-    // Timer A runs the rewind step; it must not stop playback.
+    // Timer A runs the rewind step. The restart clears the bar counter and the
+    // timer count; the module ends before the requested bar, so AL reports
+    // PMD_FF_MUSIC_PAST.
     pmd->TimerAtime = 7;
-    fire_fm_timer(pmd, 1, 1);
-    CHECK_EQ(pmd->TimerAtime, 8);
+    fire_fm_timer_busy(pmd, 1, 1);
+    CHECK_EQ(pmd->TimerAtime, 0);
+    CHECK_EQ(pmd->syousetu, 0);
+    CHECK_EQ(pmd->status2, 0xff);
+    CHECK_EQ(pmd->skip_flag, 0);
+    // The rewind itself requests no stop.
     CHECK_EQ(pmd->music_flag & 2, 0);
     CHECK_EQ(pmd->play_flag, 1);
-    CHECK_EQ(pmd->syousetu, 4);
+    // BUG: ffm_exit1 discards the saved fadeout volume rather than restoring
+    // it (:6885), so a skip that runs past the end leaves the volume silent.
+    CHECK_EQ(pmd->fadeout_volume, 0xff);
+    CHECK_EQ(pmd->rhythmmask, 0);
 
     // GRPH+SHIFT is not the fast-forward combination.
     run_timer_b(pmd);
@@ -2984,6 +3017,760 @@ static void test_playback_key_mask(void) {
     free_pmd(pmd);
 }
 
+// The board type drv_chk reports for this variant (:6452).
+static uint8_t expected_board_type(void) {
+#if board2 && ppz
+#if ademu
+    return PMD_DRV_BOARD_PPZE;
+#else
+    return PMD_DRV_BOARD_PPZ;
+#endif
+#elif board2 && pcm
+    return PMD_DRV_BOARD_86;
+#elif board2
+    return PMD_DRV_BOARD_B2;
+#else
+    return PMD_DRV_BOARD_PMD;
+#endif
+}
+
+// The no-board half of n_int60_jumptable (:7294): the entries that `nothing`
+// covers change nothing, the others report their sentinels, and no call
+// reaches the hardware.
+static void test_int60_no_board(void) {
+    struct pmd *pmd = new_pmd();
+    pmd->board = 0;
+    ctx.reads = 0;
+    ctx.write_count = 0;
+
+    // Command entries: no effect at all.
+    pmd->play_flag = 1;
+    CHECK(pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->play_flag, 1);
+    CHECK(pmd_mstop_f(pmd));
+    CHECK_EQ(pmd->play_flag, 1);
+
+    pmd->fadeout_speed = 7;
+    pmd_fout(pmd, 3);
+    CHECK_EQ(pmd->fadeout_speed, 7);
+
+    // :7354 The FM effect entries are translated, so the board guard is
+    // observable here: the effect is not started.
+    pmd->fm_effec_flag = 0;
+    pmd->fm_effec_num = 9;
+    pmd_fm_effect_on(pmd, 2);
+    CHECK_EQ(pmd->fm_effec_num, 9);
+    CHECK_EQ(pmd->fm_effec_flag, 0);
+
+    // :25/:184/:821 The SSG effect and PCM effect entries are phase 8 stubs, so
+    // the only observable no-board behavior left is that they reach no
+    // hardware.
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    pmd_eff_on(pmd, 1);
+    pmd_effoff(pmd);
+    pmd_fm_effect_off(pmd);
+    pmd_pcm_effect(pmd, 1, 2, 3, 4);
+    CHECK_EQ(ctx.reads, 0);
+    CHECK_EQ(ctx.write_count, 0);
+
+    pmd->fadeout_volume = 9;
+    pmd_set_fv(pmd, 0);
+    CHECK_EQ(pmd->fadeout_volume, 9);
+
+    pmd->ppsdrv_flag = 3;
+    pmd_set_ppsdrv_flag(pmd, 1);
+    CHECK_EQ(pmd->ppsdrv_flag, 3);
+
+    pmd->pause_flag = 3;
+    pmd_pause_on(pmd);
+    CHECK_EQ(pmd->pause_flag, 3);
+    pmd->play_flag = 0;
+    pmd->pause_flag = 1;
+    pmd_pause_off(pmd);
+    CHECK_EQ(pmd->play_flag, 0);
+    CHECK_EQ(pmd->pause_flag, 1);
+
+    struct pmd_int_handler handler = {test_fm_callback, pmd};
+    pmd_set_fm_int(pmd, handler);
+    CHECK(pmd->fmint.fn == NULL);
+    pmd_set_efc_int(pmd, handler);
+    CHECK(pmd->efcint.fn == NULL);
+    CHECK_EQ(pmd->intfook_flag, 0);
+    CHECK_EQ(pmd->rescut_cant, 0);
+
+    pmd->parts[0].partmask = 0;
+    pmd_part_mask(pmd, 0);
+    CHECK_EQ(pmd->parts[0].partmask, 0);
+
+    CHECK_EQ(pmd_ff_music(pmd, 3), PMD_FF_MUSIC_NO_BOARD);
+    CHECK_EQ(pmd->skip_flag, 0);
+
+    // Query entries: the sentinels from get_255/get_65535.
+    CHECK_EQ(pmd_get_ss(pmd), PMD_NO_BOARD);
+    CHECK_EQ(pmd_get_fv(pmd), PMD_NO_BOARD);
+    CHECK_EQ(pmd_get_fmefc_num(pmd), PMD_NO_BOARD);
+    CHECK_EQ(pmd_get_pcmefc_num(pmd), PMD_NO_BOARD);
+    CHECK_EQ(pmd_get_ppsdrv_flag(pmd), PMD_NO_BOARD);
+
+    struct pmd_status status = pmd_get_status(pmd);
+    CHECK_EQ(status.status, PMD_NO_BOARD);
+    CHECK_EQ(status.status2, PMD_NO_BOARD);
+
+    struct pmd_psgefcnum psgefcnum = pmd_get_psgefcnum(pmd);
+    CHECK_EQ(psgefcnum.psgefcnum, PMD_NO_BOARD);
+    CHECK_EQ(psgefcnum.effon, PMD_NO_BOARD);
+
+    // :6592 The joystick is a hardware read, so it reports the sentinel
+    // without touching the PSG.
+    struct pmd_joy joy = pmd_get_joy(pmd);
+    CHECK_EQ(joy.joystick1, PMD_NO_BOARD);
+    CHECK_EQ(joy.joystick2, PMD_NO_BOARD);
+    CHECK_EQ(ctx.reads, 0);
+    CHECK_EQ(ctx.write_count, 0);
+
+    // :7339 Without a board drv_chk2 reports AL=255 alongside the version.
+    struct pmd_drv_info info = pmd_drv_chk(pmd);
+    CHECK_EQ(info.board, PMD_DRV_BOARD_ABSENT);
+    CHECK_EQ(info.version, vers);
+    CHECK_EQ(info.version_char, (uint8_t)verc[0]);
+
+    // The address entries work either way.
+    CHECK(pmd_get_musdat_adr(pmd) == pmd->dataarea);
+    CHECK_EQ(pmd_get_musdat_adr(pmd)[0], pmd->mmlbuf[-1]);
+    CHECK(pmd_get_tondat_adr(pmd) == pmd->tondat);
+    CHECK(pmd_get_efcdat_adr(pmd) == pmd->efcdat);
+    CHECK(pmd_get_workadr(pmd) == pmd->part_data_table);
+#if board2
+    CHECK(pmd_get_pcm_adr(pmd) == &pmd->pcm_table);
+#else
+    CHECK(pmd_get_pcm_adr(pmd) == NULL);
+#endif
+    CHECK(pmd_get_mus_name(pmd) == pmd->mus_filename);
+    struct pmd_size size = pmd_get_size(pmd);
+    CHECK_EQ(size.music, 16);
+    CHECK_EQ(size.voice, 8);
+    CHECK_EQ(size.effect, 4);
+
+    struct pmd_int_handler fmint = pmd_get_fm_int(pmd);
+    CHECK(fmint.fn == NULL);
+    CHECK(fmint.user_data == NULL);
+    struct pmd_int_handler efcint = pmd_get_efc_int(pmd);
+    CHECK(efcint.fn == NULL);
+    CHECK(efcint.user_data == NULL);
+
+    CHECK_EQ(pmd->int60flag, 0);
+
+    free_pmd(pmd);
+}
+
+// The board-present halves of the same entries, plus the setters.
+static void test_int60_board(void) {
+    static const struct pmd_drv_pps pps = {0};
+
+    struct pmd *pmd = setup_playback();
+
+    pmd->syousetu = 0x1234;
+    CHECK_EQ(pmd_get_ss(pmd), 0x1234);
+
+    pmd->status = 0x12;
+    pmd->status2 = 0x34;
+    struct pmd_status status = pmd_get_status(pmd);
+    CHECK_EQ(status.status, 0x12);
+    CHECK_EQ(status.status2, 0x34);
+
+    pmd->fadeout_volume = 0x2a;
+    CHECK_EQ(pmd_get_fv(pmd), 0x2a);
+
+    struct pmd_drv_info info = pmd_drv_chk(pmd);
+    CHECK_EQ(info.board, expected_board_type());
+    CHECK_EQ(info.version, vers);
+    CHECK_EQ(info.version_char, (uint8_t)verc[0]);
+
+    pmd->fm_effec_num = 6;
+    CHECK_EQ(pmd_get_fmefc_num(pmd), 6);
+    pmd->pcm_effec_num = 8;
+    CHECK_EQ(pmd_get_pcmefc_num(pmd), 8);
+
+    pmd->psgefcnum = 0x80;
+    pmd->effon = 1;
+    struct pmd_psgefcnum psgefcnum = pmd_get_psgefcnum(pmd);
+    CHECK_EQ(psgefcnum.psgefcnum, 0x80);
+    CHECK_EQ(psgefcnum.effon, 1);
+
+    // :6580 the sizes come back in AL/AH/DL.
+    struct pmd_size size = pmd_get_size(pmd);
+    CHECK_EQ(size.music, pmd->mmldat_lng);
+    CHECK_EQ(size.voice, pmd->voicedat_lng);
+    CHECK_EQ(size.effect, pmd->effecdat_lng);
+
+    strcpy(pmd->mus_filename, "TEST.M");
+    CHECK(strcmp(pmd_get_mus_name(pmd), "TEST.M") == 0);
+
+    CHECK(pmd_get_musdat_adr(pmd) == pmd->dataarea);
+    CHECK(pmd_get_tondat_adr(pmd) == pmd->tondat);
+    CHECK(pmd_get_efcdat_adr(pmd) == pmd->efcdat);
+    CHECK(pmd_get_workadr(pmd) == pmd->part_data_table);
+#if board2
+    CHECK(pmd_get_pcm_adr(pmd) == &pmd->pcm_table);
+#else
+    CHECK(pmd_get_pcm_adr(pmd) == NULL);
+#endif
+
+    // :6558 set_ppsdrv_flag clears the flag first and only stores the value
+    // while PPSDRV is resident.
+    pmd->pps = NULL;
+    pmd->ppsdrv_flag = 5;
+    pmd_set_ppsdrv_flag(pmd, 1);
+    CHECK_EQ(pmd->ppsdrv_flag, 0);
+    CHECK_EQ(pmd_get_ppsdrv_flag(pmd), 0);
+    pmd->pps = &pps;
+    pmd_set_ppsdrv_flag(pmd, 1);
+    CHECK_EQ(pmd->ppsdrv_flag, 1);
+    CHECK_EQ(pmd_get_ppsdrv_flag(pmd), 1);
+    pmd->pps = NULL;
+
+    // :6441 set_fv to zero restores the rhythm volume in the board2 builds.
+    ctx.write_count = 0;
+    pmd_set_fv(pmd, 0);
+    CHECK_EQ(pmd->fadeout_volume, 0);
+#if board2
+    // opn_init sets rhyvol from the rhythm volume, 48 at full volume (:811).
+    CHECK_EQ(pmd->rhyvol, 0x30);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x11, 0x30));
+#else
+    CHECK_EQ(ctx.write_count, 0);
+#endif
+
+    // The SSG effect entry points are phase 8 stubs; calling them must be
+    // harmless.
+    pmd_eff_on(pmd, 1);
+    pmd_effoff(pmd);
+
+    CHECK_EQ(pmd->int60flag, 0);
+    free_pmd(pmd);
+}
+
+// :7354 The FM effect part: the voice-table address, the fixed defaults, and
+// the FM3 mode save and restore.
+static void test_int60_fm_effect(void) {
+    struct pmd *pmd = setup_playback();
+    pmd->play_flag = 1;
+    // The effect area holds the part's little-endian data offset.
+    pmd->efcdat[0] = 0x40;
+    pmd->efcdat[1] = 0x00;
+
+    ctx.write_count = 0;
+    pmd_fm_effect_on(pmd, 0);
+    CHECK_EQ(pmd->fm_effec_num, 0);
+    CHECK_EQ(pmd->fm_effec_flag, 1);
+    CHECK_EQ(pmd->partb, 3);
+    CHECK(pmd->part_e.address == pmd->efcdat + 0x40);
+    CHECK_EQ(pmd->part_e.leng, 1);
+    CHECK_EQ(pmd->part_e.volume, 108);
+    CHECK_EQ(pmd->part_e.slotmask, 0xf0);
+    CHECK_EQ(pmd->part_e.neiromask, 0xff);
+    // The effect masks its FM channel so the music leaves it alone: part6 in
+    // the board2 builds, the four FM3 parts otherwise.
+#if board2
+    CHECK_EQ(pmd->parts[5].partmask & 2, 2);
+#else
+    for (int i = 2; i < 6; i++) CHECK_EQ(pmd->parts[i].partmask & 2, 2);
+#endif
+#if board2
+    CHECK_EQ(pmd->part_e.fmpan, 0xc0);
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0xb6, 0xc0));
+#else
+    // :7410 The FM3 mode is forced while the effect plays.
+    CHECK_EQ(pmd->ch3mode_push, 0x3f);
+    CHECK_EQ(pmd->ch3mode, 0x3f);
+#endif
+
+    // Silencing it clears the effect and restores the FM3 mode.
+    ctx.write_count = 0;
+    pmd_fm_effect_off(pmd);
+    CHECK_EQ(pmd->fm_effec_num, 0xff);
+    CHECK_EQ(pmd->fm_effec_flag, 0);
+#if !board2
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x27, 0x0f));
+#endif
+
+    // With no effect playing, silencing it does nothing.
+    ctx.write_count = 0;
+    pmd_fm_effect_off(pmd);
+    CHECK_EQ(ctx.write_count, 0);
+
+    free_pmd(pmd);
+}
+
+// :6663 Pause silences the parts and resumes them.
+static void test_int60_pause(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    ctx.write_count = 0;
+    pmd_pause_on(pmd);
+    CHECK_EQ(pmd->play_flag, 0);
+    CHECK_EQ(pmd->pause_flag, 1);
+    // silence() keys every FM channel off.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x00));
+
+    // A paused driver ignores another pause.
+    ctx.write_count = 0;
+    pmd_pause_on(pmd);
+    CHECK_EQ(ctx.write_count, 0);
+
+    // :6675 Resuming restores the voices of the parts that have music.
+    pmd->parts[0].address = pmd->mmlbuf + 24;
+    pmd->parts[0].neiromask = 0xff;
+    pmd->parts[0].voicenum = 1;
+    ctx.write_count = 0;
+    pmd_pause_off(pmd);
+    CHECK_EQ(pmd->play_flag, 1);
+    CHECK_EQ(pmd->pause_flag, 0);
+    // neiro_reset restores the pan register of FM1 channel 1.
+    CHECK(has_write(pmd->fm1_port1, 0xb0));
+
+    // A running driver ignores the resume.
+    ctx.write_count = 0;
+    pmd_pause_off(pmd);
+    CHECK_EQ(pmd->play_flag, 1);
+    CHECK_EQ(ctx.write_count, 0);
+
+    free_pmd(pmd);
+}
+
+// :6967 part_mask: the mask bit, the rhythm part, and the part numbers the
+// table does not cover.
+static void test_int60_part_mask(void) {
+    struct pmd *pmd = setup_playback();
+    pmd->play_flag = 1;
+
+    // FM1 part 0: mask and unmask. The voice mask makes the mask silent the
+    // part instead of only keying it off.
+    pmd->parts[0].partmask = 0;
+    pmd->parts[0].neiromask = 0xff;
+    ctx.write_count = 0;
+    pmd_part_mask(pmd, 0);
+    CHECK_EQ(pmd->parts[0].partmask, 1);
+    CHECK_EQ(pmd->partb, 1);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x00));
+    pmd_part_mask(pmd, 0x80);
+    CHECK_EQ(pmd->parts[0].partmask, 0);
+
+    // :6997 A part that is already masked is not masked again.
+    pmd->parts[0].partmask = 1;
+    ctx.write_count = 0;
+    pmd_part_mask(pmd, 0);
+    CHECK_EQ(pmd->parts[0].partmask, 1);
+    CHECK_EQ(ctx.write_count, 0);
+
+    // :7111 Unmasking an unmasked part does nothing.
+    pmd->parts[0].partmask = 0;
+    ctx.write_count = 0;
+    pmd_part_mask(pmd, 0x80);
+    CHECK_EQ(pmd->parts[0].partmask, 0);
+    CHECK_EQ(ctx.write_count, 0);
+
+    // The SSG part masks its channel in PSG register 07h.
+    ctx.write_count = 0;
+    pmd_part_mask(pmd, 6);
+    CHECK_EQ(pmd->parts[6].partmask, 1);
+    // The PSG keyoff mask combines the channel and tone/noise bits.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x07, 0x12));
+    pmd_part_mask(pmd, 0x86);
+    CHECK_EQ(pmd->parts[6].partmask, 0);
+
+    // :6973 Part numbers past the table are ignored.
+    ctx.write_count = 0;
+#if ppz
+    pmd_part_mask(pmd, 16 + 8);
+#else
+    pmd_part_mask(pmd, 16);
+#endif
+    CHECK_EQ(ctx.write_count, 0);
+
+    // The rhythm part masks the rhythm source instead of a part.
+    pmd->rhythmmask = 0xff;
+    pmd_part_mask(pmd, 14);
+    CHECK_EQ(pmd->rhythmmask, 0);
+    pmd_part_mask(pmd, 0x8e);
+    CHECK_EQ(pmd->rhythmmask, 0xff);
+
+    // The effect part is part_e, which the table's last entry names in every
+    // variant. An empty part_e keeps the unmask from restoring a voice.
+    pmd->part_e = (struct pmd_qq){0};
+    pmd_part_mask(pmd, 15);
+    CHECK_EQ(pmd->part_e.partmask, 1);
+    pmd_part_mask(pmd, 0x8f);
+    CHECK_EQ(pmd->part_e.partmask, 0);
+
+    free_pmd(pmd);
+}
+
+// :6741 get_memo walks the module's memo table.
+static void test_int60_get_memo(void) {
+    struct pmd *pmd = new_pmd();
+    pmd->board = 0;
+
+    // The empty module image has no voice header, so no memo table.
+    CHECK(pmd_get_memo(pmd, 0) == NULL);
+
+    uint8_t *m = pmd->mmlbuf;
+    memset(m, 0, 0x100);
+    m[0] = 0x1a; // the voice header marker
+    m[1] = 0x00;
+    m[0x18] = 0x40; // the 4-byte record the code reads backwards from
+    m[0x19] = 0x00;
+    m[0x3c] = 0x50; // memo table offset
+    m[0x3d] = 0x00;
+    m[0x3e] = 0x48; // MC version 4.8
+    m[0x3f] = 0xfe;
+    m[0x50] = 0x60; // #PPSFile
+    m[0x52] = 0x70; // #PPZFile
+    m[0x54] = 0x80; // memo 0
+    m[0x56] = 0x00; // end of table
+    strcpy((char *)m + 0x80, "memo zero");
+
+    // From version 4.2 and 4.8 the two leading entries are the file names, so
+    // memo 0 is the third entry.
+    CHECK(pmd_get_memo(pmd, 0) == m + 0x80);
+    CHECK(pmd_get_memo(pmd, 1) == NULL); // the table ends first
+
+    // Version 4.0 has neither bump, so memo 0 is the first entry.
+    m[0x3e] = 0x40;
+    CHECK(pmd_get_memo(pmd, 0) == m + 0x60);
+    CHECK(pmd_get_memo(pmd, 1) == m + 0x70);
+
+    // :6753 A high version byte other than 0FEh is not a memo table.
+    m[0x3e] = 0x41;
+    m[0x3f] = 0x00;
+    CHECK(pmd_get_memo(pmd, 0) == NULL);
+
+    free_pmd(pmd);
+}
+
+// :6592 Both joystick axes come through PSG registers 0Eh/0Fh.
+static void test_int60_get_joy(void) {
+    struct pmd *pmd = setup_playback();
+    uint16_t port1 = pmd->fm1_port1;
+    uint16_t port2 = pmd->fm1_port2;
+
+    const struct test_io script[] = {
+        {port1, 0x00}, {port1, 0x00}, {port2, 0x10}, // get07: mode set
+        {port1, 0x00}, {port1, 0x00}, // opnset44
+        {port1, 0x00}, {port1, 0x00}, {port2, 0x01}, // init (1)
+        {port1, 0x00}, {port1, 0x00}, {port2, 0x15}, // data (1)
+        {port1, 0x00}, {port1, 0x00}, {port2, 0x02}, // init (2)
+        {port1, 0x00}, {port1, 0x00}, {port2, 0x2a}, // data (2)
+    };
+    set_script(script, sizeof(script) / sizeof(script[0]));
+    ctx.write_count = 0;
+
+    struct pmd_joy joy = pmd_get_joy(pmd);
+    CHECK_EQ(ctx.script_pos, ctx.script_len);
+    // The data reads mask off the buttons' upper bits.
+    CHECK_EQ(joy.joystick1, 0x15);
+    CHECK_EQ(joy.joystick2, 0x2a);
+    // :6614 The init writes keep the low nibble and set the top bits.
+    CHECK(has_write(port2, 0x81));
+    CHECK(has_write(port2, 0xc2));
+
+    free_pmd(pmd);
+}
+
+// :6504 The callbacks and the removal lock they take.
+static void test_int60_callbacks(void) {
+    struct pmd *pmd = setup_playback();
+
+    struct pmd_int_handler handler = {test_fm_callback, pmd};
+    pmd_set_fm_int(pmd, handler);
+    CHECK(pmd->fmint.fn == test_fm_callback);
+    CHECK(pmd->fmint.user_data == pmd);
+    CHECK_EQ(pmd->intfook_flag, 1);
+    CHECK_EQ(pmd->rescut_cant, 0x80);
+
+    struct pmd_int_handler got = pmd_get_fm_int(pmd);
+    CHECK(got.fn == test_fm_callback);
+    CHECK(got.user_data == pmd);
+
+    handler.fn = test_efc_callback;
+    pmd_set_efc_int(pmd, handler);
+    CHECK(pmd->efcint.fn == test_efc_callback);
+    CHECK_EQ(pmd->intfook_flag, 3);
+    CHECK_EQ(pmd->rescut_cant, 0xc0);
+    got = pmd_get_efc_int(pmd);
+    CHECK(got.fn == test_efc_callback);
+
+    // :6513 A null handler clears its flag and its part of the lock.
+    pmd_set_fm_int(pmd, (struct pmd_int_handler){NULL, NULL});
+    CHECK(pmd->fmint.fn == NULL);
+    CHECK_EQ(pmd->intfook_flag, 2);
+    CHECK_EQ(pmd->rescut_cant, 0x40);
+    pmd_set_efc_int(pmd, (struct pmd_int_handler){NULL, NULL});
+    CHECK(pmd->efcint.fn == NULL);
+    CHECK_EQ(pmd->intfook_flag, 0);
+    CHECK_EQ(pmd->rescut_cant, 0);
+
+    // The timer path calls them at the original points.
+    pmd->play_flag = 1;
+    pmd->fmint = (struct pmd_int_handler){test_fm_callback, pmd};
+    pmd->efcint = (struct pmd_int_handler){test_efc_callback, pmd};
+    pmd->intfook_flag = 3;
+    ctx.fm_calls = 0;
+    ctx.efc_calls = 0;
+    fire_fm_timer(pmd, 3, 3);
+    CHECK_EQ(ctx.efc_calls, 1);
+#if sync
+    CHECK_EQ(ctx.fm_calls, 0);
+#else
+    CHECK_EQ(ctx.fm_calls, 1);
+#endif
+
+    free_pmd(pmd);
+}
+
+// :6360 The reint_chk classes: Timer A, Timer B, and nested INT 60h calls.
+static void test_int60_reentrancy(void) {
+    struct pmd *pmd = setup_playback();
+    pmd->play_flag = 1;
+
+    // A nested call is rejected: mstart_f reports the deferral without
+    // scheduling the start.
+    pmd->int60flag = 1;
+    pmd->music_flag = 0;
+    CHECK(!pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->music_flag, 0);
+    CHECK_EQ(pmd_ff_music(pmd, 0), PMD_FF_MUSIC_REJECTED);
+    pmd->parts[0].partmask = 0;
+    pmd_part_mask(pmd, 0);
+    CHECK_EQ(pmd->parts[0].partmask, 0);
+    CHECK_EQ(pmd->int60flag, 1);
+    pmd->int60flag = 0;
+
+    // 00h's class only names nested calls, so Timer B's flag does not reject
+    // it: the request is deferred to Timer B instead.
+    pmd->TimerBflag = 1;
+    pmd->music_flag = 0;
+    CHECK(!pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->music_flag, 1);
+    pmd->music_flag = 0;
+    pmd->play_flag = 1;
+    pmd_pause_on(pmd); // 1Ah rejects while Timer B runs
+    CHECK_EQ(pmd->play_flag, 1);
+    CHECK_EQ(pmd->pause_flag, 0);
+    pmd->fm_effec_flag = 1;
+    pmd->fm_effec_num = 5;
+    pmd_fm_effect_off(pmd); // 0Dh checks both timers
+    CHECK_EQ(pmd->fm_effec_num, 5);
+    pmd->TimerBflag = 0;
+
+    // Timer A only rejects the entries whose class names it.
+    pmd->TimerAflag = 1;
+    pmd_pause_on(pmd);
+    CHECK_EQ(pmd->play_flag, 0);
+    CHECK_EQ(pmd->pause_flag, 1);
+    pmd->play_flag = 1;
+    pmd->pause_flag = 0;
+    pmd->fadeout_speed = 1;
+    pmd_fout(pmd, 9); // 02h has an empty class
+    CHECK_EQ(pmd->fadeout_speed, 9);
+    pmd->TimerAflag = 0;
+
+    // Every call balances the counter, rejected or not.
+    CHECK_EQ(pmd->int60flag, 0);
+
+    free_pmd(pmd);
+}
+
+// :6797 ff_music: the stopped, restart, and past-the-end paths.
+static void test_int60_ff_music(void) {
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    struct pmd *pmd = setup_playback();
+    load_module(pmd, part, sizeof(part));
+
+    // :6822 A stopped music reports AL=2 and keeps its state.
+    pmd->status2 = 0xff;
+    pmd->syousetu = 5;
+    pmd->TimerAtime = 7;
+    ctx.write_count = 0;
+    CHECK_EQ(pmd_ff_music(pmd, 0), PMD_FF_MUSIC_STOPPED);
+    CHECK_EQ(pmd->syousetu, 5);
+    CHECK_EQ(pmd->TimerAtime, 7);
+    CHECK_EQ(ctx.write_count, 0);
+
+    // Bar 0 restarts from the top and returns at the fast-forward tempo.
+    pmd->status2 = 0;
+    pmd->syousetu = 4;
+    pmd->ff_tempo = 200;
+    pmd->TimerB_speed = 0;
+    ctx.write_count = 0;
+    CHECK_EQ(pmd_ff_music(pmd, 0), PMD_FF_MUSIC_OK);
+    CHECK_EQ(pmd->syousetu, 0); // data_init2 cleared the counters
+    CHECK_EQ(pmd->TimerAtime, 0);
+    CHECK_EQ(pmd->skip_flag, 0);
+    CHECK_EQ(pmd->TimerB_speed, 199); // :6890 one less than ff_tempo
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x26, 199));
+    // The temporary part masks are released again.
+    CHECK_EQ(pmd->parts[0].partmask, 0);
+
+    // A skip past the module's end reports AL=1 and leaves it stopped.
+    pmd->status2 = 0;
+    pmd->syousetu = 0;
+    ctx.write_count = 0;
+    CHECK_EQ(pmd_ff_music(pmd, 4), PMD_FF_MUSIC_PAST);
+    CHECK_EQ(pmd->status2, 0xff);
+    CHECK_EQ(pmd->skip_flag, 0);
+    CHECK_EQ(pmd->parts[0].partmask, 0);
+    // BUG: :6885 pops the saved fadeout volume without restoring it on the
+    // past-the-end path, so the skip leaves the music silent.
+    CHECK_EQ(pmd->fadeout_volume, 0xff);
+    CHECK_EQ(pmd->rhythmmask, 0);
+
+    free_pmd(pmd);
+}
+
+// :6856 A skip that reaches its bar inside the module takes the loop's
+// break-out path, which restores the fadeout volume and rhythm mask it
+// suspended for the skip.
+static void test_int60_ff_music_skip(void) {
+    struct pmd *pmd = setup_playback();
+    // 'L' loops the part, so the module outlives the skip.
+    static const uint8_t part[] = {0x40, 1, 0xf6, 0x41, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    pmd->status2 = 0;
+    pmd->syousetu = 0;
+    // One count short of the next bar, so the first loop iteration reaches it.
+    pmd->opncount = (uint8_t)(pmd->syousetu_lng - 1);
+    // The skip suspends both and must put them back on the way out.
+    pmd->fadeout_volume = 0;
+    pmd->rhythmmask = 0xff;
+    pmd->ff_tempo = 200;
+    pmd->TimerB_speed = 0;
+    ctx.write_count = 0;
+
+    CHECK_EQ(pmd_ff_music(pmd, 1), PMD_FF_MUSIC_OK);
+    CHECK_EQ(pmd->syousetu, 1);
+    CHECK_EQ(pmd->opncount, 0);
+    CHECK_EQ(pmd->status2, 0);
+    CHECK_EQ(pmd->skip_flag, 0);
+    CHECK_EQ(pmd->fadeout_volume, 0);
+    CHECK_EQ(pmd->rhythmmask, 0xff);
+    CHECK_EQ(pmd->TimerB_speed, 199);
+    // The temporary part masks are released again.
+#if ppz
+    const size_t count = 14 + 8;
+#elif board2
+    const size_t count = 14;
+#else
+    const size_t count = 11;
+#endif
+    for (size_t i = 0; i < count; i++) {
+        CHECK_EQ(pmd->parts[i].partmask & 0x80, 0);
+    }
+#if board2
+    // :6888 A silent master volume restores the rhythm volume on the way out.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x11, pmd->rhyvol));
+#endif
+
+    free_pmd(pmd);
+}
+
+// :9753 The removal sequence and its refusals.
+static void test_resident_cut(void) {
+    // A registered callback forbids removal.
+    struct pmd *pmd = setup_playback();
+    pmd_set_fm_int(pmd, (struct pmd_int_handler){test_fm_callback, pmd});
+    CHECK_EQ(pmd->rescut_cant, 0x80);
+    ctx.out_len = 0;
+    ctx.out[0] = '\0';
+    int unwound = setjmp(ctx.jmp);
+    if (unwound == 0) {
+        pmd_resident_cut(pmd);
+        fprintf(stderr, "%s:%d: pmd_resident_cut did not exit\n", __FILE__,
+                __LINE__);
+        failures++;
+    }
+    CHECK(ctx.exited);
+    CHECK_EQ(ctx.exit_status, 1);
+    CHECK_OUTPUT_EQUALS(cantcut_mes);
+    CHECK_EQ(ctx.fm_timer_removals, 0);
+    free_pmd(pmd);
+
+    // The ordinary sequence.
+    ctx_reset();
+    pmd = setup_playback();
+    CHECK(ctx.fm_timer_handler != NULL);
+    pmd->play_flag = 1;
+    pmd->status2 = 0;
+    pmd->fm_effec_flag = 1;
+    pmd->fm_effec_num = 4;
+    pmd->ppsdrv_flag = 1;
+    ctx.out_len = 0;
+    ctx.out[0] = '\0';
+    ctx.write_count = 0;
+    pmd_resident_cut(pmd);
+    CHECK_OUTPUT_EQUALS(mes_cut);
+    // The timer handler goes first, and nothing can call back afterwards.
+    CHECK_EQ(ctx.fm_timer_removals, 1);
+    CHECK(ctx.fm_timer_handler == NULL);
+    // :9777 the FM effect and the music stop; no PPSDRV is resident, so its
+    // flag resets.
+    CHECK_EQ(pmd->fm_effec_flag, 0);
+    CHECK_EQ(pmd->fm_effec_num, 0xff);
+    CHECK_EQ(pmd->play_flag, 0);
+    CHECK_EQ(pmd->status2, 0xff);
+    CHECK_EQ(pmd->ppsdrv_flag, 0);
+    // :9827 The FM timer register is reset.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x27, 0x30));
+    CHECK_EQ(pmd->int60flag, 0);
+    free_pmd(pmd);
+
+    // A driver that found no board never installed the FM timer handler, and
+    // :9818 gates the teardown on the same board flag the install used, so the
+    // sequence reaches no vtable entry.
+    ctx_reset();
+    pmd = new_pmd();
+    CHECK(run_resident(pmd, ""));
+    CHECK_EQ(pmd->board, 0);
+    ctx.out_len = 0;
+    ctx.out[0] = '\0';
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    pmd_resident_cut(pmd);
+    CHECK_OUTPUT_EQUALS(mes_cut);
+    CHECK_EQ(ctx.fm_timer_removals, 0);
+    CHECK_EQ(ctx.reads, 0);
+    CHECK_EQ(ctx.write_count, 0);
+    free_pmd(pmd);
+}
+
+// :9753 /R removes the driver through pmd_change_main.
+static void test_change_remove(void) {
+    ctx_reset();
+    struct pmd *pmd = new_pmd();
+    CHECK(run_board_resident(pmd));
+    CHECK(ctx.fm_timer_handler != NULL);
+    CHECK_EQ(ctx.fm_timer_removals, 0);
+
+    ctx.out_len = 0;
+    ctx.out[0] = '\0';
+    enum pmd_change_result result = run_change(pmd, "/R");
+    CHECK(!ctx.exited);
+    CHECK_EQ(result, PMD_CHANGE_REMOVED);
+    CHECK_EQ(ctx.fm_timer_removals, 1);
+    CHECK(ctx.fm_timer_handler == NULL);
+    char expected[test_out_size] = "";
+    append(expected, sizeof(expected), mes_title);
+    append(expected, sizeof(expected), mes_cut);
+    CHECK_OUTPUT_EQUALS(expected);
+    free_pmd(pmd);
+}
+
 // Without a board both entry points report success without touching playback.
 static void test_playback_no_board(void) {
     struct pmd *pmd = alloc_pmd();
@@ -3053,6 +3840,19 @@ int main(void) {
     test_playback_porta();
     test_playback_lfo();
     test_playback_key_mask();
+    test_int60_no_board();
+    test_int60_board();
+    test_int60_fm_effect();
+    test_int60_pause();
+    test_int60_part_mask();
+    test_int60_get_memo();
+    test_int60_get_joy();
+    test_int60_callbacks();
+    test_int60_reentrancy();
+    test_int60_ff_music();
+    test_int60_ff_music_skip();
+    test_resident_cut();
+    test_change_remove();
     test_timer_a();
     test_timer_b();
     test_timer_ab();
