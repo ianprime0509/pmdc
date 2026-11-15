@@ -90,6 +90,9 @@ struct test_ctx {
     uint8_t cb_timer_aflag;
     uint8_t cb_timer_bflag;
 
+    // Normalized keyboard snapshot returned by pmd_hw.read_key_state.
+    uint8_t keys;
+
     // Mock PPZ8 driver calls.
     unsigned ppz_fifo_stops;
     unsigned ppz_keyoffs[8];
@@ -182,6 +185,11 @@ static void test_hw_install_fm_timer(void (*handler)(struct pmd *),
     c->fm_timer_installs++;
 }
 
+static uint8_t test_hw_read_key_state(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    return ctx->keys;
+}
+
 static void test_hw_remove_fm_timer(void *user_data) {
     struct test_ctx *ctx = user_data;
     ctx->fm_timer_handler = NULL;
@@ -193,6 +201,7 @@ static const struct pmd_hw test_hw = {
     .outb = test_hw_outb,
     .install_fm_timer_handler = test_hw_install_fm_timer,
     .remove_fm_timer_handler = test_hw_remove_fm_timer,
+    .read_key_state = test_hw_read_key_state,
 };
 
 static void test_fm_callback(void *user_data) {
@@ -1260,6 +1269,20 @@ static bool has_write(uint16_t port, uint8_t value) {
     return false;
 }
 
+// True when the recorded writes hold an OPN register write: `reg` to the
+// address port immediately followed by `value` to the data port.
+static bool has_reg_write(uint16_t port1, uint16_t port2, uint8_t reg,
+                          uint8_t value) {
+    for (size_t i = 0; i + 1 < ctx.write_count; i++) {
+        if (ctx.writes[i].port == port1 && ctx.writes[i].value == reg &&
+            ctx.writes[i + 1].port == port2 &&
+            ctx.writes[i + 1].value == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
 #if !va && !board2
 // :9196 The 98+NORM probe path with a scripted board.
 static const struct test_io board_script[] = {
@@ -1296,12 +1319,14 @@ static const struct test_io board_script[] = {
 static bool run_board_resident(struct pmd *pmd) {
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    ctx.pad_read = 0x00;
     return run_resident(pmd, "");
 }
 
 static void test_board_present(void) {
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    ctx.pad_read = 0x00;
     struct pmd *pmd = new_pmd();
     CHECK(run_resident(pmd, ""));
     CHECK_EQ(ctx.script_pos, ctx.script_len);
@@ -1364,6 +1389,7 @@ static void test_board_ppsdrv(void) {
 
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
+    ctx.pad_read = 0x00;
     struct pmd *pmd = new_pmd();
     pmd->pps = &pps;
     CHECK(run_resident(pmd, ""));
@@ -1488,6 +1514,7 @@ static bool run_board_resident(struct pmd *pmd) {
     ctx_reset();
     set_script(va_board_script,
                sizeof(va_board_script) / sizeof(va_board_script[0]));
+    ctx.pad_read = 0x00;
     return run_resident(pmd, "");
 }
 
@@ -1495,6 +1522,7 @@ static void test_board_present(void) {
     ctx_reset();
     set_script(va_board_script,
                sizeof(va_board_script) / sizeof(va_board_script[0]));
+    ctx.pad_read = 0x00;
     struct pmd *pmd = new_pmd();
     CHECK(run_resident(pmd, ""));
     CHECK_EQ(ctx.script_pos, ctx.script_len);
@@ -1582,8 +1610,8 @@ static void test_board_present(void) {
     CHECK_EQ(pmd->fm1_port2, 0x18a);
     CHECK_EQ(pmd->fm2_port1, 0x18c);
     CHECK_EQ(pmd->fm2_port2, 0x18e);
-    CHECK_EQ(pmd->fm_port1, 0x188);
-    CHECK_EQ(pmd->fm_port2, 0x18a);
+    CHECK_EQ(pmd->fm_port1, 0x18c);
+    CHECK_EQ(pmd->fm_port2, 0x18e);
     CHECK_EQ(pmd->mes_int[11], '1');
     CHECK_EQ(pmd->mes_int[4], '5');
     CHECK_EQ(pmd->int_level, 12);
@@ -2272,6 +2300,705 @@ static void test_timer_vsync_restore(void) {
 }
 #endif
 
+// Phase 5: a minimal module image. Every part points at the end marker, so the
+// sequencer only runs the parts a test loads explicitly.
+static void load_empty_module(struct pmd *pmd) {
+    uint8_t *m = pmd->mmlbuf;
+    memset(m, 0, 0x200);
+    for (int i = 0; i < 11; i++) {
+        m[2 * i] = 0x60;
+        m[2 * i + 1] = 0;
+    }
+    m[0x60] = 0x80;       // end marker
+    pmd->dataarea[0] = 0; // x68_flg
+}
+
+// The module part-table indices of SSG1 and of the rhythm part (the original's
+// part7 and part11); the table layout is the same in every variant.
+enum {
+    test_part_ssg1 = 6,
+    test_part_rhythm = 10,
+};
+
+// Points part `index` (0 = FM1) at `off` and copies its data there.
+static void load_part(struct pmd *pmd, int index, size_t off,
+                      const uint8_t *data, size_t len) {
+    pmd->mmlbuf[2 * index] = (uint8_t)off;
+    pmd->mmlbuf[2 * index + 1] = (uint8_t)(off >> 8);
+    memcpy(pmd->mmlbuf + off, data, len);
+}
+
+static void load_module(struct pmd *pmd, const uint8_t *part, size_t len) {
+    load_empty_module(pmd);
+    // FM1 starts at 24; its low byte also selects the "no program area" path.
+    load_part(pmd, 0, 24, part, len);
+    // Rhythm address table (unused because part 11 points at the end marker).
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+}
+
+// Loads a stream into the SSG1 part (part 7).
+static void load_ssg_module(struct pmd *pmd, const uint8_t *part, size_t len) {
+    load_empty_module(pmd);
+    load_part(pmd, test_part_ssg1, 24, part, len);
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+}
+
+static struct pmd *setup_playback(void) {
+    struct pmd *pmd = new_timer_pmd();
+    ctx.script = NULL;
+    ctx.script_len = 0;
+    ctx.script_pos = 0;
+    ctx.pad_read = 0x00;
+    ctx.write_count = 0;
+    ctx.reads = 0;
+    return pmd;
+}
+
+static void start_playback(struct pmd *pmd) {
+    ctx.write_count = 0;
+    CHECK(pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->play_flag, 1);
+}
+
+// Runs one Timer B tick. The timer-status reads are scripted; the playback
+// register writes that follow read from the idle pad.
+static void run_timer_b(struct pmd *pmd) {
+#if sync
+    ctx.write_count = 0;
+    ctx.reads = 0;
+    pmd_opnint_sub(pmd);
+#else
+    uint16_t port1 = pmd->fm1_port1;
+    const struct test_io script[] = {
+#if vsync
+        {2, 0x00},
+#endif
+        {port1, 0x00},
+        {port1, 2}, // Timer B pending
+        {port1, 0x00},
+        {port1, 0x00},
+        {port1, 2}, // 27h status: Timer B
+    };
+    set_script(script, sizeof(script) / sizeof(script[0]));
+    ctx.pad_read = 0x00;
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    run_fm_handler(pmd);
+    CHECK_EQ(ctx.script_pos, ctx.script_len);
+#endif
+}
+
+// :440/:874 start and stop, including the busy deferral.
+static void test_playback_start_stop(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+
+    start_playback(pmd);
+    CHECK_EQ(pmd->mstart_flag, 1);
+    CHECK_EQ(pmd->fadeout_volume, 0);
+    // opn_init, then setint's Timer A/B setup.
+    CHECK(has_write(pmd->fm1_port1, 0x29));
+    CHECK(has_write(pmd->fm1_port1, 0x25));
+    CHECK(has_write(pmd->fm1_port1, 0x24));
+    CHECK(has_write(pmd->fm1_port1, 0x27));
+    // :729-741 SSG-EG reset writes 90h-9Eh, skipping every fourth operator,
+    // and leaves the SSG volume/envelope registers alone.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x90, 0x00));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x9e, 0x00));
+    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x93, 0x00));
+    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x09, 0x00));
+    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x0e, 0x00));
+
+    // A running timer defers both start and stop to Timer B.
+    pmd->TimerAflag = 1;
+    CHECK(!pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->music_flag & 1, 1);
+    pmd->music_flag = 0;
+    CHECK(!pmd_mstop_f(pmd));
+    CHECK_EQ(pmd->music_flag & 2, 2);
+    pmd->TimerAflag = 0;
+
+    CHECK(pmd_mstop_f(pmd));
+    CHECK_EQ(pmd->play_flag, 0);
+    CHECK_EQ(pmd->status2, 0xff);
+    CHECK_EQ(pmd->fadeout_volume, 0xff);
+    CHECK(has_write(pmd->fm1_port1, 0x07));
+    CHECK(has_write(pmd->fm1_port2, 0xbf)); // PSG keyoff
+    // :6054 FM KEYOFF: one 28h write per channel, not one register each.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x00));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x01));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x02));
+    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x29, 0x00));
+#if board2
+    // :6074 the back chip's channels: 28h bit 2 selects the second chip.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x04));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x05));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x06));
+#endif
+
+    free_pmd(pmd);
+}
+
+// :1053 fmmain's note path: pitch, gate, key-on, and cursor advance.
+static void test_playback_note(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK_EQ(di->onkai, 0x40);
+    CHECK_EQ(di->fnum, 0x226a); // C, block 4
+    CHECK_EQ(di->leng, 1);
+    CHECK_EQ(di->keyon_flag, 1);
+    CHECK_EQ(di->keyoff_flag, 0);
+    CHECK(di->address == pmd->mmlbuf + 26);
+    CHECK(has_write(pmd->fm1_port1, 0xa4));
+    CHECK(has_write(pmd->fm1_port2, 0x22));
+    CHECK(has_write(pmd->fm1_port1, 0xa0));
+    CHECK(has_write(pmd->fm1_port2, 0x6a));
+    CHECK(has_write(pmd->fm1_port1, 0x28));
+    CHECK(has_write(pmd->fm1_port2, 0xf0));
+
+    free_pmd(pmd);
+
+    // The tone tables are word arrays: a non-zero note index must not be
+    // scaled by two. D4 and the PSG D4 with its octave shift and rounding.
+    static const uint8_t d4[] = {0x42, 1, 0x80};
+    pmd = setup_playback();
+    load_module(pmd, d4, sizeof(d4));
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[0].fnum, 0x22b6);
+    free_pmd(pmd);
+
+    pmd = setup_playback();
+    load_ssg_module(pmd, d4, sizeof(d4));
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->part_data_table[test_part_ssg1]->fnum, 0xd5);
+    free_pmd(pmd);
+}
+
+// :3406/:3417 'v' and 't': volume and tempo commands, and the tempo write.
+static void test_playback_commands(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0xfd, 100, 0xfc, 100, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd); // play the note
+    CHECK_EQ(pmd->parts[0].volume, 108);
+
+    run_timer_b(pmd); // process v/t and the end marker
+    CHECK_EQ(pmd->parts[0].volume, 100);
+    CHECK_EQ(pmd->tempo_d, 100);
+    CHECK_EQ(pmd->tempo_48, 28); // 112Ch / (100h - 64h) = 28.1C
+    CHECK_EQ(pmd->parts[0].loopcheck, 3);
+    CHECK_EQ(pmd->status2, 0xff);
+    CHECK(has_write(pmd->fm1_port1, 0x26));
+    CHECK(has_write(pmd->fm1_port2, 100));
+
+    free_pmd(pmd);
+}
+
+// :3545/:3613 'L': the end marker loops back to the saved address.
+static void test_playback_loop(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0xf6, 0x41, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd); // first note
+    run_timer_b(pmd); // 'L' then the second note
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK(di->partloop == pmd->mmlbuf + 27);
+    CHECK_EQ(di->onkai, 0x41);
+    CHECK_EQ(di->keyon_flag, 2);
+
+    run_timer_b(pmd); // end marker loops to partloop
+    // The loop flag was consumed before mmain cleared the per-part check.
+    CHECK_EQ(pmd->loop_work, 1);
+    CHECK_EQ(di->loopcheck, 0);
+    CHECK_EQ(di->keyon_flag, 3);
+    CHECK_EQ(di->onkai, 0x41);
+
+    free_pmd(pmd);
+}
+
+// :3029/:5967 fade command and Timer A's fadeout step.
+static void test_playback_fade(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0xd2, 8, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd); // note
+    run_timer_b(pmd); // fade command, then end
+    CHECK_EQ(pmd->fadeout_flag, 1);
+    CHECK_EQ(pmd->fadeout_speed, 8);
+
+    for (int i = 0; i < 8; i++) fire_fm_timer(pmd, 1, 1); // Timer A
+    CHECK_EQ(pmd->fadeout_volume, 8);
+    CHECK_EQ(pmd->TimerAtime, 8);
+
+    free_pmd(pmd);
+}
+
+// :7791 CTRL+ESC, :7874 GRPH, and the NULL keyboard hook.
+static void test_playback_keys(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    pmd->key_check = 1;
+    pmd->music_flag = 0;
+    ctx.keys = PMD_KEY_CTRL | PMD_KEY_ESC;
+    fire_fm_timer(pmd, 1, 1);
+    CHECK_EQ(pmd->music_flag & 2, 2);
+    CHECK_EQ(pmd->fadeout_flag, 0);
+
+    // ESC without the configured modifier does not stop.
+    pmd->music_flag = 0;
+    ctx.keys = PMD_KEY_ESC;
+    fire_fm_timer(pmd, 1, 1);
+    CHECK_EQ(pmd->music_flag & 2, 0);
+
+    // GRPH+CTRL selects the fast-forward tempo in settempo_b.
+    pmd->TimerB_speed = 0;
+    pmd->ff_tempo = 250;
+    ctx.keys = PMD_KEY_GRPH | PMD_KEY_CTRL;
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->TimerB_speed, 250);
+    CHECK(has_write(pmd->fm1_port1, 0x26));
+    CHECK(has_write(pmd->fm1_port2, 250));
+
+    // GRPH alone is not the configured combination.
+    pmd->TimerB_speed = 0;
+    pmd->tempo_d = 100;
+    ctx.keys = PMD_KEY_GRPH;
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->TimerB_speed, 100);
+
+    // A NULL read_key_state hook means no keys are pressed.
+    struct pmd_hw no_keys = test_hw;
+    no_keys.read_key_state = NULL;
+    pmd->hw = &no_keys;
+    pmd->music_flag = 0;
+    ctx.keys = PMD_KEY_CTRL | PMD_KEY_ESC;
+    fire_fm_timer(pmd, 1, 1);
+    CHECK_EQ(pmd->music_flag & 2, 0);
+
+    free_pmd(pmd);
+}
+
+// Writes one 32-byte voice into the direct voice area (tondat).
+static void set_voice(struct pmd *pmd, uint8_t num, const uint8_t *voice) {
+    memcpy(pmd->tondat + (size_t)num * 32, voice, 32);
+}
+
+// :5144 ':'/'@' voice change: ALG/FB, the parameter walk, and the carrier.
+static void test_playback_voice(void) {
+    struct pmd *pmd = setup_playback();
+    // DT/ML, TL, the 16 remaining parameters, then ALG 1 / FB 0.
+    static const uint8_t voice[32] = {
+        0x11, 0x22, 0x33, 0x44, // DT/ML
+        0x15, 0x26, 0x37, 0x48, // TL
+        0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
+        0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60,
+        0x01, // ALG 1 / FB 0
+    };
+    set_voice(pmd, 0, voice);
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK_EQ(di->voicenum, 0);
+    // The voice's ALG/FB is applied; af_check is clear during a '@'.
+    CHECK_EQ(di->alg_fb, 0x01);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xb0, 0x01));
+    // The voice's carrier mask becomes the part's.
+    CHECK_EQ(di->carrier, 0x80);
+    CHECK_EQ(di->volmask, 0x80);
+    CHECK_EQ(di->_volmask, 0x80);
+    // :5220 the parameter walk: DT/ML at 30h, TL at 40h, the rest at 50h+.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x30, 0x11));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x3c, 0x44));
+    // The TL loop only writes the modulators (carrier_table's inverted mask).
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x40, 0x15));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x44, 0x26));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x48, 0x37));
+    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x4c, 0x48));
+    // The rotated neiromask covers all sixteen remaining parameters.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x50, 0x51));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x7c, 0x5c));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x8c, 0x60));
+    // :5258 the slot TLs are kept in the work area.
+    CHECK_EQ(di->slot1, 0x15);
+    CHECK_EQ(di->slot3, 0x26);
+    CHECK_EQ(di->slot2, 0x37);
+    CHECK_EQ(di->slot4, 0x48);
+
+    free_pmd(pmd);
+}
+
+// :2213 'b6' with bit 7 set is the relative FB change; the FB lands in the
+// high nibble of B0h and the ALG bits are preserved.
+static void test_playback_fb_relative(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t voice[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x26};
+    set_voice(pmd, 0, voice);
+    // '@0', then 'b6' with FB += 1.
+    static const uint8_t part[] = {0xff, 0, 0xb6, 0x81, 0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK_EQ(di->alg_fb, 0x2e); // ALG 6, FB 5
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xb0, 0x2e));
+
+    free_pmd(pmd);
+}
+
+// Part 11 selects pattern 0 from the rhythm address table; the pattern is a
+// hit, its length, then the end marker.
+static void load_rhythm_module(struct pmd *pmd, const uint8_t *pattern,
+                               size_t len) {
+    load_empty_module(pmd);
+    static const uint8_t part11[] = {0x00, 0x80};
+    load_part(pmd, test_part_rhythm, 0x50, part11, sizeof(part11));
+    // radtbl[0] -> the pattern at 40h.
+    pmd->mmlbuf[22] = 0x30;
+    pmd->mmlbuf[23] = 0;
+    pmd->mmlbuf[0x30] = 0x40;
+    pmd->mmlbuf[0x31] = 0;
+    memcpy(pmd->mmlbuf + 0x40, pattern, len);
+}
+
+// :1539 the rhythm part: the hit's 14-bit mask, its single data byte, and the
+// PPSDRV re-scan.
+static void test_playback_rhythm(void) {
+    // Bass drum and snare drum (bits 0 and 1), length 1, then the end marker.
+    static const uint8_t pattern[] = {0x80, 0x03, 0x01, 0xff};
+
+    struct pmd *pmd = setup_playback();
+    load_rhythm_module(pmd, pattern, sizeof(pattern));
+    start_playback(pmd);
+    CHECK_EQ(pmd->ppsdrv_flag, 0); // the test host supplies no PPSDRV vtable
+
+    run_timer_b(pmd);
+    struct pmd_qq *di = pmd->part_data_table[test_part_rhythm];
+    CHECK_EQ(pmd->kshot_dat, 3);
+    // Only the hit's data byte is consumed: the length byte follows it.
+    CHECK(pmd->rhyadr == pmd->mmlbuf + 0x43);
+    CHECK(di->address == pmd->mmlbuf + 0x51);
+    CHECK_EQ(di->leng, 1);
+    CHECK_EQ(di->keyon_flag, 1);
+#if board2
+    // kp_rhythm_flag is set without PPSDRV, so the rhythm registers are
+    // written directly: level then the key-on bit.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x18, 0xdf));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x10, 0x01));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x19, 0xdf));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x10, 0x02));
+#endif
+
+    // The next tick reaches the end marker and restores the dummy address.
+    run_timer_b(pmd);
+    CHECK_EQ(di->loopcheck, 3);
+    CHECK(pmd->rhyadr == &pmd->rhydmy);
+    CHECK(di->address == pmd->mmlbuf + 0x51);
+
+    free_pmd(pmd);
+
+    // :4064 with PPSDRV the scan continues past the first instrument and must
+    // stop after the last one. A regression here spins instead of failing, so
+    // this half of the test relies on the harness timeout.
+    pmd = setup_playback();
+    load_rhythm_module(pmd, pattern, sizeof(pattern));
+    start_playback(pmd);
+    pmd->ppsdrv_flag = 1;
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->kshot_dat, 3);
+    CHECK_EQ(pmd->part_data_table[test_part_rhythm]->leng, 1);
+    free_pmd(pmd);
+}
+
+// :5612 seinit: a zero attack rate starts the envelope in decay at the peak
+// volume; a non-zero one keeps the attack phase.
+static void test_playback_psg_envelope(void) {
+    // 'y' pat/pv2/pr1/pr2, then a note and the end marker.
+    static const uint8_t decay[] = {0xf0, 0x00, 0x09, 0x02, 0x02, 0x40, 1, 0x80};
+    struct pmd *pmd = setup_playback();
+    load_ssg_module(pmd, decay, sizeof(decay));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = pmd->part_data_table[test_part_ssg1];
+    CHECK_EQ(di->pat, 0);
+    CHECK_EQ(di->patb, 0);
+    CHECK_EQ(di->envf, 1); // ATTACK=0: straight to decay
+    CHECK_EQ(di->penv, 9); // pv2
+    CHECK_EQ(di->pr1, 2);
+    CHECK_EQ(di->pr2, 2);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x08, 15));
+    free_pmd(pmd);
+
+    static const uint8_t attack[] = {0xf0, 0x05, 0x09, 0x02, 0x02, 0x40, 1, 0x80};
+    pmd = setup_playback();
+    load_ssg_module(pmd, attack, sizeof(attack));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+
+    di = pmd->part_data_table[test_part_ssg1];
+    CHECK_EQ(di->pat, 5);
+    CHECK_EQ(di->envf, 0); // attack phase
+    CHECK_EQ(di->penv, 0);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x08, 8));
+    free_pmd(pmd);
+}
+
+// :7864 the rewind key is GRPH+SHIFT, distinct from GRPH+CTRL; with the phase 6
+// ff_music stub the observable effect is that playback and tempo are untouched.
+static void test_playback_rewind_key(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    pmd->key_check = 1;
+    pmd->syousetu = 4;
+    pmd->opncount = 1;
+    pmd->ff_tempo = 250;
+    pmd->tempo_d = 100;
+    pmd->TimerB_speed = 0;
+    ctx.keys = PMD_KEY_GRPH | PMD_KEY_SHIFT;
+
+    // Timer A runs the rewind step; it must not stop playback.
+    pmd->TimerAtime = 7;
+    fire_fm_timer(pmd, 1, 1);
+    CHECK_EQ(pmd->TimerAtime, 8);
+    CHECK_EQ(pmd->music_flag & 2, 0);
+    CHECK_EQ(pmd->play_flag, 1);
+    CHECK_EQ(pmd->syousetu, 4);
+
+    // GRPH+SHIFT is not the fast-forward combination.
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->TimerB_speed, 100);
+
+    free_pmd(pmd);
+}
+
+// :1215 calc_q: the 'q'/'Q' scaling, the 'q' minimum-gate floor, and 'QR'.
+static void test_playback_gate(void) {
+    // q 8, Q 40h: 8 + ((leng 4 * 40h) >> 8) = 9.
+    static const uint8_t scaled[] = {0xfe, 8, 0xc4, 0x40, 0x40, 4, 0x80};
+    struct pmd *pmd = setup_playback();
+    load_module(pmd, scaled, sizeof(scaled));
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[0].qdata, 8);
+    CHECK_EQ(pmd->parts[0].qdatb, 0x40);
+    CHECK_EQ(pmd->parts[0].qdat, 9);
+    free_pmd(pmd);
+
+    // q 8, qdat2 (0b3h) 2: the gate is clipped to leng - qdat2.
+    static const uint8_t floor[] = {0xfe, 8, 0xb3, 2, 0x40, 4, 0x80};
+    pmd = setup_playback();
+    load_module(pmd, floor, sizeof(floor));
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[0].qdatb, 0);
+    CHECK_EQ(pmd->parts[0].qdat, 2);
+    free_pmd(pmd);
+
+    // The same floor below the note length borrows and zeroes the gate.
+    static const uint8_t over[] = {0xfe, 8, 0xb3, 5, 0x40, 4, 0x80};
+    pmd = setup_playback();
+    load_module(pmd, over, sizeof(over));
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[0].qdat, 0);
+    free_pmd(pmd);
+
+    // QR 7fh adds and QR ffh subtracts rnd(128); seed 1 makes rnd return 1.
+    static const uint8_t plus[] = {0xfe, 8, 0xb1, 0x7f, 0x40, 4, 0x80};
+    pmd = setup_playback();
+    load_module(pmd, plus, sizeof(plus));
+    pmd->seed = 1;
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[0].qdat3, 0x7f);
+    CHECK_EQ(pmd->parts[0].qdat, 9);
+    free_pmd(pmd);
+
+    static const uint8_t minus[] = {0xfe, 8, 0xb1, 0xff, 0x40, 4, 0x80};
+    pmd = setup_playback();
+    load_module(pmd, minus, sizeof(minus));
+    pmd->seed = 1;
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[0].qdat3, 0xff);
+    CHECK_EQ(pmd->parts[0].qdat, 7);
+    free_pmd(pmd);
+}
+
+// :3085 'da' portamento: the note pair, the signed division into porta_num2
+// and porta_num3, and one porta_calc step on the following tick.
+static void test_playback_porta(void) {
+    // C4 then D4, length 10: (28fh - 26ah) / 10 = 3 remainder 7.
+    static const uint8_t part[] = {0xda, 0x40, 0x41, 10, 0x80};
+    struct pmd *pmd = setup_playback();
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK_EQ(di->fnum, 0x226a); // the source pitch is left in place
+    CHECK_EQ(di->onkai, 0x40);
+    CHECK_EQ(di->leng, 10);
+    CHECK_EQ(di->lfoswi & 8, 8);
+    CHECK_EQ(di->porta_num, 0);
+    CHECK_EQ(di->porta_num2, 3);
+    CHECK_EQ(di->porta_num3, 7);
+
+    // The next tick runs porta_calc: porta_num += 3, then the remainder pulls
+    // it up by one more and counts down.
+    run_timer_b(pmd);
+    CHECK_EQ(di->porta_num, 4);
+    CHECK_EQ(di->porta_num3, 6);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xa4, 0x22));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xa0, 0x6e));
+
+    free_pmd(pmd);
+}
+
+// :5341 lfo/lfo_main for the triangle and square waveforms.
+static void test_playback_lfo(void) {
+    static const uint8_t part[] = {0x40, 20, 0x80};
+    struct pmd *pmd = setup_playback();
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    // Play the note, then configure a triangle LFO on the part work.
+    run_timer_b(pmd);
+    struct pmd_qq *di = &pmd->parts[0];
+    di->lfoswi = 1;
+    di->lfo_wave = 0;
+    di->delay = 0;
+    di->speed = 1;
+    di->speed2 = 1;
+    di->step = 2;
+    di->time = 0xff;
+
+    // The triangle adds the step every tick and holds time at ffh.
+    run_timer_b(pmd);
+    CHECK_EQ(di->lfodat, 2);
+    CHECK_EQ(di->time, 0xff);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xa0, 0x6c));
+
+    run_timer_b(pmd);
+    CHECK_EQ(di->lfodat, 4);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xa0, 0x6e));
+    free_pmd(pmd);
+
+    // The square sets lfodat to step * time outright and flips the step.
+    pmd = setup_playback();
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+    run_timer_b(pmd);
+    di = &pmd->parts[0];
+    di->lfoswi = 1;
+    di->lfo_wave = 2;
+    di->delay = 0;
+    di->speed = 1;
+    di->step = 3;
+    di->time = 2;
+
+    run_timer_b(pmd);
+    CHECK_EQ(di->lfodat, 6);
+    CHECK_EQ(di->step, 0xfd);
+    free_pmd(pmd);
+}
+
+// :7874 a multi-bit key mask needs every bit held, in both the BIOS and the VA
+// port representations.
+static void test_playback_key_mask(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    pmd->key_check = 1;
+#if va
+    // SHIFT+CTRL in port-8 bit positions (what '/g3' rotates to).
+    pmd->grph_sp_key = 0xc0;
+    pmd->esc_sp_key = 0xc0;
+#else
+    pmd->grph_sp_key = PMD_KEY_CTRL | PMD_KEY_SHIFT;
+    pmd->esc_sp_key = PMD_KEY_CTRL | PMD_KEY_SHIFT;
+#endif
+
+    // One of the two mask bits is not enough for the fast-forward tempo, even
+    // with GRPH held.
+    pmd->TimerB_speed = 0;
+    pmd->tempo_d = 100;
+    pmd->ff_tempo = 250;
+    ctx.keys = PMD_KEY_GRPH | PMD_KEY_CTRL;
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->TimerB_speed, 100);
+
+    // Both mask bits plus GRPH fast-forward.
+    pmd->TimerB_speed = 0;
+    ctx.keys = PMD_KEY_GRPH | PMD_KEY_CTRL | PMD_KEY_SHIFT;
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->TimerB_speed, 250);
+
+    // The same applies to the CTRL+ESC stop, which needs every mask bit but no
+    // GRPH.
+    pmd->music_flag = 0;
+    ctx.keys = PMD_KEY_CTRL | PMD_KEY_ESC;
+    fire_fm_timer(pmd, 1, 1);
+    CHECK_EQ(pmd->music_flag & 2, 0);
+
+    pmd->music_flag = 0;
+    ctx.keys = PMD_KEY_CTRL | PMD_KEY_SHIFT | PMD_KEY_ESC;
+    fire_fm_timer(pmd, 1, 1);
+    CHECK_EQ(pmd->music_flag & 2, 2);
+
+    free_pmd(pmd);
+}
+
+// Without a board both entry points report success without touching playback.
+static void test_playback_no_board(void) {
+    struct pmd *pmd = alloc_pmd();
+    pmd_init(pmd);
+    pmd->board = 0;
+    pmd->play_flag = 1;
+
+    CHECK(pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->play_flag, 1); // unchanged: no board
+    CHECK(pmd_mstop_f(pmd));
+    CHECK_EQ(pmd->play_flag, 1);
+
+    free_pmd(pmd);
+}
+
 int main(void) {
     struct pmd *pmd = new_pmd();
 
@@ -2310,6 +3037,22 @@ int main(void) {
 #if ppz
     test_board_ext_drivers();
 #endif
+    test_playback_no_board();
+    test_playback_start_stop();
+    test_playback_note();
+    test_playback_commands();
+    test_playback_loop();
+    test_playback_fade();
+    test_playback_keys();
+    test_playback_voice();
+    test_playback_fb_relative();
+    test_playback_rhythm();
+    test_playback_psg_envelope();
+    test_playback_rewind_key();
+    test_playback_gate();
+    test_playback_porta();
+    test_playback_lfo();
+    test_playback_key_mask();
     test_timer_a();
     test_timer_b();
     test_timer_ab();

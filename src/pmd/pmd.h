@@ -609,6 +609,10 @@ struct pmd {
     // :8088
     uint8_t TimerBflag;
     uint8_t TimerAflag;
+    // :5548 rnd's seed. Like the original it starts uninitialized, so `rnd'
+    // users (QR gates, random LFO) get a per-process sequence unless the host
+    // sets it.
+    uint16_t seed;
     uint8_t int60flag;
     // :8092
     uint8_t pcm_gs_flag;
