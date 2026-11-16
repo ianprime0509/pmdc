@@ -2514,6 +2514,89 @@ static void test_playback_note(void) {
     free_pmd(pmd);
 }
 
+// :5645 lfoinit: 'x' is the note byte 0ch and replays the last defined note,
+// which the caller's AL must carry on to oshift and fnumset.
+static void test_playback_note_repeat(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0x40, 1, 0x0c, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK_EQ(di->onkai, 0x40);
+    CHECK_EQ(di->onkai_def, 0x40);
+    CHECK_EQ(di->fnum, 0x226a); // C, block 4
+
+    run_timer_b(pmd);
+    CHECK_EQ(di->onkai, 0x40);
+    CHECK_EQ(di->onkai_def, 0x40);
+    CHECK_EQ(di->fnum, 0x226a);
+    free_pmd(pmd);
+}
+
+// :5274 toneadr_calc: the program-change area holds 26-byte entries, one
+// program number byte followed by 25 voice bytes.
+static void test_playback_program_voice(void) {
+    struct pmd *pmd = setup_playback();
+    uint8_t *m = pmd->mmlbuf;
+    enum {
+        part_off = 26,
+        prg_off = 0x80,
+    };
+
+    memset(m, 0, 0x200);
+    for (int i = 1; i < 11; i++) {
+        m[2 * i] = 0x60;
+        m[2 * i + 1] = 0;
+    }
+    m[0x60] = 0x80;
+    // A first part offset other than 2 * (max_part2 + 1) announces the
+    // program area, whose offset sits in the word after the part table.
+    m[0] = part_off;
+    m[24] = prg_off;
+    m[25] = 0;
+
+    uint8_t *entry0 = m + prg_off;
+    uint8_t *entry1 = entry0 + 26;
+    entry0[0] = 0;
+    entry1[0] = 1;
+    for (int i = 1; i < 26; i++) {
+        entry0[i] = 0x11;
+        entry1[i] = 0x22;
+    }
+
+    static const uint8_t part[] = {0xff, 1, 0x80}; // '@1'
+    memcpy(m + part_off, part, sizeof(part));
+
+    start_playback(pmd);
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = &pmd->parts[0];
+    CHECK_EQ(di->voicenum, 1);
+    // With no slot mask the tone address only reaches the TL work area.
+    CHECK_EQ(di->slot1, 0x22);
+    CHECK_EQ(di->slot3, 0x22);
+    CHECK_EQ(di->slot2, 0x22);
+    CHECK_EQ(di->slot4, 0x22);
+    free_pmd(pmd);
+}
+
+// :4549 fm_block_calc: the upper bound is 26ah * 2 (4d4h), not the 4d2h its
+// stale comment names. Landing on 4d2h exactly oscillates forever otherwise.
+static void test_playback_detune_block(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0xfa, 0xfe, 0xff, 0x40, 1, 0x80}; // D-2
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+    // 226ah - 2 is below the C block's range, so the block drops to 3.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xa4, 0x1c));
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0xa0, 0xd2));
+    free_pmd(pmd);
+}
+
 // :3406/:3417 'v' and 't': volume and tempo commands, and the tempo write.
 static void test_playback_commands(void) {
     struct pmd *pmd = setup_playback();
@@ -2764,6 +2847,24 @@ static void test_playback_rhythm(void) {
     CHECK_EQ(pmd->part_data_table[test_part_rhythm]->leng, 1);
     free_pmd(pmd);
 }
+
+#if board2
+// :4064 '\v': the rhythm instrument number is 1-based, so rdat is addressed
+// as `rdat-1 + n` and the register is 17h + n.
+static void test_playback_rhythm_volume(void) {
+    struct pmd *pmd = setup_playback();
+    static const uint8_t part[] = {0xea, 0x30, 0x40, 1, 0x80}; // '\vb16'
+    load_module(pmd, part, sizeof(part));
+    start_playback(pmd);
+
+    run_timer_b(pmd);
+    // opn_init leaves every slot at pan L+R; only the bass drum changes.
+    CHECK_EQ(pmd->rdat[0], 0xd0);
+    CHECK_EQ(pmd->rdat[1], 0xcf);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x18, 0xd0));
+    free_pmd(pmd);
+}
+#endif
 
 // :5612 seinit: a zero attack rate starts the envelope in decay at the peak
 // volume; a non-zero one keeps the attack phase.
@@ -4134,6 +4235,75 @@ static void test_ymfm_playback(void) {
 }
 #endif
 
+// The driver writes a note's keyoff and the next note's keyon in one pass. A
+// port access clocks the chip, so the chip sees the off state and restarts the
+// envelope; collapsing the two writes into one chip clock leaves the note at
+// whatever the envelope had decayed to, which is silence for a percussive
+// voice.
+#if !sync
+// Whether the chip produces sound over the next few milliseconds. The test
+// voice decays, so the caller only looks at a short window after a key on.
+static bool ymfm_audible(struct pmd_ymfm *ymfm) {
+    static int32_t samples[2 * 512];
+    pmd_ymfm_generate(ymfm, 512, samples);
+    for (size_t j = 0; j < sizeof(samples) / sizeof(samples[0]); j++) {
+        if (samples[j] != 0) return true;
+    }
+    return false;
+}
+
+// Drops the audio the port accesses so far (driver initialization, register
+// writes) produced, so the next window starts at the current chip state.
+static void ymfm_drain(struct pmd_ymfm *ymfm) {
+    pmd_ymfm_generate(ymfm, 40000, NULL);
+}
+
+static void test_ymfm_retrigger(void) {
+    struct pmd *pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    struct pmd_ymfm *ymfm = pmd->user_data;
+    uint16_t port1 = pmd->fm1_port1;
+    uint16_t port2 = pmd->fm1_port2;
+
+    // An instantly attacked voice that decays to silence within a few
+    // milliseconds, on channel 1.
+    static const uint8_t regs[][2] = {
+        {0x30, 0x01}, {0x34, 0x01}, {0x38, 0x01}, {0x3c, 0x01},
+        {0x40, 0x00}, {0x44, 0x00}, {0x48, 0x00}, {0x4c, 0x00},
+        {0x50, 0x1f}, {0x54, 0x1f}, {0x58, 0x1f}, {0x5c, 0x1f},
+        {0x60, 0x10}, {0x64, 0x10}, {0x68, 0x10}, {0x6c, 0x10},
+        {0x70, 0x1f}, {0x74, 0x1f}, {0x78, 0x1f}, {0x7c, 0x1f},
+        {0x80, 0xff}, {0x84, 0xff}, {0x88, 0xff}, {0x8c, 0xff},
+        {0xb0, 0x0e}, {0xb4, 0xc0},
+        {0xa4, 0x22}, {0xa0, 0x69},
+    };
+    for (size_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+        pmd_ymfm_outb(ymfm, port1, regs[i][0]);
+        pmd_ymfm_outb(ymfm, port2, regs[i][1]);
+    }
+    ymfm_drain(ymfm);
+
+    // Key channel 1 on: the note is audible, then decays to silence.
+    pmd_ymfm_outb(ymfm, port1, 0x28);
+    pmd_ymfm_outb(ymfm, port2, 0x00);
+    pmd_ymfm_outb(ymfm, port1, 0x28);
+    pmd_ymfm_outb(ymfm, port2, 0xf0);
+    CHECK(ymfm_audible(ymfm));
+    pmd_ymfm_generate(ymfm, 200000, NULL);
+    CHECK(!ymfm_audible(ymfm));
+
+    // The same keyoff/keyon pair the sequencer writes for two consecutive
+    // notes restarts the envelope, so the note is audible again.
+    pmd_ymfm_outb(ymfm, port1, 0x28);
+    pmd_ymfm_outb(ymfm, port2, 0x00);
+    pmd_ymfm_outb(ymfm, port1, 0x28);
+    pmd_ymfm_outb(ymfm, port2, 0xf0);
+    CHECK(ymfm_audible(ymfm));
+
+    free_ymfm_pmd(pmd);
+}
+#endif
+
 // The rhythm ROM is a file the host loads. A missing image must warn through
 // pmd_sys and leave the store silent instead of failing.
 static void test_ymfm_rom(void) {
@@ -4249,6 +4419,9 @@ int main(void) {
     test_playback_no_board();
     test_playback_start_stop();
     test_playback_note();
+    test_playback_note_repeat();
+    test_playback_program_voice();
+    test_playback_detune_block();
     test_playback_commands();
     test_playback_loop();
     test_playback_fade();
@@ -4256,6 +4429,9 @@ int main(void) {
     test_playback_voice();
     test_playback_fb_relative();
     test_playback_rhythm();
+#if board2
+    test_playback_rhythm_volume();
+#endif
     test_playback_psg_envelope();
     test_playback_rewind_key();
     test_playback_gate();
@@ -4286,6 +4462,7 @@ int main(void) {
     test_ymfm_keys();
 #if !sync
     test_ymfm_playback();
+    test_ymfm_retrigger();
 #endif
     test_ymfm_rom();
     test_timer_a();

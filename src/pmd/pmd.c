@@ -1023,6 +1023,8 @@ static PMDC_UNUSED enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di
 static PMDC_UNUSED void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags);
 // :4064
 static PMDC_UNUSED enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// :4077
+static PMDC_UNUSED uint8_t *rdat_adr(struct pmd *pmd, uint8_t index);
 // :4064
 static PMDC_UNUSED void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl);
 // :4097
@@ -1084,9 +1086,9 @@ static void md_inc(struct pmd_qq *di);
 // :5548
 static uint16_t rnd(struct pmd *pmd, uint16_t ax);
 // :5568
-static void lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
 // :5645
-static void lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
 // :5661
 static void lfo_exit_common(struct pmd *pmd, struct pmd_qq *di);
 // :5684
@@ -2249,7 +2251,7 @@ mp15:
 
 mp2:
     // :1101 Note: set the pitch and gate.
-    lfoinit(pmd, di, al);
+    al = lfoinit(pmd, di, al);
     al = oshift(di, al);
     fnumset(pmd, di, al);
 
@@ -2474,7 +2476,7 @@ mp15p:
     goto mp1p;
 
 mp2p:
-    lfoinitp(pmd, di, al);
+    al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetp(pmd, di, al);
 
@@ -3693,7 +3695,7 @@ static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
         return PMD_CMD_RETURN;
     }
     uint8_t al = lod8(si);
-    lfoinit(pmd, di, al);
+    al = lfoinit(pmd, di, al);
     al = oshift(di, al);
     fnumset(pmd, di, al);
 
@@ -3746,7 +3748,7 @@ static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **
         return PMD_CMD_RETURN;
     }
     uint8_t al = lod8(si);
-    lfoinitp(pmd, di, al);
+    al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetp(pmd, di, al);
 
@@ -4519,12 +4521,23 @@ static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
     return PMD_CMD_RETURN;
 }
 
+// :4077
+// The original addresses `rdat-1 + n` with the 1-based rhythm instrument
+// number, so out-of-range values reach the fields next to rdat.
+static uint8_t *rdat_adr(struct pmd *pmd, uint8_t index) {
+    static_assert(
+        offsetof(struct pmd, rdat) == offsetof(struct pmd, rshot_dat) + 1,
+        "rdat must follow rshot_dat");
+    return (uint8_t *)&pmd->rshot_dat + index;
+}
+
 // :4064
 static void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl) {
     uint8_t index = (uint8_t)((al >> 5) & 7);
     uint8_t dh = (uint8_t)(0x17 + index);
-    dl = (uint8_t)(dl | (pmd->rdat[index] & 0xc0));
-    pmd->rdat[index] = dl;
+    uint8_t *rdat = rdat_adr(pmd, index);
+    dl = (uint8_t)(dl | (*rdat & 0xc0));
+    *rdat = dl;
     opnset44(pmd, (uint16_t)((dh << 8) | dl));
 }
 
@@ -4535,12 +4548,13 @@ static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t
     uint8_t al = lod8(si);
     uint8_t index = al;
     uint8_t dh = (uint8_t)(0x17 + index);
-    uint8_t dl = (uint8_t)(pmd->rdat[index] & 0x1f);
+    uint8_t *rdat = rdat_adr(pmd, index);
+    uint8_t dl = (uint8_t)(*rdat & 0x1f);
     al = (uint8_t)(lod8(si) + dl);
     if (al >= 32) al = (al & 0x80) != 0 ? 0 : 31;
     dl = (uint8_t)(al & 0x1f);
-    dl |= (uint8_t)(pmd->rdat[index] & 0xe0);
-    pmd->rdat[index] = dl;
+    dl |= (uint8_t)(*rdat & 0xe0);
+    *rdat = dl;
     opnset44(pmd, (uint16_t)((dh << 8) | dl));
 #else
     *si += 2;
@@ -4757,7 +4771,7 @@ static void fm_block_calc(uint16_t *cx, uint16_t *ax) {
     for (;;) {
         if ((*ax & 0x8000) != 0) goto od1;
         if (*ax < 0x26a) goto od1;
-        if (*ax < 0x4d2) return;
+        if (*ax < 0x26a * 2) return;
         *cx = (uint16_t)(*cx + 0x0800);
         if (*cx == 0x4000) {
             *cx = 0x3800;
@@ -5157,7 +5171,7 @@ static void toneadr_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t dl, uint8_t
     }
     uint8_t *p = pmd->prgdat_adr;
     if (di == &pmd->part_e) p = pmd->prgdat_adr2;
-    while (*p != dl) p += 0x26;
+    while (*p != dl) p += 26;
     *bx = p + 1;
 }
 
@@ -5350,7 +5364,7 @@ static uint16_t rnd(struct pmd *pmd, uint16_t ax) {
 }
 
 // :5568
-static void lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     uint8_t ah = al & 0x0f;
     if (ah == 0x0c) {
         al = di->onkai_def;
@@ -5365,7 +5379,7 @@ static void lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 lfo_exitp:
     soft_env(pmd, di);
     lfo_exit_common(pmd, di);
-    return;
+    return al;
 
 seinit:
     if (di->envf == 0xff) goto extenv_init;
@@ -5380,7 +5394,7 @@ seinit:
     di->pr1 = di->pr1b;
     di->pr2 = di->pr2b;
     lfin1(pmd, di);
-    return;
+    return al;
 
 extenv_init:
     di->eenv_arc = (uint8_t)(di->eenv_ar - 16);
@@ -5397,11 +5411,11 @@ extenv_init:
     di->eenv_count = 1;
     ext_ssgenv_main(di);
     lfin1(pmd, di);
-    return;
+    return al;
 }
 
 // :5645
-static void lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     uint8_t ah = al & 0x0f;
     if (ah == 0x0c) {
         al = di->onkai_def;
@@ -5412,11 +5426,12 @@ static void lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     di->porta_num = 0;
     if ((pmd->tieflag & 1) == 0) {
         lfin1(pmd, di);
-        return;
+        return al;
     }
 
 lfo_exit:
     lfo_exit_common(pmd, di);
+    return al;
 }
 
 // :5661

@@ -74,14 +74,17 @@ extern const struct pmd_hw pmd_hw_ymfm;
 
 // Raw port access, the same operations the vtable performs. Unknown ports read
 // as an open bus (0FFh) and ignore writes, which is what the driver's port
-// scan expects. Each access advances the emulated clock by one sample period so
-// the driver's BUSY handshake completes without host pacing.
+// scan expects. Each access advances the emulated clock by one sample period
+// and clocks the chip, so the driver's BUSY handshake completes without host
+// pacing and writes it issues back to back still reach the chip as separate
+// clocks. The audio those accesses produce is queued for pmd_ymfm_generate.
 uint8_t pmd_ymfm_inb(struct pmd_ymfm *ymfm, uint16_t port);
 void pmd_ymfm_outb(struct pmd_ymfm *ymfm, uint16_t port, uint8_t value);
 
 // Generates `samples` samples at the chip's sample rate, delivering timer
 // interrupts to the installed handler as they expire. Interleaved stereo output
-// is written to `out` when it is not NULL. This is the only point at which the
+// is written to `out` when it is not NULL. Samples the chip produced while the
+// driver was programming it are returned first. This is the only point at which the
 // handler runs: the host calls it between driver calls and so provides the
 // exclusion that the original got from cli and the PIC.
 void pmd_ymfm_generate(struct pmd_ymfm *ymfm, uint32_t samples, int32_t *out);

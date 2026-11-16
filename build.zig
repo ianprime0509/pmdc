@@ -260,6 +260,9 @@ fn addMiniaudio(
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        // miniaudio is third-party code and its sample conversion shifts
+        // negative values, which the Debug-mode C sanitizer treats as fatal.
+        .sanitize_c = .off,
     });
     mod.addCSourceFiles(.{
         .root = miniaudio.path("."),

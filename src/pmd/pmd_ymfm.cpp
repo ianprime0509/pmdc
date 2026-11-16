@@ -14,6 +14,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <new>
 #include <vector>
@@ -77,8 +78,16 @@ struct chip_model final : chip_interface {
         int32_t left = sample.data[0];
         int32_t right = sample.data[Chip::FM_OUTPUTS == 2 ? 1 : 0];
         int32_t ssg = sample.data[Chip::OUTPUTS - 1];
-        out[0] = left + ssg;
-        out[1] = right + ssg;
+        // YMFM returns the raw 0..max level of the three SSG channels summed,
+        // so it carries a large DC offset; the board AC-couples it. Remove the
+        // offset with a one-pole high-pass, or the mixer output sits far off
+        // centre and clips.
+        double ac = ssg - ssg_in + ssg_offset * ssg_pole;
+        ssg_in = ssg;
+        ssg_offset = ac;
+        int32_t sample_out = (int32_t)ac;
+        out[0] = left + sample_out;
+        out[1] = right + sample_out;
     }
 
     uint32_t sample_rate(uint32_t clock) override {
@@ -86,6 +95,11 @@ struct chip_model final : chip_interface {
     }
 
     Chip chip;
+    // One-pole DC blocker for the SSG output, which the board AC-couples.
+    // The pole sits at about 2 Hz for the OPN family's sample rate.
+    static constexpr double ssg_pole = 0.9999;
+    double ssg_in = 0;
+    double ssg_offset = 0;
 };
 
 } // namespace
@@ -107,10 +121,12 @@ struct pmd_ymfm : ymfm::ymfm_interface {
     void outb(uint16_t port, uint8_t value);
     void generate(uint32_t samples, int32_t *out);
 
-    // Port accesses advance the emulated clock without processing timers: the
-    // driver's BUSY handshake needs time to pass, but a timer interrupt must be
-    // delivered only from generate().
+    // Port accesses take time on hardware, so they advance the emulated clock
+    // and clock the chip. The samples they produce are buffered for generate()
+    // to hand out, because a timer interrupt must still be delivered only from
+    // generate().
     void advance_clock(uint32_t clocks);
+    void clock_chip();
     void process_timers();
     void deliver_irq();
     bool chip_offset(uint16_t port, uint32_t *offset) const;
@@ -127,6 +143,10 @@ struct pmd_ymfm : ymfm::ymfm_interface {
 
     uint32_t rate = 0;
     uint64_t clocks = 0;
+    // The clock of the next chip sample, and the samples the chip produced
+    // while the driver was programming it.
+    uint64_t next_sample_clock = 0;
+    std::deque<int32_t> pending;
     uint64_t busy_end = 0;
     uint32_t clocks_per_sample = 1;
     bool irq = false;
@@ -170,6 +190,7 @@ pmd_ymfm::pmd_ymfm(const struct pmd_ymfm_config &cfg) : config(cfg) {
     // evenly, and a truncated step would run the timer clocks 0.7% fast.
     clocks_per_sample = rate != 0 ? (input_clock + rate / 2) / rate : 1;
     if (clocks_per_sample == 0) clocks_per_sample = 1;
+    next_sample_clock = clocks_per_sample;
 
     adpcm_a.assign(adpcm_a_size, 0);
     adpcm_b.assign(adpcm_b_size, 0);
@@ -217,7 +238,24 @@ void pmd_ymfm::ymfm_external_write(ymfm::access_class type, uint32_t address,
     }
 }
 
-void pmd_ymfm::advance_clock(uint32_t clocks) { this->clocks += clocks; }
+// Hardware clocks the chip continuously, so a register write that follows
+// another by a few microseconds is seen one chip sample later rather than in
+// the same instant. PMD relies on that for the keyoff/keyon pair it writes in
+// one pass, which only restarts the envelope when the chip sees the two
+// writes as separate clocks.
+void pmd_ymfm::advance_clock(uint32_t clocks) {
+    this->clocks += clocks;
+    while (this->clocks >= next_sample_clock) clock_chip();
+}
+
+void pmd_ymfm::clock_chip() {
+    int32_t frame[2] = {0, 0};
+    chip->generate(frame);
+    pending.push_back(frame[0]);
+    pending.push_back(frame[1]);
+    next_sample_clock += clocks_per_sample;
+    process_timers();
+}
 
 void pmd_ymfm::process_timers() {
     for (uint32_t tnum = 0; tnum < 2; tnum++) {
@@ -309,14 +347,17 @@ void pmd_ymfm::outb(uint16_t port, uint8_t value) {
 
 void pmd_ymfm::generate(uint32_t samples, int32_t *out) {
     for (uint32_t i = 0; i < samples; i++) {
-        int32_t frame[2] = {0, 0};
-        chip->generate(frame);
+        // Samples the chip produced while the driver programmed it come first,
+        // so the stream stays continuous across a driver call.
+        if (pending.empty()) advance_clock(clocks_per_sample);
+        int32_t left = pending.front();
+        pending.pop_front();
+        int32_t right = pending.front();
+        pending.pop_front();
         if (out != nullptr) {
-            out[2 * i] = frame[0];
-            out[2 * i + 1] = frame[1];
+            out[2 * i] = left;
+            out[2 * i + 1] = right;
         }
-        advance_clock(clocks_per_sample);
-        process_timers();
         deliver_irq();
     }
 }
