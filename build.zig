@@ -35,6 +35,31 @@ const cflags: []const []const u8 = &.{
     "-std=c11",
 };
 
+// The port's C++ sources are held to the same warning level as the C ones.
+// -pedantic is left out because pmd.h's anonymous structs, which are standard C,
+// are a GNU extension in C++.
+const cppflags: []const []const u8 = &.{
+    "-Werror",
+    "-Wall",
+    "-Wextra",
+    "-std=c++14",
+};
+
+// The PMD feature flags are defined for the whole module, but the YMFM sources
+// must see neither the ones that collide with C++ library identifiers (`pcm`,
+// `sync`) nor the rest of the port's configuration.
+const ymfm_cppflags: []const []const u8 = &.{
+    "-std=c++14",
+    "-Upcm",
+    "-Usync",
+    "-Uvsync",
+    "-Uva",
+    "-Uboard2",
+    "-Uadpcm",
+    "-Uademu",
+    "-Uppz",
+};
+
 fn addFeatures(mod: *std.Build.Module, features: []const PmdFeature) void {
     for (features) |feature| {
         mod.addCMacro(@tagName(feature), "1");
@@ -179,8 +204,10 @@ fn addPmd(
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .link_libcpp = true,
     });
     mod.addCMacro("lang", b.fmt("{}", .{lang_num}));
+    addYmfm(b, mod);
     mod.addCSourceFiles(.{
         .root = b.path("src/pmd"),
         .files = &.{
@@ -190,10 +217,32 @@ fn addPmd(
         },
         .flags = cflags,
     });
+    mod.addCSourceFiles(.{
+        .root = b.path("src/pmd"),
+        .files = &.{"pmd_ymfm.cpp"},
+        .flags = cppflags,
+    });
 
     return b.addExecutable(.{
         .name = name,
         .root_module = mod,
+    });
+}
+
+// YMFM is a source-only C++ package, so the backend's sources are compiled
+// straight into the PMD module instead of going through a Zig build script.
+fn addYmfm(b: *std.Build, mod: *std.Build.Module) void {
+    const ymfm = b.dependency("ymfm", .{});
+    mod.addSystemIncludePath(ymfm.path("src"));
+    mod.addCSourceFiles(.{
+        .root = ymfm.path("src"),
+        .files = &.{
+            "ymfm_adpcm.cpp",
+            "ymfm_misc.cpp",
+            "ymfm_opn.cpp",
+            "ymfm_ssg.cpp",
+        },
+        .flags = ymfm_cppflags,
     });
 }
 
@@ -208,9 +257,11 @@ fn addPmdTest(
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .link_libcpp = true,
     });
     mod.addCMacro("lang", b.fmt("{}", .{lang_num}));
     mod.addIncludePath(b.path("src/pmd"));
+    addYmfm(b, mod);
     mod.addCSourceFiles(.{
         .root = b.path("src/pmd"),
         .files = &.{
@@ -218,6 +269,11 @@ fn addPmdTest(
             "pmd_stdio.c",
         },
         .flags = cflags,
+    });
+    mod.addCSourceFiles(.{
+        .root = b.path("src/pmd"),
+        .files = &.{"pmd_ymfm.cpp"},
+        .flags = cppflags,
     });
     mod.addCSourceFiles(.{
         .root = b.path("test/pmd"),

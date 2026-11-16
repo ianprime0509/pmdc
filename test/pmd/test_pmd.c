@@ -1,10 +1,16 @@
+// The test host is a POSIX program: the YMFM ROM case needs a controlled
+// working directory.
+#define _POSIX_C_SOURCE 200809L
+
 #include "pmd.h"
+#include "pmd_ymfm.h"
 
 #include <setjmp.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #if lang == 256 * 'e' + 'n'
 #include "strings_en.h"
@@ -3786,6 +3792,422 @@ static void test_playback_no_board(void) {
     free_pmd(pmd);
 }
 
+// Phase 7: the YMFM backend. The pmd_hw vtable delivers the FM timer handler
+// through pmd->user_data, which therefore has to be the backend itself, so
+// these pmd_sys wrappers ignore user_data and use the global test context.
+static void ymfm_sys_putc(char c, void *user_data) {
+    (void)user_data;
+    test_out_char(&ctx, c);
+}
+
+static void ymfm_sys_print(const char *mes, void *user_data) {
+    (void)user_data;
+    for (const char *p = mes; *p != '\0'; p++) test_out_char(&ctx, *p);
+}
+
+PMDC_NORETURN static void ymfm_sys_exit(int status, void *user_data) {
+    (void)user_data;
+    ctx.exited = true;
+    ctx.exit_status = status;
+    longjmp(ctx.jmp, 1);
+}
+
+static char *ymfm_sys_getenv(const char *name, void *user_data) {
+    (void)user_data;
+    if (strcmp(name, "PMDOPT") == 0) return (char *)ctx.pmdopt;
+    return NULL;
+}
+
+static const struct pmd_sys ymfm_sys = {
+    .putc = ymfm_sys_putc,
+    .print = ymfm_sys_print,
+    .exit = ymfm_sys_exit,
+    .getenv = ymfm_sys_getenv,
+};
+
+// Allocates and initializes a driver instance backed by the described chip.
+static struct pmd *ymfm_pmd(enum pmd_ymfm_chip chip, enum pmd_ymfm_board board,
+                            uint16_t base_port) {
+    ctx_reset();
+    struct pmd *pmd = alloc_pmd();
+    struct pmd_ymfm_config config;
+    pmd_ymfm_default_config(&config, pmd);
+    config.chip = chip;
+    config.board = board;
+    config.base_port = base_port;
+    struct pmd_ymfm *ymfm = pmd_ymfm_create(&config);
+    if (ymfm == NULL) {
+        fprintf(stderr, "%s:%d: pmd_ymfm_create failed\n", __FILE__, __LINE__);
+        exit(1);
+    }
+    pmd->sys = &ymfm_sys;
+    pmd->hw = &pmd_hw_ymfm;
+    pmd->user_data = ymfm;
+    pmd_init(pmd);
+    return pmd;
+}
+
+// The chip, board layout, and base port the current variant was written for.
+static struct pmd *new_ymfm_pmd(void) {
+    struct pmd_ymfm_config config;
+    pmd_ymfm_default_config(&config, NULL);
+    return ymfm_pmd(config.chip, config.board, config.base_port);
+}
+
+static void free_ymfm_pmd(struct pmd *pmd) {
+    pmd_ymfm_destroy(pmd->user_data);
+    pmd->user_data = NULL;
+    free_pmd(pmd);
+}
+
+static bool run_ymfm_resident(struct pmd *pmd) {
+    if (setjmp(ctx.jmp) == 0) {
+        pmd_resident_main(pmd, "");
+        return true;
+    }
+    report_unwind("pmd_resident_main (YMFM)");
+    return false;
+}
+
+// The backend leaves input to the host, so the CLI-style backend has none.
+static void test_ymfm_vtable(void) {
+    CHECK(pmd_hw_ymfm.inb != NULL);
+    CHECK(pmd_hw_ymfm.outb != NULL);
+    CHECK(pmd_hw_ymfm.install_fm_timer_handler != NULL);
+    CHECK(pmd_hw_ymfm.remove_fm_timer_handler != NULL);
+    CHECK(pmd_hw_ymfm.read_key_state == NULL);
+}
+
+// The port scan finds the configured board through the real chip.
+static void test_ymfm_probe(void) {
+    struct pmd *pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    struct pmd_ymfm *ymfm = pmd->user_data;
+    CHECK(!ctx.exited);
+
+    CHECK_EQ(pmd->board, 1);
+    CHECK_EQ(pmd->int_level, 12);
+    CHECK_EQ(pmd->mes_int[4], '5');
+    CHECK_EQ(pmd->wait_clock, 1);
+    CHECK_EQ(pmd->wait1_clock, 1);
+    CHECK_OUTPUT_CONTAINS(mes_wait1);
+    CHECK_OUTPUT_CONTAINS(mes_exit);
+
+#if va && board2
+    CHECK_EQ(pmd->ongen, 1);
+    CHECK_EQ(pmd->fm1_port1, 0x44);
+    CHECK_EQ(pmd->fm1_port2, 0x45);
+    CHECK_EQ(pmd->fm2_port1, 0x46);
+    CHECK_EQ(pmd->fm2_port2, 0x47);
+    CHECK_EQ(pmd->mes_int[11], '4');
+    CHECK_OUTPUT_CONTAINS(pmd->mes_ongen1);
+#elif va
+    CHECK_EQ(pmd->ongen, 0);
+    CHECK_EQ(pmd->fm1_port1, 0x44);
+    CHECK_EQ(pmd->fm1_port2, 0x45);
+    CHECK_EQ(pmd->mes_int[11], '4');
+    CHECK_OUTPUT_CONTAINS(mes_ongen0);
+#elif board2 && (pcm || ppz)
+    CHECK_EQ(pmd->ongen, 1);
+    CHECK_EQ(pmd->fm1_port1, 0x188);
+    CHECK_EQ(pmd->fm1_port2, 0x18a);
+    CHECK_EQ(pmd->fm2_port1, 0x18c);
+    CHECK_EQ(pmd->fm2_port2, 0x18e);
+    CHECK_EQ(pmd->fm_port1, 0x18c);
+    CHECK_EQ(pmd->fm_port2, 0x18e);
+    CHECK_EQ(pmd->opn_0eh, 0xc0);
+    CHECK_EQ(pmd->mes_int[11], '1');
+    CHECK_OUTPUT_CONTAINS(pmd->mes_ongen1);
+#else
+    CHECK_EQ(pmd->ongen, 1);
+    CHECK_EQ(pmd->fm1_port1, 0x088);
+    CHECK_EQ(pmd->fm1_port2, 0x08a);
+    CHECK_EQ(pmd->fm2_port1, 0x08c);
+    CHECK_EQ(pmd->fm2_port2, 0x08e);
+    CHECK_EQ(pmd->opn_0eh, 0xc0);
+    CHECK_EQ(pmd->mes_int[11], '0');
+    CHECK_OUTPUT_CONTAINS(pmd->mes_ongen1);
+#endif
+
+    // Register 0Eh combines the interrupt level with the joystick inputs, so
+    // the joystick read sees idle inputs and not the IRQ bits.
+    struct pmd_joy joy = pmd_get_joy(pmd);
+    CHECK_EQ(joy.joystick1, 0x3f);
+    CHECK_EQ(joy.joystick2, 0x3f);
+
+    // The ADPCM RAM check runs against the chip's real external memory, so the
+    // backend reports an ADPCM-capable YM2608 wherever the check is reachable.
+#if board2 && adpcm && !ademu
+    CHECK_EQ(pmd->pcm_gs_flag, 0);
+    CHECK_OUTPUT_CONTAINS(mes_adpcm);
+#else
+    CHECK_EQ(pmd->pcm_gs_flag, 1);
+#endif
+
+    // The chip runs at YMFM's lowest fidelity, which is three times the FM rate
+    // for every OPN type and the same rate for either default clock.
+    CHECK_EQ(pmd_ymfm_sample_rate(ymfm), 166400);
+
+    // The system VSync port is host state: the driver brackets its interrupt
+    // handler with a read-modify-write of it and must see its own bits.
+    pmd_ymfm_outb(ymfm, 2, 0x04);
+    CHECK_EQ(pmd_ymfm_inb(ymfm, 2), 0x04);
+    pmd_ymfm_outb(ymfm, 2, 0x00);
+    CHECK_EQ(pmd_ymfm_inb(ymfm, 2), 0x00);
+
+    free_ymfm_pmd(pmd);
+}
+
+// The 088h boards also answer as a YM2203 or a YMF288, which the plain PMD
+// variant finds through its register echo probe.
+#if !va && !board2
+static void test_ymfm_ym2203(void) {
+    struct pmd *pmd = ymfm_pmd(PMD_YMFM_YM2203, PMD_YMFM_BOARD_PC98, 0x088);
+    CHECK(run_ymfm_resident(pmd));
+    CHECK_EQ(pmd->board, 1);
+    CHECK_EQ(pmd->ongen, 0);
+    CHECK_EQ(pmd->fm1_port1, 0x088);
+    CHECK_EQ(pmd->fm1_port2, 0x08a);
+    CHECK_EQ(pmd->int_level, 12);
+    CHECK_OUTPUT_CONTAINS(mes_ongen0);
+    free_ymfm_pmd(pmd);
+}
+
+static void test_ymfm_ymf288(void) {
+    struct pmd *pmd = ymfm_pmd(PMD_YMFM_YMF288, PMD_YMFM_BOARD_PC98, 0x088);
+    CHECK(run_ymfm_resident(pmd));
+    CHECK_EQ(pmd->board, 1);
+    CHECK_EQ(pmd->ongen, 0);
+    CHECK_EQ(pmd->fm1_port1, 0x088);
+    CHECK_EQ(pmd->fm1_port2, 0x08a);
+    CHECK_OUTPUT_CONTAINS(mes_ongen0);
+    free_ymfm_pmd(pmd);
+}
+#endif
+
+// Counts the callbacks the backend delivers, for the install/remove pair.
+static unsigned ymfm_handler_calls;
+
+static void ymfm_count_handler(struct pmd *pmd) {
+    (void)pmd;
+    ymfm_handler_calls++;
+}
+
+// The vtable's handler is the one the backend calls while IRQ is asserted, and
+// removing it stops the callbacks before the removal returns.
+static void test_ymfm_timer_install(void) {
+    struct pmd *pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    struct pmd_ymfm *ymfm = pmd->user_data;
+
+    // Nothing runs until the clock is advanced.
+    uint8_t timer_atime = pmd->TimerAtime;
+    pmd_ymfm_generate(ymfm, 20000, NULL);
+    CHECK(pmd->TimerAtime > timer_atime);
+    CHECK_EQ(pmd->int5_flag, 0);
+    CHECK_EQ(pmd->TimerAflag, 0);
+    CHECK_EQ(pmd->TimerBflag, 0);
+
+    // A handler of the test's own. It never clears the chip's IRQ, so once a
+    // timer expires it is called for every generated sample.
+    pmd->hw->install_fm_timer_handler(ymfm_count_handler, pmd->user_data);
+    timer_atime = pmd->TimerAtime;
+    ymfm_handler_calls = 0;
+    pmd_ymfm_generate(ymfm, 20000, NULL);
+    CHECK(ymfm_handler_calls > 1);
+    CHECK_EQ(pmd->TimerAtime, timer_atime);
+
+    pmd->hw->remove_fm_timer_handler(pmd->user_data);
+    unsigned calls = ymfm_handler_calls;
+    pmd_ymfm_generate(ymfm, 200000, NULL);
+    CHECK_EQ(ymfm_handler_calls, calls);
+
+    free_ymfm_pmd(pmd);
+}
+
+// pmd_resident_cut removes the driver's handler, so no callback can occur after
+// it returns.
+static void test_ymfm_timer_remove(void) {
+    struct pmd *pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    struct pmd_ymfm *ymfm = pmd->user_data;
+
+    uint8_t timer_atime = pmd->TimerAtime;
+    pmd_ymfm_generate(ymfm, 20000, NULL);
+    CHECK(pmd->TimerAtime > timer_atime);
+
+    ctx.out_len = 0;
+    ctx.out[0] = '\0';
+    pmd_resident_cut(pmd);
+    CHECK_OUTPUT_EQUALS(mes_cut);
+
+    timer_atime = pmd->TimerAtime;
+    uint8_t int5_flag = pmd->int5_flag;
+    pmd_ymfm_generate(ymfm, 200000, NULL);
+    CHECK_EQ(pmd->TimerAtime, timer_atime);
+    CHECK_EQ(pmd->int5_flag, int5_flag);
+
+    free_ymfm_pmd(pmd);
+}
+
+// The backend has no input device, so the driver's keyboard checks see an idle
+// keyboard while the emulated clock runs.
+static void test_ymfm_keys(void) {
+    struct pmd *pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    struct pmd_ymfm *ymfm = pmd->user_data;
+
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0xf6, 0x41, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    CHECK(pmd_mstart_f(pmd));
+
+    // Idle keys must not reach either combination the timers test for:
+    // CTRL+ESC stops the music, GRPH+CTRL selects the fast-forward tempo.
+    pmd->key_check = 1;
+    pmd->esc_sp_key = PMD_KEY_CTRL | PMD_KEY_ESC;
+    pmd->grph_sp_key = PMD_KEY_GRPH | PMD_KEY_CTRL;
+    pmd->music_flag = 0;
+    pmd->tempo_d = 100;
+    pmd->ff_tempo = 250;
+    pmd->TimerB_speed = 0;
+    pmd_ymfm_generate(ymfm, 200000, NULL);
+
+    CHECK_EQ(pmd->play_flag, 1);
+    CHECK_EQ(pmd->music_flag & 2, 0);
+#if !sync
+    // The sync build advances the music from its sync source, so Timer B never
+    // reaches settempo_b and there is no fast-forward tempo to check.
+    CHECK_EQ(pmd->TimerB_speed, pmd->tempo_d);
+#endif
+
+    free_ymfm_pmd(pmd);
+}
+
+// Playback through the emulated chip: the sequencer keys a note on, the
+// generated samples become audible, and Timer A keeps counting.
+#if !sync
+static void test_ymfm_playback(void) {
+    struct pmd *pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    struct pmd_ymfm *ymfm = pmd->user_data;
+
+    // A loud voice with a finite attack rate: a cleared voice area leaves every
+    // operator at the slowest attack, which never becomes audible here.
+    static const uint8_t voice[32] = {
+        0x01, 0x01, 0x01, 0x01, // DT/ML
+        0x00, 0x00, 0x00, 0x00, // TL
+        0x1f, 0x1f, 0x1f, 0x1f, // KS/AR
+        0x00, 0x00, 0x00, 0x00, // DR
+        0x00, 0x00, 0x00, 0x00, // SR
+        0x0f, 0x0f, 0x0f, 0x0f, // SL/RR
+        0x07, // ALG 7 / FB 0
+    };
+    set_voice(pmd, 0, voice);
+
+    // '@0' selects the voice, 'L' loops the notes, so the part keeps sounding.
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0xf6, 0x41, 1, 0x80};
+    load_module(pmd, part, sizeof(part));
+    CHECK(pmd_mstart_f(pmd));
+    CHECK_EQ(pmd->play_flag, 1);
+
+    uint8_t timer_atime = pmd->TimerAtime;
+    bool audio = false;
+    static int32_t samples[2 * 512];
+    for (unsigned i = 0; i < 256; i++) {
+        pmd_ymfm_generate(ymfm, 512, samples);
+        if (i < 4) continue; // the envelope has not started yet
+        for (size_t j = 0; j < sizeof(samples) / sizeof(samples[0]); j++) {
+            if (samples[j] != 0) audio = true;
+        }
+    }
+
+    CHECK(audio);
+    CHECK(pmd->TimerAtime > timer_atime);
+    CHECK_EQ(pmd->int5_flag, 0);
+    CHECK_EQ(pmd->TimerAflag, 0);
+    CHECK_EQ(pmd->TimerBflag, 0);
+    // The sequencer has played the notes and looped back to the 'L' target.
+    CHECK(pmd->parts[0].onkai == 0x40 || pmd->parts[0].onkai == 0x41);
+    CHECK(pmd->parts[0].partloop != NULL);
+
+    free_ymfm_pmd(pmd);
+}
+#endif
+
+// The rhythm ROM is a file the host loads. A missing image must warn through
+// pmd_sys and leave the store silent instead of failing.
+static void test_ymfm_rom(void) {
+    char cwd[512];
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        fprintf(stderr, "%s:%d: getcwd failed\n", __FILE__, __LINE__);
+        failures++;
+        return;
+    }
+
+    char dir[] = "/tmp/pmd-ymfm-XXXXXX";
+    if (mkdtemp(dir) == NULL) {
+        fprintf(stderr, "%s:%d: mkdtemp failed\n", __FILE__, __LINE__);
+        failures++;
+        return;
+    }
+    char path[512];
+    snprintf(path, sizeof(path), "%s/ym2608_adpcm_rom.bin", dir);
+    if (chdir(dir) != 0) {
+        fprintf(stderr, "%s:%d: chdir failed\n", __FILE__, __LINE__);
+        failures++;
+        rmdir(dir);
+        return;
+    }
+
+    ctx_reset();
+    struct pmd *pmd = new_ymfm_pmd();
+    struct pmd_ymfm *ymfm = pmd->user_data;
+
+    // Missing image: one warning naming the file, and no sample data.
+    pmd_ymfm_load_adpcm_a_file(ymfm, "ym2608_adpcm_rom.bin");
+    CHECK_OUTPUT_CONTAINS(mes_warning);
+    CHECK_OUTPUT_CONTAINS("ym2608_adpcm_rom.bin");
+    CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0), 0);
+    CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0x1234), 0);
+
+    // Present image: no warning, and the bytes reach the chip's store.
+    static const uint8_t image[] = {0x12, 0x34, 0x56, 0x78};
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        fprintf(stderr, "%s:%d: cannot create %s\n", __FILE__, __LINE__, path);
+        failures++;
+    } else {
+        CHECK_EQ(fwrite(image, 1, sizeof(image), file), sizeof(image));
+        fclose(file);
+
+        ctx.out_len = 0;
+        ctx.out[0] = '\0';
+        pmd_ymfm_load_adpcm_a_file(ymfm, "ym2608_adpcm_rom.bin");
+        CHECK_OUTPUT_EQUALS("");
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0), 0x12);
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 1), 0x34);
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 2), 0x56);
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 3), 0x78);
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 4), 0);
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0x4000), 0);
+
+        // Loading a missing image again clears the store without warning twice.
+        remove(path);
+        pmd_ymfm_load_adpcm_a_file(ymfm, "ym2608_adpcm_rom.bin");
+        CHECK_OUTPUT_EQUALS("");
+        CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0), 0);
+    }
+
+    free_ymfm_pmd(pmd);
+
+    if (chdir(cwd) != 0) {
+        fprintf(stderr, "%s:%d: cannot restore the working directory\n",
+                __FILE__, __LINE__);
+        failures++;
+    }
+    rmdir(dir);
+}
+
 int main(void) {
     struct pmd *pmd = new_pmd();
 
@@ -3853,6 +4275,19 @@ int main(void) {
     test_int60_ff_music_skip();
     test_resident_cut();
     test_change_remove();
+    test_ymfm_vtable();
+    test_ymfm_probe();
+#if !va && !board2
+    test_ymfm_ym2203();
+    test_ymfm_ymf288();
+#endif
+    test_ymfm_timer_install();
+    test_ymfm_timer_remove();
+    test_ymfm_keys();
+#if !sync
+    test_ymfm_playback();
+#endif
+    test_ymfm_rom();
     test_timer_a();
     test_timer_b();
     test_timer_ab();

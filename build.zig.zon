@@ -1,6 +1,12 @@
 .{
     .name = .pmdc,
     .version = "0.0.0",
+    .dependencies = .{
+        .ymfm = .{
+            .url = "git+https://github.com/aaronsgiles/ymfm?ref=main#81aec25ccbb98f4873a255f7551ac4dadac59b4a",
+            .hash = "N-V-__8AAGFyCQCSC_U7BgEhVFWA7dgEc677bkHg1scaVCIn",
+        },
+    },
     .fingerprint = 0xdf5eb9b202cc3b87,
     .minimum_zig_version = "0.17.1",
     .paths = .{
