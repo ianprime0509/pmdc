@@ -1,2 +1,4 @@
 .zig-cache
+zig-pkg
 zig-out
+ym2608_adpcm_rom.bin

@@ -1,5 +1,6 @@
 #include "pmd.h"
 #include "pmd_stdio.h"
+#include "pmd_ymfm.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -23,12 +24,27 @@ int main(int argc, char **argv) {
 
     static struct pmd pmd;
     pmd.sys = &pmd_sys_stdio;
-    pmd.hw = NULL;
     pmd.pps = NULL;
     pmd.ppz8 = NULL;
     pmd.p86 = NULL;
+
+    struct pmd_ymfm_config config;
+    pmd_ymfm_default_config(&config, &pmd);
+    struct pmd_ymfm *ymfm = pmd_ymfm_create(&config);
+    if (ymfm == NULL) {
+        fprintf(stderr, "out of memory\n");
+        return 1;
+    }
+    pmd.hw = &pmd_hw_ymfm;
+    pmd.user_data = ymfm;
+
+    // The rhythm samples are board ROM contents, not part of the chip, so the
+    // host supplies them from the working directory.
+    pmd_ymfm_load_adpcm_a_file(ymfm, "ym2608_adpcm_rom.bin");
+
     pmd_init(&pmd);
     pmd_resident_main(&pmd, cmdline);
 
+    pmd_ymfm_destroy(ymfm);
     return 0;
 }
