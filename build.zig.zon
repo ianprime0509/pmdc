@@ -2,6 +2,10 @@
     .name = .pmdc,
     .version = "0.0.0",
     .dependencies = .{
+        .miniaudio = .{
+            .url = "git+https://github.com/mackron/miniaudio?ref=0.11.23#f40cf03f80cdb7e741d43e53b7e706e8c1394bcf",
+            .hash = "N-V-__8AAPu4vwC_P5AHlL_kEON58uGgrDcJSjGq9Hc5yadh",
+        },
         .ymfm = .{
             .url = "git+https://github.com/aaronsgiles/ymfm?ref=main#81aec25ccbb98f4873a255f7551ac4dadac59b4a",
             .hash = "N-V-__8AAGFyCQCSC_U7BgEhVFWA7dgEc677bkHg1scaVCIn",

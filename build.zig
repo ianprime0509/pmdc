@@ -83,13 +83,29 @@ pub fn build(b: *std.Build) void {
     efc_exe.root_module.addCMacro("efc", "1");
     b.installArtifact(efc_exe);
 
+    const miniaudio_lib = addMiniaudio(b, target, optimize);
+
     const test_step = b.step("test", "Run all tests");
 
     const pmd_test_step = b.step("test-pmd", "Run PMD tests");
     for (pmd_variants) |variant| {
-        const pmd_exe = addPmd(b, variant.name, target, optimize, lang_num);
+        const pmd_exe = addPmd(b, variant.name, target, optimize, lang_num, "pmd_main.c", null);
         addFeatures(pmd_exe.root_module, variant.features);
         b.installArtifact(pmd_exe);
+
+        // The playback utility is installed once per variant, so the effect of
+        // each variant's feature flags can be heard.
+        const pmd_play_exe = addPmd(
+            b,
+            b.fmt("{s}-play", .{variant.name}),
+            target,
+            optimize,
+            lang_num,
+            "pmd_play.c",
+            miniaudio_lib,
+        );
+        addFeatures(pmd_play_exe.root_module, variant.features);
+        b.installArtifact(pmd_play_exe);
 
         // Run the unit tests and the header self-containment check for every
         // variant's flag set.
@@ -199,6 +215,8 @@ fn addPmd(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lang_num: u16,
+    entry: []const u8,
+    miniaudio_lib: ?*std.Build.Step.Compile,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
@@ -208,13 +226,10 @@ fn addPmd(
     });
     mod.addCMacro("lang", b.fmt("{}", .{lang_num}));
     addYmfm(b, mod);
+    const sources = [_][]const u8{ "pmd.c", entry, "pmd_stdio.c" };
     mod.addCSourceFiles(.{
         .root = b.path("src/pmd"),
-        .files = &.{
-            "pmd.c",
-            "pmd_main.c",
-            "pmd_stdio.c",
-        },
+        .files = &sources,
         .flags = cflags,
     });
     mod.addCSourceFiles(.{
@@ -222,9 +237,43 @@ fn addPmd(
         .files = &.{"pmd_ymfm.cpp"},
         .flags = cppflags,
     });
+    if (miniaudio_lib) |lib| {
+        mod.addIncludePath(b.dependency("miniaudio", .{}).path("."));
+        mod.linkLibrary(lib);
+    }
 
     return b.addExecutable(.{
         .name = name,
+        .root_module = mod,
+    });
+}
+
+// miniaudio is a single-file library. It is built once and linked into each
+// playback executable.
+fn addMiniaudio(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const miniaudio = b.dependency("miniaudio", .{});
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addCSourceFiles(.{
+        .root = miniaudio.path("."),
+        .files = &.{"miniaudio.c"},
+        .flags = &.{
+            "-std=c89",
+            "-Wall",
+            "-Wextra",
+            "-pedantic",
+        },
+    });
+
+    return b.addLibrary(.{
+        .name = "miniaudio",
         .root_module = mod,
     });
 }
