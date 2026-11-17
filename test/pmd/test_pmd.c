@@ -42,7 +42,9 @@ static int failures;
 
 enum {
     test_out_size = 8192,
-    test_write_max = 1024,
+    // The ADPCM RAM check alone writes ~350 registers during the resident
+    // setup, so the log needs room for a whole board initialization.
+    test_write_max = 2048,
     // Guards against a driver hang (a BUSY poll that never finishes).
     test_read_max = 20000,
 };
@@ -105,6 +107,44 @@ struct test_ctx {
     unsigned ppz_removal_calls;
     bool ppz_removal_protect;
     uint8_t ppz_irq;
+    unsigned ppz_inits;
+    unsigned ppz_stop_alls;
+    unsigned ppz_keyons[8];
+    uint16_t ppz_keyon_voice[8];
+    unsigned ppz_volumes[8];
+    uint8_t ppz_volume[8];
+    unsigned ppz_tones[8];
+    uint16_t ppz_tone[8];
+    unsigned ppz_loops[8];
+    uint32_t ppz_loop_start[8];
+    uint32_t ppz_loop_end[8];
+    unsigned ppz_pans[8];
+    uint8_t ppz_pan[8];
+    unsigned ppz_rates[8];
+    uint16_t ppz_rate[8];
+    unsigned ppz_adpcm_calls;
+    bool ppz_adpcm_emulate;
+    unsigned ppz_fm_int_calls;
+    unsigned ppz_voice_calls;
+    uint8_t ppz_voice_num;
+    const struct pmd_ppz8_voice *ppz_voice;
+
+    // Mock PPSDRV driver calls.
+    unsigned pps_keyoffs;
+    unsigned pps_keyons;
+    struct pmd_pps_keyon pps_keyon;
+    unsigned pps_pdr_switches;
+
+    // The PCM86 FIFO status port answers from here: while fifo_pending is set
+    // the first read reports the interrupt and clears it, as fifo_main does.
+    bool fifo_pending;
+
+    // Mock P86DRV driver calls.
+    uint8_t p86_version;
+    unsigned p86_pushes;
+    unsigned p86_pops;
+    unsigned p86_data_calls;
+    uint32_t p86_offset;
 };
 
 static struct test_ctx ctx;
@@ -159,6 +199,16 @@ static uint8_t test_hw_inb(uint16_t port, void *user_data) {
                  port);
         longjmp(ctx->jmp, 2);
     }
+    // The PCM86 FIFO status is a live flag rather than a scripted register:
+    // fifo_main's reset write clears it, which test_hw_outb models. It never
+    // consumes a script entry, so the timer scripts need no extra rows.
+    if (port == 0xa468) {
+        if (ctx->fifo_pending) {
+            ctx->fifo_pending = false;
+            return 0x10;
+        }
+        return 0;
+    }
     if (ctx->script_pos < ctx->script_len) {
         const struct test_io *entry = &ctx->script[ctx->script_pos];
         if (entry->port != port) test_hw_fail(ctx, port, "inb", entry->port);
@@ -173,6 +223,7 @@ static uint8_t test_hw_inb(uint16_t port, void *user_data) {
 
 static void test_hw_outb(uint16_t port, uint8_t value, void *user_data) {
     struct test_ctx *ctx = user_data;
+    if (port == 0xa468 && (value & 0x10) == 0) ctx->fifo_pending = false;
     if (ctx->write_count >= test_write_max) {
         snprintf(ctx->hw_error, sizeof(ctx->hw_error), "outb(%#x): write limit",
                  port);
@@ -230,9 +281,78 @@ static void mock_ppz8_fifo_stop(void *user_data) {
     ctx->ppz_fifo_stops++;
 }
 
+static void mock_ppz8_init(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->ppz_inits++;
+}
+
+static void mock_ppz8_stop_all(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->ppz_stop_alls++;
+}
+
 static void mock_ppz8_keyoff(uint8_t channel, void *user_data) {
     struct test_ctx *ctx = user_data;
     if (channel < 8) ctx->ppz_keyoffs[channel]++;
+}
+
+static void mock_ppz8_keyon(uint8_t channel, uint16_t voice, void *user_data) {
+    struct test_ctx *ctx = user_data;
+    if (channel < 8) {
+        ctx->ppz_keyons[channel]++;
+        ctx->ppz_keyon_voice[channel] = voice;
+    }
+}
+
+static void mock_ppz8_set_volume(uint8_t channel, uint8_t volume,
+                                 void *user_data) {
+    struct test_ctx *ctx = user_data;
+    if (channel < 8) {
+        ctx->ppz_volumes[channel]++;
+        ctx->ppz_volume[channel] = volume;
+    }
+}
+
+static void mock_ppz8_set_tone(uint8_t channel, uint16_t tone,
+                               void *user_data) {
+    struct test_ctx *ctx = user_data;
+    if (channel < 8) {
+        ctx->ppz_tones[channel]++;
+        ctx->ppz_tone[channel] = tone;
+    }
+}
+
+static void mock_ppz8_set_loop(uint8_t channel, uint32_t start, uint32_t end,
+                               void *user_data) {
+    struct test_ctx *ctx = user_data;
+    if (channel < 8) {
+        ctx->ppz_loops[channel]++;
+        ctx->ppz_loop_start[channel] = start;
+        ctx->ppz_loop_end[channel] = end;
+    }
+}
+
+static void mock_ppz8_set_pan(uint8_t channel, uint8_t pan, void *user_data) {
+    struct test_ctx *ctx = user_data;
+    if (channel < 8) {
+        ctx->ppz_pans[channel]++;
+        ctx->ppz_pan[channel] = pan;
+    }
+}
+
+static void mock_ppz8_set_rate(uint8_t channel, uint16_t rate,
+                               void *user_data) {
+    struct test_ctx *ctx = user_data;
+    if (channel < 8) {
+        ctx->ppz_rates[channel]++;
+        ctx->ppz_rate[channel] = rate;
+    }
+}
+
+static void mock_ppz8_adpcm(bool enable, void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->ppz_adpcm_calls++;
+    ctx->ppz_adpcm_emulate = enable;
 }
 
 static void mock_ppz8_removal(bool protect, void *user_data) {
@@ -246,14 +366,99 @@ static uint8_t mock_ppz8_irq(void *user_data) {
     return ctx->ppz_irq;
 }
 
-static void mock_ppz8_fm_int(void *user_data) { (void)user_data; }
+static const struct pmd_ppz8_voice *mock_ppz8_voice(uint8_t voice,
+                                                    void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->ppz_voice_calls++;
+    ctx->ppz_voice_num = voice;
+    return ctx->ppz_voice;
+}
+
+static void mock_ppz8_fm_int(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->ppz_fm_int_calls++;
+}
 
 static const struct pmd_drv_ppz8 mock_ppz8 = {
+    .init = mock_ppz8_init,
+    .stop_all = mock_ppz8_stop_all,
     .fifo_interrupt_stop = mock_ppz8_fifo_stop,
+    .keyon = mock_ppz8_keyon,
     .keyoff = mock_ppz8_keyoff,
+    .set_volume = mock_ppz8_set_volume,
+    .set_tone = mock_ppz8_set_tone,
+    .set_loop = mock_ppz8_set_loop,
+    .set_pan = mock_ppz8_set_pan,
+    .set_source_rate = mock_ppz8_set_rate,
+    .set_adpcm_emulation = mock_ppz8_adpcm,
     .set_removal_protection = mock_ppz8_removal,
     .get_irq_level = mock_ppz8_irq,
+    .get_voice = mock_ppz8_voice,
     .fm_int = mock_ppz8_fm_int,
+};
+#endif
+
+// The PPSDRV mock (INT 64h) records the effect requests eff_main sends.
+static void mock_pps_keyoff(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->pps_keyoffs++;
+}
+
+static void mock_pps_keyon(struct pmd_pps_keyon keyon, void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->pps_keyons++;
+    ctx->pps_keyon = keyon;
+}
+
+static void mock_pps_pdr_switch(uint8_t value, void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->pps_pdr_switches++;
+    (void)value;
+}
+
+static const struct pmd_drv_pps mock_pps = {
+    .keyoff = mock_pps_keyoff,
+    .keyon = mock_pps_keyon,
+    .pdr_switch = mock_pps_pdr_switch,
+};
+
+#if board2 && pcm
+// The P86DRV mock (INT 65h). get_data_offset resolves wide offsets into a
+// fixed, zero-filled sample area; the FIFO transfer tests read from it.
+enum {
+    mock_pcm86_area_size = 0x10000,
+};
+
+static uint8_t mock_pcm86_area[mock_pcm86_area_size];
+
+static uint8_t mock_p86_version(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    return ctx->p86_version;
+}
+
+static void mock_p86_push(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->p86_pushes++;
+}
+
+static void mock_p86_pop(void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->p86_pops++;
+}
+
+static const uint8_t *mock_p86_data(uint32_t offset, void *user_data) {
+    struct test_ctx *ctx = user_data;
+    ctx->p86_data_calls++;
+    ctx->p86_offset = offset;
+    if (offset >= mock_pcm86_area_size) return NULL;
+    return mock_pcm86_area + offset;
+}
+
+static const struct pmd_drv_p86 mock_p86 = {
+    .get_version = mock_p86_version,
+    .push_ems = mock_p86_push,
+    .pop_ems = mock_p86_pop,
+    .get_data_offset = mock_p86_data,
 };
 #endif
 
@@ -262,6 +467,7 @@ static void ctx_reset(void) {
     ctx.exit_status = -1;
     ctx.pad_read = 0xff;
     ctx.data_port = 0xffff;
+    ctx.p86_version = 0x10;
 }
 
 // Allocates a struct pmd filled with garbage and sets the host-owned pointers,
@@ -1392,13 +1598,13 @@ static void test_board_present(void) {
 // :8971 int_init enables PPSDRV when the host supplies the vtable, and that in
 // turn clears the SSG-drum rhythm flag.
 static void test_board_ppsdrv(void) {
-    static const struct pmd_drv_pps pps = {0};
+    const struct pmd_drv_pps *pps = &mock_pps;
 
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
     ctx.pad_read = 0x00;
     struct pmd *pmd = new_pmd();
-    pmd->pps = &pps;
+    pmd->pps = pps;
     CHECK(run_resident(pmd, ""));
     CHECK_EQ(ctx.script_pos, ctx.script_len);
 
@@ -1971,7 +2177,7 @@ static void expect_ext_driver_output(const struct pmd *pmd) {
 }
 
 static void test_board_ext_drivers(void) {
-    static const struct pmd_drv_pps pps = {0};
+    const struct pmd_drv_pps *pps = &mock_pps;
 
     // The PPZ8 interrupt level matches int_level + 8, so the directly callable
     // FM entry from 0409h is usable (ppz_call_seg == 2).
@@ -1982,7 +2188,7 @@ static void test_board_ext_drivers(void) {
     ctx.pad_read = 0x08;
     ctx.ppz_irq = 3 + 8;
     struct pmd *pmd = new_pmd();
-    pmd->pps = &pps;
+    pmd->pps = pps;
     pmd->ppz8 = &mock_ppz8;
     CHECK(run_resident(pmd, ""));
     CHECK_EQ(ctx.script_pos, ctx.script_len);
@@ -2006,7 +2212,7 @@ static void test_board_ext_drivers(void) {
     ctx.pad_read = 0x08;
     ctx.ppz_irq = 4;
     pmd = new_pmd();
-    pmd->pps = &pps;
+    pmd->pps = pps;
     pmd->ppz8 = &mock_ppz8;
     CHECK(run_resident(pmd, ""));
     CHECK_EQ(ctx.script_pos, ctx.script_len);
@@ -2058,6 +2264,28 @@ static void fire_fm_timer(struct pmd *pmd, uint8_t pending, uint8_t status) {
     CHECK_EQ(ctx.script_pos, ctx.script_len);
 }
 
+// A Timer A invocation while the SSG effect driver runs. Only the timer
+// dispatch reads are scripted: the effect's own register writes read the status
+// port through the idle pad, which reports a clear BUSY bit.
+static void fire_effect_timer(struct pmd *pmd) {
+    uint16_t port1 = pmd->fm1_port1;
+    const struct test_io script[] = {
+#if vsync
+        {2, 0x00},
+#endif
+        {port1, 0x00},
+        {port1, 1}, // Timer A pending
+        {port1, 0x00},
+        {port1, 0x00},
+        {port1, 1}, // 27h status: Timer A
+    };
+    set_script(script, sizeof(script) / sizeof(script[0]));
+    ctx.reads = 0;
+    ctx.write_count = 0;
+    run_fm_handler(pmd);
+    CHECK_EQ(ctx.script_pos, ctx.script_len);
+}
+
 // The same for a handler invocation whose timer work reaches the sequencer and
 // so the hardware: only the reads up to the timer dispatch are scripted, and
 // the rest read the idle pad.
@@ -2091,6 +2319,8 @@ static struct pmd *new_timer_pmd(void) {
     pmd->lastTimerAtime = 20;
     pmd->play_flag = 0;
     pmd->ch3mode = 0x3f;
+    // The resident run leaves the log full of board-initialization writes.
+    ctx.write_count = 0;
     return pmd;
 }
 
@@ -2346,7 +2576,11 @@ static void load_empty_module(struct pmd *pmd) {
 // part7 and part11); the table layout is the same in every variant.
 enum {
     test_part_ssg1 = 6,
+    test_part_ssg3 = 8,
+    test_part_pcm = 9,
     test_part_rhythm = 10,
+    // The PPZ8 parts, whose work areas ppz_extpartset (0b4h) fills.
+    test_part_ppz1 = 14,
 };
 
 // Points part `index` (0 = FM1) at `off` and copies its data there.
@@ -3172,9 +3406,8 @@ static void test_int60_no_board(void) {
     CHECK_EQ(pmd->fm_effec_num, 9);
     CHECK_EQ(pmd->fm_effec_flag, 0);
 
-    // :25/:184/:821 The SSG effect and PCM effect entries are phase 8 stubs, so
-    // the only observable no-board behavior left is that they reach no
-    // hardware.
+    // :25/:184/:821 The SSG effect and PCM effect entries do nothing without a
+    // board, so they reach no hardware.
     ctx.reads = 0;
     ctx.write_count = 0;
     pmd_eff_on(pmd, 1);
@@ -3352,8 +3585,8 @@ static void test_int60_board(void) {
     CHECK_EQ(ctx.write_count, 0);
 #endif
 
-    // The SSG effect entry points are phase 8 stubs; calling them must be
-    // harmless.
+    // The SSG effect entry points do nothing without a board; calling them
+    // must be harmless.
     pmd_eff_on(pmd, 1);
     pmd_effoff(pmd);
 
@@ -3839,6 +4072,21 @@ static void test_resident_cut(void) {
     // :9827 The FM timer register is reset.
     CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x27, 0x30));
     CHECK_EQ(pmd->int60flag, 0);
+    free_pmd(pmd);
+
+    // :9777 A sounding SSG effect is stopped through pmd_effoff, which now runs
+    // the effect driver's own teardown.
+    ctx_reset();
+    pmd = setup_playback();
+    pmd->play_flag = 1;
+    pmd_eff_on(pmd, 0);
+    CHECK_EQ(pmd->effon, 1);
+    ctx.write_count = 0;
+    pmd_resident_cut(pmd);
+    CHECK_EQ(pmd->effon, 0);
+    CHECK_EQ(pmd->psgefcnum, 0xff);
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x0a, 0x00));
+    CHECK_EQ(ctx.fm_timer_removals, 1);
     free_pmd(pmd);
 
     // A driver that found no board never installed the FM timer handler, and
@@ -4449,6 +4697,439 @@ static void test_ymfm_rom(void) {
     rmdir(dir);
 }
 
+
+// Phase 8: the SSG effect driver (EFCDRV.ASM). pmd_eff_on loads the first frame
+// of the effect, pmd_effoff silences it, and Timer A advances the frames.
+static void test_int60_ssg_effect(void) {
+    struct pmd *pmd = new_timer_pmd();
+    ctx.write_count = 0;
+
+    // Effect 0 (EFFECT.INC D_000): priority 1, one frame of one tick.
+    pmd_eff_on(pmd, 0);
+    CHECK_EQ(pmd->effon, 1);
+    CHECK_EQ(pmd->psgefcnum, 0);
+    CHECK_EQ(pmd->effcnt, 1);
+    CHECK(pmd->effadr != NULL);
+    CHECK_EQ(pmd->eswthz, 0x05dc); // registers 4 and 5
+    CHECK_EQ(pmd->eswnhz, 31);     // register 6
+    CHECK_EQ(pmd->eswtst, 127);
+    CHECK_EQ(pmd->eswnst, 0);
+    CHECK_EQ(pmd->eswnct, 0);
+    CHECK_EQ(pmd->parts[test_part_ssg3].partmask & 2, 2);
+
+    uint16_t port1 = pmd->fm1_port1;
+    uint16_t port2 = pmd->fm1_port2;
+    // :152 The mix register keeps the SSG enable bits, which get07 reads back
+    // from the idle data port.
+    uint8_t mix = (uint8_t)(ctx.pad_read & 0xdb);
+    CHECK(has_reg_write(port1, port2, 0x04, 0xdc));
+    CHECK(has_reg_write(port1, port2, 0x05, 0x05));
+    CHECK(has_reg_write(port1, port2, 0x06, 0x1f));
+    CHECK(has_reg_write(port1, port2, 0x07, mix));
+    CHECK(has_reg_write(port1, port2, 0x0a, 0x0f));
+    CHECK(has_reg_write(port1, port2, 0x0b, 0x00));
+    CHECK(has_reg_write(port1, port2, 0x0c, 0x00));
+    CHECK(has_reg_write(port1, port2, 0x0d, 0x00));
+
+    // Effect 11 has priority 2, so it replaces effect 0. Effect 0 then loses
+    // the priority test, though psgefcnum is already overwritten.
+    pmd_eff_on(pmd, 11);
+    CHECK_EQ(pmd->effon, 2);
+    CHECK_EQ(pmd->psgefcnum, 11);
+    pmd_eff_on(pmd, 0);
+    CHECK_EQ(pmd->effon, 2);
+    CHECK_EQ(pmd->psgefcnum, 0);
+
+    // effoff: minimum volume, cut the noise channel, and clear the state.
+    ctx.write_count = 0;
+    pmd_effoff(pmd);
+    CHECK_EQ(pmd->effon, 0);
+    CHECK_EQ(pmd->psgefcnum, 0xff);
+    CHECK(has_reg_write(port1, port2, 0x0a, 0x00));
+    CHECK(has_reg_write(port1, port2, 0x07, (uint8_t)(mix | 0x24)));
+    free_pmd(pmd);
+
+    // The sweep: Timer A advances the frame count, and the frame's tone
+    // increment is applied when the count runs out.
+    pmd = new_timer_pmd();
+    pmd_eff_on(pmd, 0);
+    CHECK_EQ(pmd->effcnt, 1);
+    ctx.write_count = 0;
+    fire_effect_timer(pmd);
+    CHECK_EQ(pmd->effcnt, 8);      // D_000's second frame
+    CHECK_EQ(pmd->eswthz, 0x06a4);
+    CHECK_EQ(pmd->eswtst, 127);
+    CHECK(has_reg_write(port1, port2, 0x04, 0xa4));
+    CHECK(has_reg_write(port1, port2, 0x05, 0x06));
+
+    ctx.write_count = 0;
+    fire_effect_timer(pmd);
+    CHECK_EQ(pmd->effcnt, 7);
+    CHECK_EQ(pmd->eswthz, 0x0723); // 0x06a4 + 127
+    CHECK(has_reg_write(port1, port2, 0x04, 0x23));
+    CHECK(has_reg_write(port1, port2, 0x05, 0x07));
+    free_pmd(pmd);
+}
+
+// Phase 8: the PPSDRV path of eff_main. A negative effect number is handed to
+// PPSDRV with the inverted volume, and the same voice is keyed off first.
+static void test_int60_ssg_effect_pps(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->pps = &mock_pps;
+    pmd->ppsdrv_flag = 1;
+
+    pmd_eff_on(pmd, 0x85);
+    CHECK_EQ(pmd->effon, 1);
+    CHECK_EQ(pmd->psgefcnum, 0x85);
+    // Only the rhythm path (effgo) records the last PPSDRV voice.
+    CHECK_EQ(pmd->last_shot_data, 0);
+    CHECK_EQ(ctx.pps_keyons, 1);
+    CHECK_EQ(ctx.pps_keyon.num, 5);
+    CHECK_EQ(ctx.pps_keyon.detune, 0);
+    CHECK_EQ(ctx.pps_keyon.volume, 0); // the inverted default volume 15
+    CHECK_EQ(pmd->parts[test_part_ssg3].partmask & 2, 2);
+
+    // A second request does not reach PPSDRV: the priority test sees the
+    // running effect and returns.
+    pmd_eff_on(pmd, 0x85);
+    CHECK_EQ(ctx.pps_keyoffs, 0);
+    CHECK_EQ(ctx.pps_keyons, 2);
+
+    ctx.write_count = 0;
+    pmd_effoff(pmd);
+    CHECK_EQ(ctx.pps_keyoffs, 1);
+    CHECK_EQ(pmd->effon, 0);
+    free_pmd(pmd);
+}
+
+#if ppz
+// Phase 8: the PPZ8 driver calls mstart (:461-486) and opn_init (:848) make.
+static void test_ppz8_start(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->ppz8 = &mock_ppz8;
+    pmd->ppz_call_seg = 1;
+
+    start_playback(pmd);
+    CHECK_EQ(ctx.ppz_inits, 1);
+    CHECK_EQ(ctx.ppz_stop_alls, 1);
+    CHECK_EQ(ctx.ppz_removal_calls, 1);
+    CHECK(ctx.ppz_removal_protect);
+    // opn_init pans all eight PPZ8 channels to the centre.
+    for (int ch = 0; ch < 8; ch++) {
+        CHECK_EQ(ctx.ppz_pans[ch], 1);
+        CHECK_EQ(ctx.ppz_pan[ch], 5);
+    }
+
+    // silence (called by mstop) stops the FIFO interrupt and keys off all
+    // eight channels.
+    ctx.ppz_fifo_stops = 0;
+    for (int ch = 0; ch < 8; ch++) ctx.ppz_keyoffs[ch] = 0;
+    CHECK(pmd_mstop_f(pmd));
+    CHECK_EQ(ctx.ppz_fifo_stops, 1);
+    for (int ch = 0; ch < 8; ch++) CHECK_EQ(ctx.ppz_keyoffs[ch], 1);
+    free_pmd(pmd);
+}
+
+// Phase 8: a PPZ8 part's note, volume, tone, and pan through the vtable. The
+// part addresses come from the PCM part's 0b4h command, as in a real module.
+static void test_ppz8_part(void) {
+    // The PPZ8 interrupt level matched, so the directly callable FM entry is
+    // in use and mnp_ret dispatches through it.
+    static const struct pmd_ppz8_voice voice = {
+        .start = 0x100,
+        .size = 0x0200,
+        .loop_start = 0x40,
+        .loop_end = 0x1f0,
+        .rate = 16000,
+    };
+    struct pmd *pmd = new_timer_pmd();
+    pmd->ppz8 = &mock_ppz8;
+    pmd->ppz_call_seg = 2;
+    ctx.ppz_voice = &voice;
+
+    // 0b4h: the eight PPZ8 part offsets, then the PCM part's end marker.
+    static const uint8_t pcm_part[] = {
+        0xb4, 0x30, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0x80,
+    };
+    // Note, centre pan, voice 0, and the end marker.
+    static const uint8_t ppz_part[] = {0x40, 1, 0xec, 3, 0xff, 0, 0x80};
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, pcm_part, sizeof(pcm_part));
+    memcpy(pmd->mmlbuf + 0x30, ppz_part, sizeof(ppz_part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+
+    start_playback(pmd);
+    run_timer_b(pmd);
+    struct pmd_qq *di = &pmd->parts[test_part_ppz1];
+    CHECK(di->address == pmd->mmlbuf + 0x30 + 2); // past the note and its length
+    CHECK_EQ(di->fnum, 0x8000); // o5 C
+    CHECK_EQ(di->leng, 1);
+    CHECK_EQ(di->volume, 128); // ppz_extpartset's default
+    CHECK_EQ(ctx.ppz_keyons[0], 1);
+    CHECK_EQ(ctx.ppz_keyon_voice[0], 0);
+    CHECK_EQ(ctx.ppz_volumes[0], 1);
+    CHECK_EQ(ctx.ppz_volume[0], 8); // 128 >> 4
+    CHECK_EQ(ctx.ppz_tones[0], 1);
+
+    // mnp_ret gives PPZ8's own handler a turn (ppz_call_seg == 2).
+    CHECK(ctx.ppz_fm_int_calls > 0);
+
+    // The next tick runs the pan command, loads voice 0's loop and rate, and
+    // then reaches the end marker.
+    ctx.ppz_fm_int_calls = 0;
+    run_timer_b(pmd);
+    CHECK_EQ(di->fmpan, 5); // ppzpandata[3]
+    // opn_init panned every channel to the centre at mstart, so this is the
+    // second pan call for channel 0.
+    CHECK_EQ(ctx.ppz_pans[0], 2);
+    CHECK_EQ(ctx.ppz_pan[0], 5);
+    CHECK_EQ(ctx.ppz_voice_calls, 1);
+    CHECK_EQ(ctx.ppz_voice_num, 0);
+    CHECK_EQ(ctx.ppz_loops[0], 1);
+    CHECK_EQ(ctx.ppz_loop_start[0], 0x40);
+    CHECK_EQ(ctx.ppz_loop_end[0], 0x1f0);
+    CHECK_EQ(ctx.ppz_rates[0], 1);
+    CHECK_EQ(ctx.ppz_rate[0], 16000);
+    CHECK_EQ(di->loopcheck, 3);
+    free_pmd(pmd);
+
+    // Without PPZ8 the same module still sequencer-plays and makes no calls.
+    pmd = new_timer_pmd();
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, pcm_part, sizeof(pcm_part));
+    memcpy(pmd->mmlbuf + 0x30, ppz_part, sizeof(ppz_part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+    start_playback(pmd);
+    run_timer_b(pmd);
+    di = &pmd->parts[test_part_ppz1];
+    CHECK_EQ(di->fnum, 0x8000);
+    CHECK_EQ(ctx.ppz_keyons[0], 0);
+    free_pmd(pmd);
+}
+
+// Phase 8: ppz_mml_part_mask (0c0h) masks and revives a PPZ8 part.
+static void test_ppz8_mml_mask(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->ppz8 = &mock_ppz8;
+    pmd->ppz_call_seg = 1;
+
+    static const uint8_t pcm_part[] = {
+        0xb4, 0x30, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0x80,
+    };
+    static const uint8_t ppz_part[] = {0x40, 1, 0xc0, 1, 0x80};
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, pcm_part, sizeof(pcm_part));
+    memcpy(pmd->mmlbuf + 0x30, ppz_part, sizeof(ppz_part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+
+    start_playback(pmd);
+    run_timer_b(pmd);
+    struct pmd_qq *di = &pmd->parts[test_part_ppz1];
+    CHECK_EQ(ctx.ppz_keyons[0], 1);
+    run_timer_b(pmd);
+    CHECK_EQ(di->partmask & 0x40, 0x40);
+    // mstop's silence keyed all channels off once at mstart.
+    CHECK_EQ(ctx.ppz_keyoffs[0], 2);
+    free_pmd(pmd);
+}
+#endif
+
+#if board2 && pcm
+// Phase 8: the PCM86 path. A note loads its voice, starts the FIFO transfer,
+// and advances through fifo_main.
+static void test_pcm86_part(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->p86 = &mock_p86;
+    pmd->pcm_table.pcm86.pcmadrs[0].offset = 0x100;
+    pmd->pcm_table.pcm86.pcmadrs[0].size = 0x0400;
+
+    // Voice 0, a note, and the end marker.
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0x80};
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, part, sizeof(part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+
+    ctx.write_count = 0;
+    start_playback(pmd);
+    run_timer_b(pmd);
+
+    struct pmd_qq *di = &pmd->parts[test_part_pcm];
+    CHECK_EQ(di->voicenum, 0);
+    CHECK_EQ(di->onkai, 0x40);
+    CHECK_EQ(pmd->_start_ofs, 0x100);
+    CHECK_EQ(pmd->_size1, 0x0400);
+    CHECK_EQ(pmd->play86_flag, 1);
+    CHECK_EQ(pmd->trans_flag, 1);
+    // play_86pcm's first transfer: one EMS push/pop and one data lookup.
+    CHECK_EQ(ctx.p86_pushes, 1);
+    CHECK_EQ(ctx.p86_pops, 1);
+    CHECK_EQ(ctx.p86_data_calls, 1);
+    CHECK_EQ(ctx.p86_offset, 0x100);
+    // The volume register runs inverted (0Ah is the minimum).
+    CHECK(has_write(0xa466, (uint8_t)((0xa0 | (((128 >> 4) & 0x0f) ^ 0x0f)))));
+    // The transferred samples advanced the cursor and used up the size.
+    CHECK(pmd->start_ofs > 0x100);
+    CHECK(pmd->size1 < 0x0400);
+
+    // A FIFO interrupt transfers the next buffer.
+    ctx.fifo_pending = true;
+    ctx.p86_pushes = 0;
+    ctx.p86_pops = 0;
+    run_fm_handler(pmd);
+    CHECK_EQ(ctx.p86_pushes, 1);
+    CHECK_EQ(ctx.p86_pops, 1);
+    CHECK_EQ(pmd->play86_flag, 1);
+
+    // Stopping the music stops the PCM86 and silences the FIFO.
+    ctx.write_count = 0;
+    CHECK(pmd_mstop_f(pmd));
+    CHECK_EQ(pmd->play86_flag, 0);
+    CHECK_EQ(pmd->trans_flag, 0);
+    CHECK(has_write(0xa468, 0x00)); // playback stopped
+    free_pmd(pmd);
+}
+
+// Phase 8: /HZ rewrites the table fnumsetm reads, which the PCM86 pitch then
+// follows.
+static void test_pcm86_freq_table(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->p86 = &mock_p86;
+
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0x80};
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, part, sizeof(part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+
+    start_playback(pmd);
+    run_timer_b(pmd);
+    uint16_t fnum = pmd->parts[test_part_pcm].fnum;
+    uint16_t fnum2 = pmd->parts[test_part_pcm].fnum2;
+
+    // The same note with a different /HZ table must produce a new pitch.
+    free_pmd(pmd);
+
+    pmd = new_timer_pmd();
+    pmd->p86 = &mock_p86;
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, part, sizeof(part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+    // Rewrite the o5 C entry (index 48) to a different addsize pair.
+    pmd->pcm_tune_data[48 * 3] = 0x05;
+    pmd->pcm_tune_data[48 * 3 + 1] = 0x34;
+    pmd->pcm_tune_data[48 * 3 + 2] = 0x12;
+    start_playback(pmd);
+    run_timer_b(pmd);
+    CHECK_EQ(pmd->parts[test_part_pcm].fnum, 0xff05);
+    CHECK_EQ(pmd->parts[test_part_pcm].fnum2, 0x1234);
+    CHECK(fnum != pmd->parts[test_part_pcm].fnum || fnum2 != 0x1234);
+    free_pmd(pmd);
+}
+#endif
+
+#if board2 && adpcm && !ademu
+// Phase 8: the YM2608 ADPCM effect path (PCMDRV.ASM:821).
+static void test_adpcm_effect(void) {
+    struct pmd *pmd = new_timer_pmd();
+    pmd->pcm_gs_flag = 0; // ADPCM available
+    pmd->pcm_table.adpcm_data.pcmadrs[0].start = 0x0100;
+    pmd->pcm_table.adpcm_data.pcmadrs[0].stop = 0x0200;
+
+    ctx.write_count = 0;
+    pmd_pcm_effect(pmd, 0, 0x1234, 0, 60);
+
+    CHECK_EQ(pmd->pcmflag, 1);
+    CHECK_EQ(pmd->pcm_effec_num, 0);
+    CHECK_EQ(pmd->parts[test_part_pcm].partmask & 2, 2);
+    CHECK_EQ(pmd->_pcmstart, 0x0100);
+    CHECK_EQ(pmd->_pcmstop, 0x0200);
+    CHECK_EQ(pmd->_pcm_volume, 60);
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x0b, 60));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x09, 0x34));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x0a, 0x12));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x01, 0x02));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x00, 0x21));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x02, 0x00));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x03, 0x01));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x04, 0x00));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x05, 0x02));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x00, 0xa0));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x10, 0x80));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x10, 0x18));
+    free_pmd(pmd);
+
+    // Without ADPCM the effect is dropped.
+    pmd = new_timer_pmd();
+    pmd->pcm_gs_flag = 1;
+    ctx.write_count = 0;
+    pmd_pcm_effect(pmd, 0, 0x1234, 0, 60);
+    CHECK_EQ(pmd->pcmflag, 0);
+    CHECK_EQ(ctx.write_count, 0);
+    free_pmd(pmd);
+}
+#endif
+
+#if board2 && !pcm
+// Phase 8: the PCM part's note path for the YM2608 ADPCM variants. The PCM86
+// variant takes it in test_pcm86_part.
+static void test_pcm_part(void) {
+#if ademu
+    struct pmd *pmd = new_timer_pmd();
+    pmd->ppz8 = &mock_ppz8;
+    pmd->ppz_call_seg = 1;
+    // @0 switches the ADPCM emulation on and hands channel 7's voice over.
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0x80};
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, part, sizeof(part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+    start_playback(pmd);
+    ctx.ppz_adpcm_calls = 0;
+    run_timer_b(pmd);
+    struct pmd_qq *di = &pmd->parts[test_part_pcm];
+    CHECK_EQ(di->voicenum, 0);
+    CHECK_EQ(pmd->adpcm_emulate, 1);
+    CHECK_EQ(ctx.ppz_adpcm_calls, 1);
+    CHECK(ctx.ppz_adpcm_emulate);
+    CHECK_EQ(ctx.ppz_keyons[7], 1);
+    CHECK_EQ(ctx.ppz_keyon_voice[7], 0x8080);
+    free_pmd(pmd);
+#else
+    struct pmd *pmd = new_timer_pmd();
+    pmd->pcm_gs_flag = 0;
+    pmd->pcm_table.adpcm_data.pcmadrs[0].start = 0x0100;
+    pmd->pcm_table.adpcm_data.pcmadrs[0].stop = 0x0200;
+    static const uint8_t part[] = {0xff, 0, 0x40, 1, 0x80};
+    load_empty_module(pmd);
+    load_part(pmd, 9, 24, part, sizeof(part));
+    pmd->mmlbuf[22] = 0x60;
+    pmd->mmlbuf[23] = 0;
+    ctx.write_count = 0;
+    start_playback(pmd);
+    run_timer_b(pmd);
+    struct pmd_qq *di = &pmd->parts[test_part_pcm];
+    CHECK_EQ(di->voicenum, 0);
+    CHECK_EQ(pmd->pcmstart, 0x0100);
+    CHECK_EQ(pmd->pcmstop, 0x0200);
+    CHECK_EQ(pmd->pcmrelease, 0x8000);
+    // volsetm's ADPCM volume, and the keyon register sequence.
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x0b, 128));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x01, 0x02));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x00, 0xa0));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x02, 0x00));
+    CHECK(has_reg_write(pmd->fm2_port1, pmd->fm2_port2, 0x03, 0x01));
+    free_pmd(pmd);
+#endif
+}
+#endif
+
 int main(void) {
     struct pmd *pmd = new_pmd();
 
@@ -4522,6 +5203,23 @@ int main(void) {
     test_int60_ff_music_skip();
     test_resident_cut();
     test_change_remove();
+    test_int60_ssg_effect();
+    test_int60_ssg_effect_pps();
+#if ppz
+    test_ppz8_start();
+    test_ppz8_part();
+    test_ppz8_mml_mask();
+#endif
+#if board2 && !pcm
+    test_pcm_part();
+#endif
+#if board2 && pcm
+    test_pcm86_part();
+    test_pcm86_freq_table();
+#endif
+#if board2 && adpcm && !ademu
+    test_adpcm_effect();
+#endif
     test_ymfm_vtable();
     test_ymfm_probe();
 #if !va && !board2

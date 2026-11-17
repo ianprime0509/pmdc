@@ -326,6 +326,10 @@ uint8_t pmd_ymfm::inb(uint16_t port) {
     if (config.board != PMD_YMFM_BOARD_VA) {
         if (port == 0xa460) return opna_id;
         if (port == 0xa66e) return mute;
+        // 0A468h is the PCM86 FIFO status, which belongs to the separate 86
+        // board PCM that this backend does not emulate. Report it idle so the
+        // driver's FIFO interrupt check never fires.
+        if (port == 0xa468) return 0x00;
     }
     return 0xff;
 }
