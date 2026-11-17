@@ -55,7 +55,8 @@ struct chip_interface {
 
 template <typename Chip>
 struct chip_model final : chip_interface {
-    explicit chip_model(ymfm::ymfm_interface &intf) : chip(intf) {
+    chip_model(ymfm::ymfm_interface &intf, double ssg_gain)
+        : chip(intf), ssg_gain(ssg_gain) {
         // MIN is the lowest rate YMFM offers, which for the OPN family is
         // three times the FM rate. MAX would repeat every FM sample 18 times
         // for no audible gain and an 18x larger buffer for the host.
@@ -73,19 +74,24 @@ struct chip_model final : chip_interface {
     void generate(int32_t *out) override {
         typename Chip::output_data sample;
         chip.generate(&sample);
-        // The OPNA family puts FM on two outputs and SSG on a third; the OPN
-        // chips are mono, so their FM output feeds both sides.
+        // The OPNA family puts FM on two outputs and mixes its three SSG
+        // channels into a third; the OPN chips are mono and keep the SSG
+        // channels separate, so they are summed here.
         int32_t left = sample.data[0];
         int32_t right = sample.data[Chip::FM_OUTPUTS == 2 ? 1 : 0];
-        int32_t ssg = sample.data[Chip::OUTPUTS - 1];
-        // YMFM returns the raw 0..max level of the three SSG channels summed,
-        // so it carries a large DC offset; the board AC-couples it. Remove the
+        int32_t ssg = 0;
+        for (uint32_t i = 0; i < Chip::SSG_OUTPUTS; i++) {
+            ssg += sample.data[Chip::FM_OUTPUTS + i];
+        }
+        // YMFM returns the raw 0..max level of the SSG channels, so the sum
+        // carries a large DC offset; the board AC-couples it. Remove the
         // offset with a one-pole high-pass, or the mixer output sits far off
-        // centre and clips.
+        // centre and clips. The mix level then scales it down to what the
+        // board's mixer, rather than the chip, produces.
         double ac = ssg - ssg_in + ssg_offset * ssg_pole;
         ssg_in = ssg;
         ssg_offset = ac;
-        int32_t sample_out = (int32_t)ac;
+        int32_t sample_out = (int32_t)(ac * ssg_gain);
         out[0] = left + sample_out;
         out[1] = right + sample_out;
     }
@@ -95,6 +101,8 @@ struct chip_model final : chip_interface {
     }
 
     Chip chip;
+    // Mix level of the AC-coupled SSG output, from the config.
+    double ssg_gain;
     // One-pole DC blocker for the SSG output, which the board AC-couples.
     // The pole sits at about 2 Hz for the OPN family's sample rate.
     static constexpr double ssg_pole = 0.9999;
@@ -170,13 +178,13 @@ struct pmd_ymfm : ymfm::ymfm_interface {
 pmd_ymfm::pmd_ymfm(const struct pmd_ymfm_config &cfg) : config(cfg) {
     switch (config.chip) {
     case PMD_YMFM_YM2203:
-        chip.reset(new chip_model<ymfm::ym2203>(*this));
+        chip.reset(new chip_model<ymfm::ym2203>(*this, config.ssg_gain));
         break;
     case PMD_YMFM_YM2608:
-        chip.reset(new chip_model<ymfm::ym2608>(*this));
+        chip.reset(new chip_model<ymfm::ym2608>(*this, config.ssg_gain));
         break;
     case PMD_YMFM_YMF288:
-        chip.reset(new chip_model<ymfm::ymf288>(*this));
+        chip.reset(new chip_model<ymfm::ymf288>(*this, config.ssg_gain));
         break;
     }
 
@@ -366,6 +374,7 @@ extern "C" void pmd_ymfm_default_config(struct pmd_ymfm_config *config,
                                         struct pmd *pmd) {
     std::memset(config, 0, sizeof(*config));
     config->irq_bits = 0xc0; // int 5, the PC-98 default
+    config->ssg_gain = PMD_YMFM_SSG_GAIN_DEFAULT;
 #if va && board2
     config->chip = PMD_YMFM_YM2608;
     config->board = PMD_YMFM_BOARD_VA;

@@ -43,6 +43,12 @@ enum pmd_ymfm_board {
 
 struct pmd_ymfm;
 
+// The SSG mix level PMD-style players use. The chip's own SSG output level is
+// much higher relative to FM than a PMD mix wants: PMDWin mixes it at
+// SetVolumePSG(-18), and its gain formula (65536 * 10^(db / 40)) works out to
+// 0.3548 of the chip's output.
+#define PMD_YMFM_SSG_GAIN_DEFAULT 0.355
+
 struct pmd_ymfm_config {
     enum pmd_ymfm_chip chip;
     enum pmd_ymfm_board board;
@@ -54,12 +60,16 @@ struct pmd_ymfm_config {
     uint8_t irq_bits;
     // The chip's input clock in Hz. 0 selects the chip's PC-98 clock.
     uint32_t input_clock;
+    // Mix level of the board's AC-coupled SSG output, before it joins the FM
+    // outputs. 1.0 is the chip's own level, 0 silences the SSG, and
+    // PMD_YMFM_SSG_GAIN_DEFAULT is what a PMD player mixes it at.
+    double ssg_gain;
     // The driver whose FM timer handler the backend calls.
     struct pmd *pmd;
 };
 
-// Fills in the chip, board, and base port the current PMD variant was written
-// for. The caller still has to set config->pmd.
+// Fills in the chip, board, base port, and SSG mix level the current PMD
+// variant was written for. The caller still has to set config->pmd.
 void pmd_ymfm_default_config(struct pmd_ymfm_config *config, struct pmd *pmd);
 
 // Returns NULL when `config` is NULL, names an unknown chip type, or cannot be

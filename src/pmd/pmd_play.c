@@ -8,6 +8,7 @@
 #include "miniaudio.h"
 
 #include <getopt.h>
+#include <math.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -163,8 +164,10 @@ static void print_usage(const char *program) {
             "  BOARD   pc98, pc98-86b, or va\n"
             "  -c, --chip CHIP    select the FM chip\n"
             "  -b, --board BOARD  select the FM board\n"
+            "  -g, --ssg-gain N   mix the SSG at N times the chip's level\n"
+            "                     (default %.3f, PMDWin's level; 1 is the chip's)\n"
             "  -o, --output FILE  write WAV audio to FILE instead of playing\n",
-            program);
+            program, PMD_YMFM_SSG_GAIN_DEFAULT);
 }
 
 static bool parse_chip(const char *name, enum pmd_ymfm_chip *chip) {
@@ -217,8 +220,10 @@ struct options {
     const char *output;
     enum pmd_ymfm_chip chip;
     enum pmd_ymfm_board board;
+    double ssg_gain;
     bool chip_set;
     bool board_set;
+    bool ssg_gain_set;
 };
 
 static enum parse_result parse_args(int argc, char **argv, struct options *options) {
@@ -227,13 +232,15 @@ static enum parse_result parse_args(int argc, char **argv, struct options *optio
     static const struct option long_options[] = {
         {"chip", required_argument, NULL, 'c'},
         {"board", required_argument, NULL, 'b'},
+        {"ssg-gain", required_argument, NULL, 'g'},
         {"output", required_argument, NULL, 'o'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0},
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "c:b:o:h", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "c:b:g:o:h", long_options, NULL)) !=
+           -1) {
         switch (opt) {
         case 'c':
             if (!parse_chip(optarg, &options->chip)) {
@@ -249,6 +256,17 @@ static enum parse_result parse_args(int argc, char **argv, struct options *optio
             }
             options->board_set = true;
             break;
+        case 'g': {
+            char *end = NULL;
+            double gain = strtod(optarg, &end);
+            if (end == optarg || *end != '\0' || !isfinite(gain) || gain < 0.0) {
+                fprintf(stderr, "%s: invalid SSG gain '%s'\n", argv[0], optarg);
+                return PARSE_ERROR;
+            }
+            options->ssg_gain = gain;
+            options->ssg_gain_set = true;
+            break;
+        }
         case 'o':
             options->output = optarg;
             break;
@@ -323,6 +341,7 @@ int main(int argc, char **argv) {
     struct pmd_ymfm_config config;
     pmd_ymfm_default_config(&config, &pmd);
     if (options.chip_set) config.chip = options.chip;
+    if (options.ssg_gain_set) config.ssg_gain = options.ssg_gain;
     if (options.board_set) {
         config.board = options.board;
         config.base_port = board_base_port(options.board);
