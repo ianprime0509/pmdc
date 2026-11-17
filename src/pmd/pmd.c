@@ -677,6 +677,16 @@ enum pmd_cmd_result {
     // fmmain's porta_return and psgmain's porta_returnp.
     PMD_CMD_PORTA_RETURN,
     PMD_CMD_PORTA_RETURNP,
+    // ppzmain's mp1z and porta_returnz.
+    PMD_CMD_MP1Z,
+    PMD_CMD_PORTA_RETURNZ,
+    // ppzmain_nonplay's ppzmnp_1.
+    PMD_CMD_PPZMNP_1,
+    // pcmmain's mp1m and porta_returnm.
+    PMD_CMD_MP1M,
+    PMD_CMD_PORTA_RETURNM,
+    // pcmmain_nonplay's pcmmnp_1.
+    PMD_CMD_PCMMNP_1,
 };
 
 typedef enum pmd_cmd_result (*pmd_cmd_fn)(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
@@ -715,32 +725,139 @@ static bool int60_enter(struct pmd *pmd, uint8_t entry);
 // :315
 static void int60_exit(struct pmd *pmd);
 #if board2
-// PCMDRV.ASM:7
+// PCMDRV.ASM:7, PCMDRVE.ASM:7, PCMDRV86.ASM:7
 static void pcmmain(struct pmd *pmd, struct pmd_qq *di);
-// PCMDRV.ASM:821
+// PCMDRV.ASM:821, PCMDRV86.ASM:1347
 static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch, uint8_t cl);
 #endif
-#if board2
+#if board2 && (pcm || adpcm)
+// PCMDRV.ASM:185, PCMDRVE.ASM:173, PCMDRV86.ASM:180
+static enum pmd_cmd_result commandsm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// The PCM command table (PCMDRV.ASM:188, PCMDRV86.ASM:183).
+static const pmd_cmd_fn cmdtblm[0xff - 0xb1 + 1];
+// PCMDRV.ASM:291, PCMDRVE.ASM:279, PCMDRV86.ASM:281
+static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:317, PCMDRVE.ASM:305, PCMDRV86.ASM:304
+static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:355, PCMDRVE.ASM:359. PCMDRV86.ASM:246 has no portamento: its
+// 0dah entry is jump1.
+#if !pcm
+static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+#endif
+// PCMDRV.ASM:401, PCMDRVE.ASM:405, PCMDRV86.ASM:426
+static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:411, PCMDRVE.ASM:415, PCMDRV86.ASM:436
+static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:418, PCMDRVE.ASM:422, PCMDRV86.ASM:444
+static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:425, PCMDRVE.ASM:429, PCMDRV86.ASM:451
+static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:437, PCMDRVE.ASM:441, PCMDRV86.ASM:467
+static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:449, PCMDRVE.ASM:465, PCMDRV86.ASM:491
+static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:467, PCMDRVE.ASM:483, PCMDRV86.ASM:531
+static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PCMDRV.ASM:489, PCMDRVE.ASM:512, PCMDRV86.ASM:564
+static void volsetm(struct pmd *pmd, struct pmd_qq *di);
+// PCMDRV.ASM:606, PCMDRVE.ASM:630, PCMDRV86.ASM:707
+static void keyonm(struct pmd *pmd, struct pmd_qq *di);
+// PCMDRV.ASM:676, PCMDRVE.ASM:650, PCMDRV86.ASM:722
+static void keyoffm(struct pmd *pmd, struct pmd_qq *di);
+// PCMDRV.ASM:718, PCMDRVE.ASM:665, PCMDRV86.ASM:752
+static void otodasim(struct pmd *pmd, struct pmd_qq *di);
+// PCMDRV.ASM:771, PCMDRVE.ASM:711, PCMDRV86.ASM:817
+static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+#endif
+#if board2 && pcm
+// PCMDRV86.ASM:412
+static uint16_t pcm86vol_chk(struct pmd *pmd, uint16_t ax);
+// PCMDRV86.ASM:1162
+static const uint8_t *get_data_offset(struct pmd *pmd);
+// PCMDRV86.ASM:789
+static void tone_set2(struct pmd *pmd, uint16_t ax, uint8_t bl);
+// PCMDRV86.ASM:534
+static void neiro_set(struct pmd *pmd, uint8_t al);
+// PCMDRV86.ASM:671
+static void pcm86_vol_out(struct pmd *pmd, uint8_t al);
+// PCMDRV86.ASM:495
+static void set_pcm_pan(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah);
+// PCMDRV86.ASM:498
+static void set_pcm_pan2(struct pmd *pmd, uint8_t al, uint8_t ah);
+// PCMDRV86.ASM:1386
+enum { trans_size = 256 };
+// PCMDRV86.ASM:859
+static void fifo_main(struct pmd *pmd);
+// PCMDRV86.ASM:910
+static void pcm_trans(struct pmd *pmd, uint16_t count);
+// PCMDRV86.ASM:1205
+static void play_86pcm(struct pmd *pmd);
 // PCMDRV86.ASM:1300
-static PMDC_UNUSED void stop_86pcm(struct pmd *pmd);
+static void stop_86pcm(struct pmd *pmd);
 #endif
 #if ppz
 // PPZDRV.ASM:4
-static PMDC_UNUSED void ppz8_call(struct pmd *pmd, uint16_t ax);
-#endif
-#if ppz
-// PPZDRV.ASM:14
+static const struct pmd_drv_ppz8 *ppz8_ops(struct pmd *pmd);
+// PPZDRV.ASM:11
 static void ppzmain(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:185
+static enum pmd_cmd_result commandsz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:188
+static const pmd_cmd_fn cmdtblz[0xff - 0xb1 + 1];
+// PPZDRV.ASM:287
+static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:320
+static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:352
+static enum pmd_cmd_result ppzrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:392
+static const struct pmd_ppz8_voice *ppz_voicetable_calc(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:415
+static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:475
+static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:494
+static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:514
+static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+// PPZDRV.ASM:542
+static void ppz_neiro_reset(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:571
+static void volsetz(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:699
+static void keyonz(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:720
+static void keyoffz(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:735
+static void otodasiz(struct pmd *pmd, struct pmd_qq *di);
+// PPZDRV.ASM:801
+static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+#endif
+#if board2 && (pcm || adpcm)
+// The volume calculation shared by the PPZ8 and PCM volume setters
+// (PPZDRV.ASM:578, PCMDRV.ASM:496).
+static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t voldown, bool square_fade);
 #endif
 // EFCDRV.ASM:9
-// Takes the effect number in al.
-static void effgo(struct pmd *pmd, uint8_t al);
+// Takes the effect number in al. `di` is the part whose detune and volume the
+// PPSDRV path corrects; eff_on passes NULL because its hosei_flag is 0.
+static void effgo(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+// EFCDRV.ASM:22
+static void eff_on2(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
 // EFCDRV.ASM:25
 static void eff_on(struct pmd *pmd, uint8_t al);
+// EFCDRV.ASM:27
+static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
 // EFCDRV.ASM:118
 static void effplay(struct pmd *pmd);
-// EFCDRV.ASM:187
+// EFCDRV.ASM:125
+static void efffor(struct pmd *pmd, const uint8_t **si);
+// EFCDRV.ASM:178
+static void efsnd(struct pmd *pmd, const uint8_t **si, uint8_t *dh, uint8_t *dl);
+// EFCDRV.ASM:184
 static void effend(struct pmd *pmd);
+// EFCDRV.ASM:210
+static void effsweep(struct pmd *pmd);
 // :392
 static void fm_efcplay(struct pmd *pmd);
 // :440
@@ -764,7 +881,13 @@ static PMDC_UNUSED void sel46(struct pmd *pmd);
 static PMDC_UNUSED void sel44(struct pmd *pmd);
 #endif
 // :1053
-static void fmmain(struct pmd *pmd, struct pmd_qq *di);
+static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *di);
+#if ppz
+// :250
+static void ppz_int_hook(struct pmd *pmd);
+#endif
+// :1306
+static void rest_note(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :1204
 static void mnp_ret(struct pmd *pmd, struct pmd_qq *di);
 // :1215
@@ -1501,6 +1624,18 @@ void pmd_init(struct pmd *pmd) {
     pmd->intfook_flag = 0;
     pmd->skip_flag = 0;
     pmd->effon = 0;
+    // :8063 The effect driver starts enabled. The original relies on the
+    // resident image being zeroed here.
+    pmd->effflag = 0;
+    pmd->effadr = NULL;
+    pmd->effcnt = 0;
+    pmd->eswthz = 0;
+    pmd->eswtst = 0;
+    pmd->eswnhz = 0;
+    pmd->eswnst = 0;
+    pmd->eswnct = 0;
+    pmd->hosei_flag = 0;
+    pmd->last_shot_data = 0;
     pmd->fm_effec_flag = 0;
     pmd->pcmflag = 0;
     // :8673
@@ -1607,24 +1742,983 @@ static bool int60_enter(struct pmd *pmd, uint8_t entry) {
 static void int60_exit(struct pmd *pmd) { pmd->int60flag--; }
 
 #if board2
-// PCMDRV.ASM:7
-// Phase 8: PCM part playback.
+// PCMDRV.ASM:7, PCMDRVE.ASM:7, PCMDRV86.ASM:7
+// The PCM part main loop.
 static void pcmmain(struct pmd *pmd, struct pmd_qq *di) {
-    (void)pmd;
-    (void)di;
+    uint8_t *si = di->address;
+    if (si == NULL) return;
+
+    if (di->partmask != 0) goto pcmmain_nonplay;
+
+    di->leng--;
+    uint8_t al = di->leng;
+
+    // :18 Keyoff when the remaining length reaches Q.
+    if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
+        di->keyoff_flag = 0xff;
+        keyoffm(pmd, di);
+    }
+    if (al != 0) goto mpexitm;
+
+#if !pcm
+    // PCMDRV.ASM:29 mp1m0, empty at PCMDRV86.ASM:29 (no portamento).
+    di->lfoswi &= 0xf7; // portamento off
+#endif
+
+mp1m:
+    al = lod8(&si);
+    if (al < 0x80) goto mp2m;
+    if (al == 0x80) goto mp15m;
+
+    switch (commandsm(pmd, di, &si)) {
+    case PMD_CMD_MP1M: goto mp1m;
+    case PMD_CMD_PCMMNP_1: goto pcmmnp_1;
+    case PMD_CMD_PORTA_RETURNM: goto porta_returnm;
+    default: break;
+    }
+    goto mp1m;
+
+mp15m:
+    // :42 End of music, or a loop if "L" was seen.
+    si--;
+    di->address = si;
+    di->loopcheck = 3;
+    di->onkai = 0xff;
+    if (di->partloop == NULL) goto mpexitm;
+    si = di->partloop;
+    di->loopcheck = 1;
+    goto mp1m;
+
+mp2m:
+    // :55 Note: set the pitch and gate.
+    al = lfoinitp(pmd, di, al);
+    al = oshift(di, al);
+    fnumsetm(pmd, di, al);
+
+    al = lod8(&si);
+    di->leng = al;
+    calc_q(pmd, di, &si);
+
+porta_returnm:
+    // :64
+    if (di->volpush == 0) goto mp_newm;
+    if (di->onkai == 0xff) goto mp_newm;
+    pmd->volpush_flag--;
+    if (pmd->volpush_flag == 0) goto mp_newm;
+    pmd->volpush_flag = 0;
+    di->volpush = 0;
+
+mp_newm:
+    volsetm(pmd, di);
+    otodasim(pmd, di);
+    if ((di->keyoff_flag & 1) != 0) keyonm(pmd, di);
+    di->keyon_flag++;
+
+    di->address = si;
+    pmd->tieflag = 0;
+    pmd->volpush_flag = 0;
+    di->keyoff_flag = 0;
+    if (*si == 0xfb) di->keyoff_flag = 2; // '&' immediately follows
+    mnp_ret(pmd, di);
+    return;
+
+mpexitm:;
+#if pcm
+    // :88
+    uint8_t cl = di->lfoswi;
+    if ((cl & 0x22) != 0) {
+        pmd->lfo_switch = 0;
+        if ((cl & 2) != 0) {
+            (void)lfo(pmd, di);
+            pmd->lfo_switch = (uint8_t)(cl & 2);
+        }
+        if ((cl & 0x20) != 0) {
+            lfo_change(di);
+            if (lfo(pmd, di)) {
+                lfo_change(di);
+                pmd->lfo_switch |= di->lfoswi & 0x20;
+            } else {
+                lfo_change(di);
+            }
+        }
+        if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+            pmd->fadeout_speed == 0) {
+            mnp_ret(pmd, di);
+            return;
+        }
+        volsetm(pmd, di);
+        mnp_ret(pmd, di);
+        return;
+    }
+    if (!soft_env(pmd, di)) {
+        if (pmd->fadeout_speed == 0) {
+            mnp_ret(pmd, di);
+            return;
+        }
+    }
+    volsetm(pmd, di);
+    mnp_ret(pmd, di);
+    return;
+#else
+    // :89 The YM2608 drivers process the tone and volume LFOs and portamento.
+    uint8_t cl = di->lfoswi;
+    pmd->lfo_switch = (uint8_t)(cl & 8);
+    if (cl != 0) {
+        if ((cl & 3) != 0) {
+            if (lfo(pmd, di)) pmd->lfo_switch |= cl & 3;
+        }
+        if ((cl & 0x30) != 0) {
+            lfo_change(di);
+            if (lfo(pmd, di)) {
+                lfo_change(di);
+                pmd->lfo_switch |= di->lfoswi & 0x30;
+            } else {
+                lfo_change(di);
+            }
+        }
+        if ((pmd->lfo_switch & 0x19) != 0) {
+            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, di);
+            otodasim(pmd, di);
+        }
+    }
+    // :129 volsm
+    if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+        pmd->fadeout_speed == 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
+    volsetm(pmd, di);
+    mnp_ret(pmd, di);
+    return;
+#endif
+
+pcmmain_nonplay:;
+#if pcm
+    // :134
+    di->leng--;
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
+    if ((di->partmask & 2) != 0) {
+        if (pmd->play86_flag == 1) goto pcmmnp_1; // the PCM effect is sounding
+        pmd->pcmflag = 0;
+        pmd->pcm_effec_num = 0xff;
+        di->partmask &= 0xfd;
+        if (di->partmask != 0) goto pcmmnp_1;
+        neiro_set(pmd, di->voicenum);
+        set_pcm_pan(pmd, di, di->fmpan, pmd->revpan);
+        goto mp1m; // the part is revived
+    }
+#elif ademu
+    // :142
+    di->keyoff_flag = 0xff;
+    di->leng--;
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
+#else
+    // :142
+    di->keyoff_flag = 0xff;
+    di->leng--;
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
+    if ((di->partmask & 2) != 0) {
+        // :149 EOS check: the interrupt PCM has finished when bit 2 of the
+        // FM2 data port is set.
+        uint8_t eos = inb(pmd, pmd->fm2_port1);
+        if ((eos & 0x04) == 0) goto pcmmnp_1; // still sounding
+        pmd->pcmflag = 0;
+        pmd->pcm_effec_num = 0xff;
+        di->partmask &= 0xfd;
+        if (di->partmask != 0) goto pcmmnp_1;
+        // PCMDRV.ASM:316 revives at mp1m, past mp1m0's portamento clear.
+        goto mp1m; // the part is revived
+    }
+#endif
+
+pcmmnp_1:
+    al = lod8(&si);
+    if (al == 0x80) goto pcmmnp_2;
+    if (al < 0x80) goto pcmmnp_3;
+    switch (commandsm(pmd, di, &si)) {
+    case PMD_CMD_MP1M: goto mp1m;
+    case PMD_CMD_PCMMNP_1: goto pcmmnp_1;
+    case PMD_CMD_PORTA_RETURNM: goto porta_returnm;
+    default: break;
+    }
+    goto pcmmnp_1;
+
+pcmmnp_2:
+    // :167 End of music, or a loop if "L" was seen.
+    si--;
+    di->address = si;
+    di->loopcheck = 3;
+    di->onkai = 0xff;
+    if (di->partloop == NULL) {
+        fmmnp_4(pmd, di);
+        return;
+    }
+    si = di->partloop;
+    di->loopcheck = 1;
+    goto pcmmnp_1;
+
+pcmmnp_3:
+    // :158 A rest goes through the shared rest-note path.
+    rest_note(pmd, di, &si);
+}
+#endif
+
+#if board2 && (pcm || adpcm)
+// PCMDRV.ASM:185, PCMDRVE.ASM:173, PCMDRV86.ASM:180
+static enum pmd_cmd_result commandsm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    return command00(pmd, di, si, cmdtblm);
 }
 
-// PCMDRV.ASM:821
-// Plays a PCM effect: AL is the effect number, DX the DeltaN, CH the pan, and
-// CL the volume.
-// Phase 8 stub: no-op until PCMDRV/PCMDRVE/PCMDRV86 are translated.
-static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
-                       uint8_t cl) {
+// PCMDRV.ASM:188, PCMDRVE.ASM:176, PCMDRV86.ASM:183
+// The PCM command table, indexed by 0xff - command. The YM2608 ADPCM drivers
+// accept the extended lfo commands; the PCM86 table replaces them with
+// parameter skips (PCMDRV86.ASM:263-274) and stops at 0b2h.
+static const pmd_cmd_fn cmdtblm[0xff - 0xb1 + 1] = {
+    com_at_m,       // ff '@'
+    comq,           // fe 'q'
+    comv,           // fd 'v'
+    comt,           // fc
+    comtie,         // fb '&'
+    comd,           // fa 'D'
+    comstloop,      // f9 '['
+    comedloop,      // f8 ']'
+    comexloop,      // f7 ':'
+    comlopset,      // f6 'L'
+    comshift,       // f5 '_'
+    comvolupm,      // f4 ')' (PPZ8), ']' (PCM)
+    comvoldownm,    // f3 '(' / '['
+    lfoset,         // f2
+    lfoswitch,      // f1
+    psgenvset,      // f0
+    comy,           // ef 'y'
+    jump1,          // ee
+    jump1,          // ed
+    pansetm,        // ec 'p'
+    rhykey,         // eb
+    rhyvs,          // ea
+    rpnset,         // e9
+    rmsvs,          // e8
+    comshift2,      // e7
+    rmsvs_sft,      // e6
+    rhyvs_sft,      // e5
+    jump1,          // e4
+    comvolupm2,     // e3
+    comvoldownm2,   // e2
+    jump1,          // e1
+    jump1,          // e0
+    syousetu_lng_set, // df
+    vol_one_up_pcm, // de
+    vol_one_down,   // dd
+    status_write,   // dc
+    status_add,     // db
+#if pcm
+    jump1,          // da (the PCM86 driver has no portamento)
+#else
+    portam,         // da
+#endif
+    jump1,          // d9
+    jump1,          // d8
+    jump1,          // d7
+    mdepth_set,     // d6
+    comdd,          // d5
+    ssg_efct_set,   // d4
+    fm_efct_set,    // d3
+    fade_set,       // d2
+    jump1,          // d1
+    jump1,          // d0
+    jump1,          // cf
+    pcmrepeat_set,  // ce
+    extend_psgenvset, // cd
+    jump1,          // cc
+    lfowave_set,    // cb
+    lfo_extend,     // ca
+    envelope_extend, // c9
+    jump3,          // c8
+    jump3,          // c7
+    jump6,          // c6
+    jump1,          // c5
+    comq2,          // c4
+    pansetm_ex,     // c3
+    lfoset_delay,   // c2
+    jump0,          // c1 (slur)
+    pcm_mml_part_mask, // c0
+#if pcm
+    jump4,          // bf
+    jump1,          // be
+    jump2,          // bd
+    jump1,          // bc
+    jump1,          // bb
+    jump1,          // ba
+    jump1,          // b9
+#else
+    _lfoset,        // bf
+    _lfoswitch,     // be
+    _mdepth_set,    // bd
+    _lfowave_set,   // bc
+    _lfo_extend,    // bb
+    _volmask_set,   // ba
+    _lfoset_delay,  // b9
+#endif
+    jump2,          // b8
+    mdepth_count,   // b7
+    jump1,          // b6
+    jump2,          // b5
+#if ppz
+    ppz_extpartset, // b4 (PPZDRV.ASM:287)
+#else
+    jump16,         // b4
+#endif
+    comq3,          // b3
+    comshift_master, // b2
+    // PCMDRV86.ASM:276 has no b1 entry; the shared one keeps the table in
+    // range, and command00 only clamps commands below b1.
+    comq4,          // b1
+};
+
+// PCMDRV.ASM:291, PCMDRVE.ASM:279, PCMDRV86.ASM:281
+static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+    if (al >= 2) return special_0c0h(pmd, di, si, al);
+    if (al == 0) {
+        di->partmask &= 0xbf;
+        if (di->partmask != 0) return PMD_CMD_PCMMNP_1;
+        return PMD_CMD_MP1M; // the part is revived
+    }
+
+    di->partmask |= 0x40;
+    if (di->partmask != 0x40) return PMD_CMD_PCMMNP_1;
+#if pcm
+    stop_86pcm(pmd); // PCMDRV86.ASM:290
+#elif ademu
+    // PCMDRVE.ASM:288
+    if (pmd->adpcm_emulate == 1) {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) drv->keyoff(7, pmd->user_data);
+    }
+#else
+    // PCMDRV.ASM:300
+    opnset46(pmd, 0x0102); // PAN=0, x8 bit mode
+    opnset46(pmd, 0x0001); // PCM reset
+#endif
+    return PMD_CMD_PCMMNP_1;
+}
+
+// PCMDRV.ASM:317, PCMDRVE.ASM:305, PCMDRV86.ASM:304
+// Sets the PCM repeat range (0ceh).
+static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    (void)di;
+#if pcm
+    // :304 `whole` is the original voice size (the original pushes DX:CX) and
+    // `running` the working copy it adjusts while reading the parameters.
+    uint32_t whole = ((uint32_t)pmd->_size2 << 16) | pmd->_size1;
+    uint32_t running = whole;
+    uint32_t size = whole;
+    uint32_t repeat_size = whole;
+    uint32_t repeat_ofs = ((uint32_t)pmd->_start_ofs2 << 16) | pmd->_start_ofs;
+    pmd->repeat_flag = 1;
+    pmd->release_flag1 = 0;
+
+    // :320 The first value is the repeat start.
+    uint16_t ax = lod16(si);
+    if ((int16_t)ax < 0) {
+        ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
+        repeat_size = ax;
+        running = (uint32_t)(whole - ax);
+        repeat_ofs += running;
+    } else {
+        ax = pcm86vol_chk(pmd, ax);
+        repeat_size = (uint32_t)(whole - ax);
+        repeat_ofs += ax;
+    }
+
+    // :345 The second value is the repeat end.
+    ax = lod16(si);
+    if (ax != 0) {
+        if ((int16_t)ax < 0) {
+            ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
+            repeat_size = (uint32_t)(repeat_size - ax);
+            size = (uint32_t)(size - ax);
+        } else {
+            ax = pcm86vol_chk(pmd, ax);
+            size = ax;
+            running = (uint32_t)(running - ax);
+            repeat_size = (uint32_t)(repeat_size - running);
+        }
+    }
+    pmd->repeat_size1 = (uint16_t)repeat_size;
+    pmd->repeat_size2 = (uint16_t)(repeat_size >> 16);
+    pmd->repeat_ofs = (uint16_t)repeat_ofs;
+    pmd->repeat_ofs2 = (uint16_t)(repeat_ofs >> 16);
+    pmd->_size1 = (uint16_t)size;
+    pmd->_size2 = (uint16_t)(size >> 16);
+
+    // :371 The third value is the release start; the original restores the
+    // pushed whole size for it.
+    ax = lod16(si);
+    if (ax == 0x8000) return PMD_CMD_RETURN; // no release
+    uint32_t release_size = whole;
+    uint32_t release_ofs = ((uint32_t)pmd->_start_ofs2 << 16) | pmd->_start_ofs;
+    pmd->release_flag1 = 1;
+    if (ax >= 0x8000) {
+        ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
+        release_size = ax;
+        running = (uint32_t)(whole - ax);
+        release_ofs += running;
+    } else {
+        ax = pcm86vol_chk(pmd, ax);
+        release_size = (uint32_t)(release_size - ax);
+        release_ofs += ax;
+    }
+    pmd->release_size1 = (uint16_t)release_size;
+    pmd->release_size2 = (uint16_t)(release_size >> 16);
+    pmd->release_ofs = (uint16_t)release_ofs;
+    pmd->release_ofs2 = (uint16_t)(release_ofs >> 16);
+#elif ademu
+    // PCMDRVE.ASM:305 The loop offsets are in 1/64ths of the voice's size.
+    uint16_t size = 0;
+    di->voicenum |= 0x80;
+    {
+        const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, di);
+        di->voicenum &= 0x7f;
+        if (voice != NULL) size = (uint16_t)(voice->size >> 6);
+    }
+
+    uint16_t ax = lod16(si);
+    uint16_t start = (int16_t)ax < 0 ? (uint16_t)(ax + size) : ax;
+    ax = lod16(si);
+    uint16_t end = (ax == 0 || (int16_t)ax < 0) ? (uint16_t)(ax + size) : ax;
+    (void)lod16(si); // the release value cannot be set
+
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) {
+        drv->set_loop(7, (uint32_t)start * 32, (uint32_t)end * 32, pmd->user_data);
+    }
+#else
+    // PCMDRV.ASM:317 The offsets are relative to the voice's start or stop.
+    uint16_t ax = lod16(si);
+    if ((int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
+    else ax = (uint16_t)(ax + pmd->pcmstart);
+    pmd->pcmrepeat1 = ax;
+
+    ax = lod16(si);
+    if (ax == 0 || (int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
+    else ax = (uint16_t)(ax + pmd->pcmstart);
+    pmd->pcmrepeat2 = ax;
+
+    ax = lod16(si);
+    // :371 A third value of 8000h disables the release but is still stored.
+    if (ax != 0x8000) {
+        if ((int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
+        else ax = (uint16_t)(ax + pmd->pcmstart);
+    }
+    pmd->pcmrelease = ax;
+#endif
+    return PMD_CMD_RETURN;
+}
+
+// PCMDRV.ASM:355, PCMDRVE.ASM:359
+// Portamento for the PCM parts.
+#if !pcm
+static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    if (di->partmask != 0) {
+        (*si)++; // the first pitch byte is skipped while masked
+        return PMD_CMD_RETURN;
+    }
+
+    uint8_t al = lod8(si);
+    al = lfoinitp(pmd, di, al);
+    al = oshift(di, al);
+    fnumsetm(pmd, di, al);
+
+    uint16_t fnum = di->fnum;
+    uint8_t onkai = di->onkai;
+
+    al = lod8(si);
+    al = oshift(di, al);
+    fnumsetm(pmd, di, al);
+    uint16_t ax = di->fnum;
+
+    di->onkai = onkai;
+    di->fnum = fnum;
+    ax = (uint16_t)(ax - fnum);
+
+    di->leng = lod8(si);
+    calc_q(pmd, di, si);
+
+    int16_t n = (int16_t)ax;
+    di->porta_num2 = (int16_t)(n / (int16_t)di->leng);
+    di->porta_num3 = (int16_t)(n % (int16_t)di->leng);
+    di->lfoswi |= 8; // portamento on
+    return PMD_CMD_PORTA_RETURNM;
+}
+#endif
+
+// PCMDRV.ASM:401, PCMDRVE.ASM:405, PCMDRV86.ASM:426
+static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    (void)al;
-    (void)dx;
-    (void)ch;
-    (void)cl;
+    (void)si;
+    unsigned sum = di->volume + 16;
+    di->volume = sum > 0xff ? 255 : (uint8_t)sum;
+    return PMD_CMD_RETURN;
+}
+
+// PCMDRV.ASM:411, PCMDRVE.ASM:415, PCMDRV86.ASM:436
+static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    (void)pmd;
+    unsigned sum = lod8(si) + di->volume;
+    di->volume = sum > 0xff ? 255 : (uint8_t)sum;
+    return PMD_CMD_RETURN;
+}
+
+// PCMDRV.ASM:418, PCMDRVE.ASM:422, PCMDRV86.ASM:444
+static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    (void)pmd;
+    (void)si;
+    di->volume = di->volume < 16 ? 0 : (uint8_t)(di->volume - 16);
+    return PMD_CMD_RETURN;
+}
+
+// PCMDRV.ASM:425, PCMDRVE.ASM:429, PCMDRV86.ASM:451
+static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    (void)pmd;
+    uint8_t al = lod8(si);
+    di->volume = di->volume < al ? 0 : (uint8_t)(di->volume - al);
+    return PMD_CMD_RETURN;
+}
+
+#if ademu
+// PPZDRV.ASM:851, PCMDRVE.ASM:460 The PPZ8 pan values for p0-p3.
+static const uint8_t pcm_pan_data[] = {0, 9, 1, 5};
+#endif
+
+// PCMDRV.ASM:437, PCMDRVE.ASM:441, PCMDRV86.ASM:467
+// Panning for the PCM parts. The YM2608 stores the pan in the top two bits of
+// register B4h, PPZ8's emulation uses a 0-9 value, and the PCM86 a 0..127
+// balance with a reversed-phase flag.
+static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+#if pcm
+    // :467 p0 reversed phase, p1 right, p2 left, p3 centre.
+    uint8_t pan = 0;
+    uint8_t rev = 0;
+    if (al == 1) {
+        pan = 0x7f;
+    } else if (al == 2) {
+        pan = 0x80;
+    } else if (al != 3) {
+        rev = 1;
+    }
+    set_pcm_pan(pmd, di, pan, rev);
+#elif ademu
+    // :441 PCMDRVE.ASM:447 masks the value, then rotates it into bits 6-7.
+    al &= 3;
+    di->fmpan = (uint8_t)(al << 6);
+    // The pan value goes straight to PPZ8 unless the ADPCM emulation already
+    // took channel 7.
+    uint8_t dl = al;
+    if (pmd->adpcm_emulate != 1) dl = pcm_pan_data[al];
+    {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) drv->set_pan(7, dl, pmd->user_data);
+    }
+#else
+    // PCMDRV.ASM:441 rotates first, so the mask keeps bits 6-7 only.
+    al = (uint8_t)(((al << 6) | (al >> 2)) & 0xc0);
+    di->fmpan = al;
+    (void)pmd;
+#endif
+    return PMD_CMD_RETURN;
+}
+
+// PCMDRV.ASM:449, PCMDRVE.ASM:465, PCMDRV86.ASM:491
+// Pan setting extend: px -127..+127 plus the reversed-phase flag (0c3h).
+static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+#if pcm
+    set_pcm_pan(pmd, di, al, *(*si)++);
+#else
+    (*si)++; // the reversed-phase flag is skipped
+    // :449 The extended value is reduced to left, right, or centre.
+    if (al == 0) al = 3;
+    else if ((int8_t)al < 0) al = 1;
+    else al = 2;
+    al &= 3;
+    di->fmpan = (uint8_t)(al << 6);
+#if ademu
+    uint8_t dl = al;
+    if (pmd->adpcm_emulate != 1) dl = pcm_pan_data[al];
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) drv->set_pan(7, dl, pmd->user_data);
+#else
+    (void)pmd;
+#endif
+#endif
+    return PMD_CMD_RETURN;
+}
+
+#if pcm
+// PCMDRV86.ASM:495
+// Sets the PCM86 pan from a signed 0..127 balance plus the reversed-phase
+// flag.
+static void set_pcm_pan(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah) {
+    di->fmpan = al;
+    pmd->revpan = ah;
+    set_pcm_pan2(pmd, al, ah);
+}
+
+// PCMDRV86.ASM:498
+// The balance half of set_pcm_pan, which the PCM effect also uses directly.
+static void set_pcm_pan2(struct pmd *pmd, uint8_t al, uint8_t ah) {
+    if ((int8_t)al < 0) {
+        pmd->pcm86_pan_flag = 1; // left
+        al = (uint8_t)((al + 0x80) & 0x7f);
+    } else if (al == 0) {
+        pmd->pcm86_pan_flag = 3; // middle
+    } else {
+        pmd->pcm86_pan_flag = 2; // right
+        al = (uint8_t)(~al & 0x7f);
+    }
+    pmd->pcm86_pan_dat = al;
+    if ((ah & 1) != 0) pmd->pcm86_pan_flag |= 4; // reversed phase
+}
+#endif
+
+// PCMDRV.ASM:467, PCMDRVE.ASM:483, PCMDRV86.ASM:531
+// Voice change for the PCM parts.
+static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+#if pcm
+    di->voicenum = al;
+    neiro_set(pmd, al);
+#elif ademu
+    di->voicenum = al;
+    if (pmd->adpcm_emulate == 1) return PMD_CMD_RETURN;
+    pmd->adpcm_emulate = 1;
+    {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) drv->set_adpcm_emulation(true, pmd->user_data);
+    }
+#if ppz
+    di->voicenum |= 0x80;
+    pmd->partb = 7; // the PCM part's PPZ8 channel, left as-is by the original
+    ppz_neiro_reset(pmd, di);
+    di->voicenum &= 0x7f;
+
+    pmd->parts[part10h].partmask |= 0x10;
+    di->partmask &= 0xef;
+    if (di->partmask == 0) return PMD_CMD_MP1M; // the part is revived
+#endif
+#else
+    di->voicenum = al;
+    {
+        const struct pmd_pcm_adpcm_voice *v = &pmd->pcm_table.adpcm_data.pcmadrs[al];
+        pmd->pcmstart = v->start;
+        pmd->pcmstop = v->stop;
+    }
+    pmd->pcmrepeat1 = 0;
+    pmd->pcmrepeat2 = 0;
+    pmd->pcmrelease = 0x8000;
+#endif
+    return PMD_CMD_RETURN;
+}
+
+// PCMDRV.ASM:489, PCMDRVE.ASM:512, PCMDRV86.ASM:564
+static void volsetm(struct pmd *pmd, struct pmd_qq *di) {
+#if pcm
+    uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, false);
+    pcm86_vol_out(pmd, al);
+#elif ademu
+    // PCMDRVE.ASM:604 squares the fadeout like PCMDRV.ASM:514.
+    uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, true);
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) drv->set_volume(7, al, pmd->user_data);
+#else
+    // :596 The YM2608 ADPCM volume write, with :514's squared fadeout.
+    uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, true);
+    opnset46(pmd, (uint16_t)((0x0b << 8) | al));
+#endif
+}
+
+// PCMDRV.ASM:606, PCMDRVE.ASM:630, PCMDRV86.ASM:707
+static void keyonm(struct pmd *pmd, struct pmd_qq *di) {
+    if (di->onkai == 0xff) return; // a rest
+#if pcm
+    play_86pcm(pmd);
+#elif ademu
+    // PCMDRVE.ASM:640 Voice with bit 15 set (the PPZ8 bank select).
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) {
+        drv->keyon(7, (uint16_t)(0x8080 | di->voicenum), pmd->user_data);
+    }
+#else
+    opnset46(pmd, 0x0102); // PAN=0, x8 bit mode
+    opnset46(pmd, 0x0021); // PCM reset
+    opnset46(pmd, (uint16_t)((0x02 << 8) | (uint8_t)pmd->pcmstart));
+    opnset46(pmd, (uint16_t)((0x03 << 8) | (uint8_t)(pmd->pcmstart >> 8)));
+    opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->pcmstop));
+    opnset46(pmd, (uint16_t)((0x05 << 8) | (uint8_t)(pmd->pcmstop >> 8)));
+
+    if ((pmd->pcmrepeat1 | pmd->pcmrepeat2) == 0) {
+        opnset46(pmd, 0x00a0); // play once
+        opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(di->fmpan | 2)));
+        return;
+    }
+
+    opnset46(pmd, 0x00b0); // repeat
+    opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(di->fmpan | 2)));
+    opnset46(pmd, (uint16_t)((0x02 << 8) | (uint8_t)pmd->pcmrepeat1));
+    opnset46(pmd, (uint16_t)((0x03 << 8) | (uint8_t)(pmd->pcmrepeat1 >> 8)));
+    opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->pcmrepeat2));
+    opnset46(pmd, (uint16_t)((0x05 << 8) | (uint8_t)(pmd->pcmrepeat2 >> 8)));
+#endif
+}
+
+// PCMDRV.ASM:676, PCMDRVE.ASM:650, PCMDRV86.ASM:722
+static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
+#if pcm
+    if (pmd->release_flag1 == 1) {
+        // :723 The release range replaces the playback range.
+        pmd->start_ofs = pmd->release_ofs;
+        pmd->start_ofs2 = pmd->release_ofs2;
+        pmd->size1 = pmd->release_size1;
+        pmd->size2 = pmd->release_size2;
+        pmd->release_flag2 = 1;
+    }
+#endif
+    if (di->envf == 0xff) {
+        if (di->eenv_count == 4) return;
+    } else if (di->envf == 2) {
+        return;
+    }
+#if pcm || ademu
+    keyoffp(pmd, di);
+#else
+    // :687 PCMDRV.ASM: an explicit release address restarts the ADPCM at it.
+    if (pmd->pcmrelease == 0x8000) {
+        keyoffp(pmd, di);
+        return;
+    }
+    opnset46(pmd, 0x0021); // PCM reset
+    opnset46(pmd, (uint16_t)((0x02 << 8) | (uint8_t)pmd->pcmrelease));
+    opnset46(pmd, (uint16_t)((0x03 << 8) | (uint8_t)(pmd->pcmrelease >> 8)));
+    opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->pcmstop));
+    opnset46(pmd, (uint16_t)((0x05 << 8) | (uint8_t)(pmd->pcmstop >> 8)));
+    opnset46(pmd, 0x00a0); // play once
+    keyoffp(pmd, di);
+#endif
+}
+
+// PCMDRV.ASM:718, PCMDRVE.ASM:665, PCMDRV86.ASM:752
+// Sets the PCM pitch from the fnum, portamento, LFO, and detune.
+static void otodasim(struct pmd *pmd, struct pmd_qq *di) {
+    if (di->fnum == 0) return;
+#if pcm
+    // :752 The PCM86 keeps the fractional pitch in fnum2 and scales the
+    // detune by it.
+    uint16_t ax = di->fnum2;
+    uint16_t bx = di->fnum;
+    if (pmd->pcm86_vol != 1 && di->detune != 0) {
+        uint16_t cx = ax;
+        uint16_t dx = bx;
+        for (int i = 0; i < 5; i++) {
+            dx >>= 1;
+            cx = (uint16_t)((cx >> 1) | ((dx & 1) << 15));
+        }
+        int16_t det = di->detune;
+        if (det < 0) {
+            uint16_t sum = (uint16_t)(cx + (uint16_t)det);
+            if (sum == 0) {
+                cx = 1;
+            } else if ((unsigned)cx >= (unsigned)(-(int)det)) {
+                cx = sum;
+            } else {
+                cx = 1; // the result must not underflow to zero
+            }
+        } else {
+            uint16_t sum = (uint16_t)(cx + (uint16_t)det);
+            cx = sum < cx ? 0xffff : sum;
+        }
+        uint16_t high = 0;
+        for (int i = 0; i < 5; i++) {
+            high = (uint16_t)((high << 1) | (cx >> 15));
+            cx = (uint16_t)(cx << 1);
+        }
+        bx = (uint16_t)((bx & 0xffe0) | high);
+        ax = (uint16_t)((ax & 0x001f) | cx);
+    }
+    tone_set2(pmd, ax, (uint8_t)bx);
+#else
+    uint16_t bx = di->fnum;
+    bx = (uint16_t)(bx + di->porta_num);
+
+    int16_t dx = 0;
+    if ((di->lfoswi & 0x11) != 0) {
+        if ((di->lfoswi & 1) != 0) dx = di->lfodat;
+        if ((di->lfoswi & 0x10) != 0) dx = (int16_t)(dx + di->_lfodat);
+        // PCM LFO depth is applied four times (PCMDRV.ASM:740).
+        dx = (int16_t)(dx + dx);
+        dx = (int16_t)(dx + dx);
+    }
+    dx = (int16_t)(dx + di->detune);
+
+    if (dx < 0) {
+        // :754 A borrow clears the tone; the original branches on the carry of
+        // the 16-bit add.
+        unsigned sum = (unsigned)bx + (unsigned)(uint16_t)dx;
+        bx = sum > 0xffff ? (uint16_t)sum : 0;
+    } else {
+        unsigned sum = (unsigned)bx + (unsigned)dx;
+        bx = sum > 0xffff ? 0xffff : (uint16_t)sum;
+    }
+#if ademu
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) drv->set_tone(7, bx, pmd->user_data);
+#else
+    opnset46(pmd, (uint16_t)((0x09 << 8) | (uint8_t)bx));
+    opnset46(pmd, (uint16_t)((0x0a << 8) | (uint8_t)(bx >> 8)));
+#endif
+#endif
+}
+
+#if !pcm
+// PCMDRV.ASM:927, PCMDRVE.ASM:767 The YM2608 ADPCM pitch table (x2).
+static const uint16_t pcm_adpcm_tune_data[12] = {
+    0x6264, 0x6840, 0x6e74, 0x7506, 0x7bfc, 0x835e,
+    0x8b2e, 0x9376, 0x9c3c, 0xa588, 0xaf62, 0xb9d0,
+};
+
+// PCMDRV.ASM:771, PCMDRVE.ASM:711
+// Sets the ADPCM pitch from the note in al.
+static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+    (void)pmd;
+    uint8_t ah = al & 0x0f;
+    if (ah == 0x0f) goto fnrest_m; // a rest
+    di->onkai = al;
+
+    uint8_t cl = (uint8_t)(al >> 4);
+    uint8_t ch = cl;
+    uint8_t shift = cl <= 5 ? (uint8_t)(5 - cl) : 0;
+
+    uint16_t ax = pcm_adpcm_tune_data[ah];
+    if (ch >= 6) {
+        // o7 and above: double the entry when it does not overflow.
+        uint8_t octave = 0x50;
+        if ((int16_t)ax >= 0) {
+            ax = (uint16_t)(ax << 1);
+            octave = 0x60;
+        }
+        di->onkai = (uint8_t)((di->onkai & 0x0f) | octave);
+    } else {
+        ax = (uint16_t)(ax >> shift);
+    }
+    di->fnum = ax;
+    return;
+
+fnrest_m:
+    di->onkai = 0xff;
+    if ((di->lfoswi & 0x11) != 0) return;
+    di->fnum = 0;
+}
+#else
+// PCMDRV86.ASM:817
+// Sets the PCM86 pitch from the note in al: fnum holds the integer part and
+// fnum2 the fraction, both taken from the frequency table.
+static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+    uint8_t ah = al & 0x0f;
+    if (ah == 0x0f) goto fnrest_m; // a rest
+
+    if (pmd->pcm86_vol == 1 && al >= 0x65) {
+        // :823 /S plays everything from 65h up one octave lower.
+        al = ah < 5 ? 0x60 : 0x50;
+        al |= ah;
+    }
+
+    di->onkai = al;
+    uint8_t bl = (uint8_t)((al & 0xf0) >> 1);
+    bl = (uint8_t)(bl + ((al & 0xf0) >> 2) + ah);
+    const uint8_t *entry = pmd->p86_freqtable + (unsigned)bl * 3;
+    di->fnum = (uint16_t)(0xff00 | entry[0]);
+    di->fnum2 = (uint16_t)(entry[1] | (entry[2] << 8));
+    return;
+
+fnrest_m:
+    di->onkai = 0xff;
+    if ((di->lfoswi & 0x11) != 0) return;
+    // PMD.ASM:4296 fnrest clears fnum only; fnum2 keeps its old value.
+    di->fnum = 0;
+}
+#endif
+
+// PPZDRV.ASM:578, PCMDRV.ASM:496
+// The volume correction chain shared by the PPZ8 and PCM volume setters:
+// voldown, fadeout, envelope, and volume LFO. `square_fade` selects the YM2608
+// ADPCM drivers (PCMDRV.ASM:514, PCMDRVE.ASM:604), which square the fade before
+// applying it.
+static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t voldown, bool square_fade) {
+    uint8_t al = di->volpush;
+    if (al == 0) al = di->volume;
+    uint8_t dl = al;
+
+    if (voldown != 0) {
+        dl = (uint8_t)(((uint16_t)dl * (uint8_t)(-voldown)) >> 8);
+    }
+
+    uint8_t fade = pmd->fadeout_volume;
+    if (fade != 0) {
+        uint8_t neg = (uint8_t)(-fade);
+        if (square_fade) neg = (uint8_t)(((uint16_t)neg * neg) >> 8);
+        dl = (uint8_t)(((uint16_t)dl * neg) >> 8);
+    }
+
+    al = dl;
+    if (al == 0) return 0;
+
+    if (di->envf == 0xff) {
+        // :602 The extended envelope scales by (volume + 1) / 16 and rounds up
+        // on the bit the fourth shift drops.
+        uint8_t v = di->eenv_volume;
+        if (v == 0) return 0;
+        uint16_t product = (uint16_t)al * (uint8_t)(v + 1);
+        al = (uint8_t)(product >> 4);
+        if ((product & 0x08) != 0) al++;
+    } else {
+        int8_t penv = (int8_t)di->penv;
+        if (penv < 0) {
+            uint8_t m = (uint8_t)((uint8_t)(-penv) * 16);
+            if (al < m) return 0;
+            al = (uint8_t)(al - m);
+        } else {
+            uint8_t m = (uint8_t)((uint8_t)penv * 16);
+            uint8_t sum = (uint8_t)(al + m);
+            al = sum < al ? 255 : sum;
+        }
+    }
+
+    if ((di->lfoswi & 0x22) == 0) return al;
+    int16_t delta = 0;
+    if ((di->lfoswi & 2) != 0) delta = di->lfodat;
+    if ((di->lfoswi & 0x20) != 0) delta = (int16_t)(delta + di->_lfodat);
+
+    if (delta < 0) {
+        // :628 A borrow clamps the volume to zero; the original branches on
+        // the carry of the 16-bit add.
+        unsigned sum = (unsigned)al + (unsigned)(uint16_t)delta;
+        al = sum > 0xffff ? (uint8_t)sum : 0;
+    } else {
+        // :622 Any set bit above the low byte clamps to the maximum.
+        unsigned sum = (unsigned)al + (unsigned)delta;
+        al = sum > 0xff ? 255 : (uint8_t)sum;
+    }
+    return al;
 }
 #endif
 
@@ -1645,43 +2739,1005 @@ void pmd_pcm_effect(struct pmd *pmd, uint8_t efcnum, uint16_t deltan,
     int60_exit(pmd);
 }
 
-#if board2
-// PCMDRV86.ASM:1300
-static void stop_86pcm(struct pmd *pmd) { (void)pmd; }
-#endif
-
 #if ppz
+// PPZDRV.ASM:475
+static const uint8_t ppzpandata[] = {0, 9, 1, 5};
+
+// PPZDRV.ASM:853 ppz_tune_data: the o5 standard fnum for each semitone.
+static const uint16_t ppz_tune_data[12] = {
+    0x8000, 0x87a6, 0x8fb3, 0x9838, 0xa146, 0xaade,
+    0xb4ff, 0xbfcc, 0xcb34, 0xd747, 0xe418, 0xf1a5,
+};
+
 // PPZDRV.ASM:4
-static PMDC_UNUSED void ppz8_call(struct pmd *pmd, uint16_t ax) {
-    (void)pmd;
-    (void)ax;
+// The original guards every PPZ8 call with `ppz_call_seg != 0`. Returns the
+// vtable when the calls are available, NULL otherwise.
+static const struct pmd_drv_ppz8 *ppz8_ops(struct pmd *pmd) {
+    return pmd->ppz_call_seg != 0 ? pmd->ppz8 : NULL;
 }
-#endif
 
-#if ppz
-// PPZDRV.ASM:14
-// Phase 8: PPZ8 part playback.
+// PPZDRV.ASM:11
+// The PPZ8 part main loop.
 static void ppzmain(struct pmd *pmd, struct pmd_qq *di) {
-    (void)pmd;
+    uint8_t *si = di->address;
+    if (si == NULL) return;
+
+    if (di->partmask != 0) goto ppzmain_nonplay;
+
+    di->leng--;
+    uint8_t al = di->leng;
+
+    // :26 Keyoff when the remaining length reaches Q.
+    if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
+        di->keyoff_flag = 0xff;
+        keyoffz(pmd, di);
+    }
+    if (al != 0) goto mpexitz;
+
+    di->lfoswi &= 0xf7; // portamento off
+
+mp1z:
+    al = lod8(&si);
+    if (al < 0x80) goto mp2z;
+    if (al == 0x80) goto mp15z;
+
+    switch (commandsz(pmd, di, &si)) {
+    case PMD_CMD_MP1Z: goto mp1z;
+    case PMD_CMD_PPZMNP_1: goto ppzmnp_1;
+    case PMD_CMD_PORTA_RETURNZ: goto porta_returnz;
+    default: break;
+    }
+    goto mp1z;
+
+mp15z:
+    // :49 End of music, or a loop if "L" was seen.
+    si--;
+    di->address = si;
+    di->loopcheck = 3;
+    di->onkai = 0xff;
+    if (di->partloop == NULL) goto mpexitz;
+    si = di->partloop;
+    di->loopcheck = 1;
+    goto mp1z;
+
+mp2z:
+    // :62 Note: set the pitch and gate.
+    al = lfoinitp(pmd, di, al);
+    al = oshift(di, al);
+    fnumsetz(pmd, di, al);
+
+    al = lod8(&si);
+    di->leng = al;
+    calc_q(pmd, di, &si);
+
+porta_returnz:
+    // :71
+    if (di->volpush == 0) goto mp_newz;
+    if (di->onkai == 0xff) goto mp_newz;
+    pmd->volpush_flag--;
+    if (pmd->volpush_flag == 0) goto mp_newz;
+    pmd->volpush_flag = 0;
+    di->volpush = 0;
+
+mp_newz:
+    volsetz(pmd, di);
+    otodasiz(pmd, di);
+    if ((di->keyoff_flag & 1) != 0) keyonz(pmd, di);
+    di->keyon_flag++;
+
+    di->address = si;
+    pmd->tieflag = 0;
+    pmd->volpush_flag = 0;
+    di->keyoff_flag = 0;
+    if (*si == 0xfb) di->keyoff_flag = 2; // '&' immediately follows
+    mnp_ret(pmd, di);
+    return;
+
+mpexitz:;
+    // :96 LFO, portamento, and fadeout processing.
+    uint8_t cl = di->lfoswi;
+    pmd->lfo_switch = (uint8_t)(cl & 8);
+    if (cl != 0) {
+        if ((cl & 3) != 0) {
+            if (lfo(pmd, di)) pmd->lfo_switch |= cl & 3;
+        }
+        if ((cl & 0x30) != 0) {
+            lfo_change(di);
+            if (lfo(pmd, di)) {
+                lfo_change(di);
+                pmd->lfo_switch |= di->lfoswi & 0x30;
+            } else {
+                lfo_change(di);
+            }
+        }
+        if ((pmd->lfo_switch & 0x19) != 0) {
+            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, di);
+            otodasiz(pmd, di);
+        }
+    }
+    // :136 volsz
+    if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+        pmd->fadeout_speed == 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
+    volsetz(pmd, di);
+    mnp_ret(pmd, di);
+    return;
+
+ppzmain_nonplay:
+    // :149
+    di->keyoff_flag = 0xff;
+    di->leng--;
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
+
+ppzmnp_1:
+    al = lod8(&si);
+    if (al == 0x80) goto ppzmnp_2;
+    if (al < 0x80) goto ppzmnp_3;
+    switch (commandsz(pmd, di, &si)) {
+    case PMD_CMD_MP1Z: goto mp1z;
+    case PMD_CMD_PPZMNP_1: goto ppzmnp_1;
+    case PMD_CMD_PORTA_RETURNZ: goto porta_returnz;
+    default: break;
+    }
+    goto ppzmnp_1;
+
+ppzmnp_2:
+    // :163 End of music, or a loop if "L" was seen.
+    si--;
+    di->address = si;
+    di->loopcheck = 3;
+    di->onkai = 0xff;
+    if (di->partloop == NULL) {
+        fmmnp_4(pmd, di);
+        return;
+    }
+    si = di->partloop;
+    di->loopcheck = 1;
+    goto ppzmnp_1;
+
+ppzmnp_3:
+    // :178 A rest goes through the shared rest-note path.
+    di->fnum2 = 0;
+    rest_note(pmd, di, &si);
+}
+
+// PPZDRV.ASM:185
+static enum pmd_cmd_result commandsz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    return command00(pmd, di, si, cmdtblz);
+}
+
+// PPZDRV.ASM:188
+// The PPZ8 command table, indexed by 0xff - command.
+static const pmd_cmd_fn cmdtblz[0xff - 0xb1 + 1] = {
+    com_at_z,       // ff '@'
+    comq,           // fe 'q'
+    comv,           // fd 'v'
+    comt,           // fc
+    comtie,         // fb '&'
+    comd,           // fa 'D'
+    comstloop,      // f9 '['
+    comedloop,      // f8 ']'
+    comexloop,      // f7 ':'
+    comlopset,      // f6 'L'
+    comshift,       // f5 '_'
+    comvolupm,      // f4 ')'
+    comvoldownm,    // f3 '('
+    lfoset,         // f2
+    lfoswitch,      // f1
+    psgenvset,      // f0
+    comy,           // ef 'y'
+    jump1,          // ee
+    jump1,          // ed
+    pansetz,        // ec 'p'
+    rhykey,         // eb
+    rhyvs,          // ea
+    rpnset,         // e9
+    rmsvs,          // e8
+    comshift2,      // e7
+    rmsvs_sft,      // e6
+    rhyvs_sft,      // e5
+    jump1,          // e4
+    comvolupm2,     // e3
+    comvoldownm2,   // e2
+    jump1,          // e1
+    jump1,          // e0
+    syousetu_lng_set, // df
+    vol_one_up_pcm, // de
+    vol_one_down,   // dd
+    status_write,   // dc
+    status_add,     // db
+    portaz,         // da
+    jump1,          // d9
+    jump1,          // d8
+    jump1,          // d7
+    mdepth_set,     // d6
+    comdd,          // d5
+    ssg_efct_set,   // d4
+    fm_efct_set,    // d3
+    fade_set,       // d2
+    jump1,          // d1
+    jump1,          // d0
+    jump1,          // cf
+    ppzrepeat_set,  // ce
+    extend_psgenvset, // cd
+    jump1,          // cc
+    lfowave_set,    // cb
+    lfo_extend,     // ca
+    envelope_extend, // c9
+    jump3,          // c8
+    jump3,          // c7
+    jump6,          // c6
+    jump1,          // c5
+    comq2,          // c4
+    pansetz_ex,     // c3
+    lfoset_delay,   // c2
+    jump0,          // c1 (slur)
+    ppz_mml_part_mask, // c0
+    _lfoset,        // bf
+    _lfoswitch,     // be
+    _mdepth_set,    // bd
+    _lfowave_set,   // bc
+    _lfo_extend,    // bb
+    _volmask_set,   // ba
+    _lfoset_delay,  // b9
+    jump2,          // b8
+    mdepth_count,   // b7
+    jump1,          // b6
+    jump2,          // b5
+    jump16,         // b4 (the PCM tables own ppz_extpartset)
+    comq3,          // b3
+    comshift_master, // b2
+    comq4,          // b1
+};
+
+// PPZDRV.ASM:287
+// Sets the extended PPZ8 parts (0b4h). Each 16-bit value is an offset into the
+// module data; a zero leaves the part untouched.
+static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
+    for (int i = 0; i < 8; i++) {
+        uint16_t ax = lod16(si);
+        if (ax == 0) continue;
+        struct pmd_qq *part = &pmd->parts[part10a + i];
+        part->address = pmd->mmlbuf + ax;
+        part->leng = 1; // starts on the next count
+        part->keyoff_flag = 0xff; // currently keyed off
+        part->mdc = 0xff; // M depth counter (infinite)
+        part->mdc2 = 0xff;
+        part->_mdc = 0xff;
+        part->_mdc2 = 0xff;
+        part->onkai = 0xff; // rest
+        part->volume = 128; // PCM volume default
+        part->fmpan = 5; // centre
+    }
+    return PMD_CMD_RETURN;
+}
+
+// PPZDRV.ASM:320
+static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+    if (al >= 2) return special_0c0h(pmd, di, si, al);
+    if (al == 0) {
+        di->partmask &= 0xbf;
+        if (di->partmask != 0) return PMD_CMD_PPZMNP_1;
+        return PMD_CMD_MP1Z; // the part is revived
+    }
+
+    di->partmask |= 0x40;
+    if (di->partmask != 0x40) return PMD_CMD_PPZMNP_1;
+#if ademu
+    // :330 While the PCM part plays through PPZ8's ADPCM emulation, channel 7
+    // is the PCM part's, not this part's.
+    if (pmd->partb == 7 && pmd->adpcm_emulate == 1) return PMD_CMD_PPZMNP_1;
+#endif
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) drv->keyoff(pmd->partb, pmd->user_data);
+    return PMD_CMD_PPZMNP_1;
+}
+
+// PPZDRV.ASM:352
+// Sets the part's loop range from the PPZ8 voice table.
+static enum pmd_cmd_result ppzrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, di);
+    if (drv != NULL && voice != NULL) {
+        uint32_t size = voice->size;
+        // Each parameter is an absolute offset unless it is negative, in which
+        // case it counts back from the end of the data.
+        const uint8_t *p = *si;
+        uint32_t start = 0;
+        uint32_t end = 0;
+        for (int i = 0; i < 2; i++) {
+            uint16_t ax = (uint16_t)(p[0] | (p[1] << 8));
+            p += 2;
+            // PPZDRV.ASM:376 get_loop_ppz8 offsets a negative value by the
+            // whole data size and leaves a positive one as it is.
+            uint32_t value = ax;
+            if ((int16_t)ax < 0) value = (uint32_t)(int32_t)(int16_t)ax + size;
+            if (i == 0) start = value;
+            else end = value;
+        }
+        drv->set_loop(pmd->partb, start, end, pmd->user_data);
+    }
+    *si += 6;
+    return PMD_CMD_RETURN;
+}
+
+// PPZDRV.ASM:392
+// Returns the part's PPZ8 voice table entry, or NULL when the voice is not
+// loaded.
+static const struct pmd_ppz8_voice *ppz_voicetable_calc(struct pmd *pmd, struct pmd_qq *di) {
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv == NULL) return NULL;
+    return drv->get_voice(di->voicenum, pmd->user_data);
+}
+
+// PPZDRV.ASM:415
+// Portamento for the PPZ8 parts (0dah).
+static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    if (di->partmask != 0) {
+        (*si)++; // the first pitch byte is skipped while masked
+        return PMD_CMD_RETURN;
+    }
+
+    uint8_t al = lod8(si);
+    al = lfoinitp(pmd, di, al);
+    al = oshift(di, al);
+    fnumsetz(pmd, di, al);
+
+    uint32_t fnum = ((uint32_t)di->fnum2 << 16) | di->fnum;
+    uint8_t onkai = di->onkai;
+
+    al = lod8(si);
+    al = oshift(di, al);
+    fnumsetz(pmd, di, al);
+    uint32_t target = ((uint32_t)di->fnum2 << 16) | di->fnum;
+
+    di->onkai = onkai;
+    di->fnum = (uint16_t)fnum;
+    di->fnum2 = (uint16_t)(fnum >> 16);
+
+    int32_t delta = (int32_t)(target - fnum) >> 4;
+    di->leng = lod8(si);
+    calc_q(pmd, di, si);
+
+    int16_t n = (int16_t)(uint16_t)delta;
+    di->porta_num2 = (int16_t)(n / (int16_t)di->leng);
+    di->porta_num3 = (int16_t)(n % (int16_t)di->leng);
+    di->lfoswi |= 8; // portamento on
+    return PMD_CMD_PORTA_RETURNZ;
+}
+
+// PPZDRV.ASM:475
+static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+    al = ppzpandata[al & 3];
+    di->fmpan = al;
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) drv->set_pan(pmd->partb, al, pmd->user_data);
+    return PMD_CMD_RETURN;
+}
+
+// PPZDRV.ASM:494
+// Pan setting extend: px -4..+4 (0c3h), mapped onto PPZ8's 1..9.
+static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+    (*si)++; // the reversed-phase flag is skipped
+    if ((int8_t)al >= 0) {
+        if (al >= 5) al = 4;
+    } else if ((int8_t)al < -4) {
+        al = (uint8_t)-4;
+    }
+    al = (uint8_t)(al + 5);
+    di->fmpan = al;
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) drv->set_pan(pmd->partb, al, pmd->user_data);
+    return PMD_CMD_RETURN;
+}
+
+// PPZDRV.ASM:514
+static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+    uint8_t al = lod8(si);
+#if ademu
+    bool revive = false;
+    if (pmd->adpcm_emulate == 1) {
+        // :521 Voices 128-255 cannot be emulated; they fall back to 127.
+        if ((int8_t)al < 0) al = 127;
+        if (pmd->partb == 7) {
+            pmd->parts[part10].partmask |= 0x10;
+            di->partmask &= 0xef;
+            revive = di->partmask == 0;
+            pmd->adpcm_emulate = 0;
+            const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+            if (drv != NULL) {
+                drv->set_adpcm_emulation(false, pmd->user_data);
+            }
+        }
+    }
+#endif
+    di->voicenum = al;
+    ppz_neiro_reset(pmd, di);
+#if ademu
+    if (revive) return PMD_CMD_MP1Z;
+#endif
+    return PMD_CMD_RETURN;
+}
+
+// PPZDRV.ASM:542
+// Loads the voice's loop range and source rate into PPZ8.
+static void ppz_neiro_reset(struct pmd *pmd, struct pmd_qq *di) {
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv == NULL) return;
+    const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, di);
+    if (voice == NULL) return;
+    drv->set_loop(pmd->partb, voice->loop_start, voice->loop_end, pmd->user_data);
+    drv->set_source_rate(pmd->partb, voice->rate, pmd->user_data);
+}
+
+// PPZDRV.ASM:571
+static void volsetz(struct pmd *pmd, struct pmd_qq *di) {
+    uint8_t al = pcm_vol_calc(pmd, di, pmd->ppz_voldown, false);
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv == NULL) return;
+    if (al == 0) {
+        drv->keyoff(pmd->partb, pmd->user_data); // volume 0 is a keyoff
+        return;
+    }
+    drv->set_volume(pmd->partb, (uint8_t)(al >> 4), pmd->user_data);
+}
+
+// PPZDRV.ASM:699
+static void keyonz(struct pmd *pmd, struct pmd_qq *di) {
+    if (di->onkai == 0xff) return;
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv == NULL) return;
+    // :710 DX = the voice number with bit 7 moved to bit 15 (the bank select).
+    uint8_t num = di->voicenum;
+    uint16_t voice = (uint16_t)((num & 0x7f) | ((uint16_t)(num & 0x80) << 8));
+    drv->keyon(pmd->partb, voice, pmd->user_data);
+}
+
+// PPZDRV.ASM:720
+static void keyoffz(struct pmd *pmd, struct pmd_qq *di) {
+    if (di->envf == 0xff) {
+        if (di->eenv_count == 4) return;
+    } else if (di->envf == 2) {
+        return;
+    }
+    keyoffp(pmd, di);
+}
+
+// PPZDRV.ASM:735
+// Sets the PPZ8 tone from the fnum, portamento, LFO, and detune.
+static void otodasiz(struct pmd *pmd, struct pmd_qq *di) {
+    uint32_t value = ((uint32_t)di->fnum2 << 16) | di->fnum;
+    if (value == 0) return;
+
+    if (di->porta_num != 0) value += (uint32_t)((int32_t)di->porta_num * 16);
+
+    int16_t ax = 0;
+    if ((di->lfoswi & 0x11) != 0) {
+        if ((di->lfoswi & 1) != 0) ax = (int16_t)(ax + di->lfodat);
+        if ((di->lfoswi & 0x10) != 0) ax = (int16_t)(ax + di->_lfodat);
+    }
+    ax = (int16_t)(ax + di->detune);
+
+    // :771 DX = the high bytes of both halves, the pitch the delta scales by.
+    int16_t scale = (int16_t)((uint16_t)((value >> 8) & 0xff) |
+                              (uint16_t)(((value >> 24) & 0xff) << 8));
+    int32_t product = (int32_t)ax * scale;
+    uint32_t sum = value + (uint32_t)product;
+    if ((product >> 16) < 0) {
+        if (sum < value) value = sum;
+        else value = 0;
+    } else {
+        if (sum >= value) value = sum;
+        else value = 0xffffffff;
+    }
+
+    const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+    if (drv != NULL) {
+        drv->set_tone(pmd->partb, (uint16_t)(value >> 16), pmd->user_data);
+    }
+}
+
+// PPZDRV.ASM:801
+// Sets the PPZ8 pitch from the note in al.
+static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+    (void)pmd;
+    uint8_t ah = al & 0x0f;
+    if (ah == 0x0f) goto fnrestz; // a rest
+    di->onkai = al;
+
+    uint16_t ax = ppz_tune_data[ah];
+    uint16_t dx = 0;
+
+    uint8_t cl = (uint8_t)((al >> 4) & 0x0f); // the octave
+    if (cl < 4) {
+        ax = (uint16_t)(ax >> (4 - cl));
+        goto ppz_fnumset;
+    }
+    if (cl == 4) goto ppz_fnumset;
+    for (cl -= 4; cl != 0; cl--) {
+        dx = (uint16_t)((dx << 1) | (ax >> 15));
+        ax = (uint16_t)(ax << 1);
+    }
+ppz_fnumset:
+    di->fnum = ax;
+    di->fnum2 = dx;
+    return;
+
+fnrestz:
+    di->onkai = 0xff;
+    if ((di->lfoswi & 0x11) != 0) return;
+    di->fnum = 0;
+    di->fnum2 = 0;
 }
 #endif
 
-// EFCDRV.ASM:9
-// Takes the effect number in al.
-// Phase 8 stub: no-op until the effect driver is translated.
-static void effgo(struct pmd *pmd, uint8_t al) {
+#if board2 && (pcm || adpcm)
+#if pcm
+// PCMDRV86.ASM:412
+// The /S option scales every explicit size and offset by 32.
+static uint16_t pcm86vol_chk(struct pmd *pmd, uint16_t ax) {
+    if (pmd->pcm86_vol == 0) return ax;
+    unsigned scaled = (unsigned)ax << 5;
+    return (uint16_t)scaled;
+}
+
+// PCMDRV86.ASM:1162
+// Returns the sample data address of the current 32-bit offset, or NULL when
+// P86DRV is not resident.
+static const uint8_t *get_data_offset(struct pmd *pmd) {
+    if (pmd->p86 == NULL) return NULL;
+    uint32_t offset = ((uint32_t)pmd->start_ofs2 << 16) | pmd->start_ofs;
+    return pmd->p86->get_data_offset(offset, pmd->user_data);
+}
+
+// PCMDRV86.ASM:789
+// Writes the PCM86 frequency register from the addsize values.
+static void tone_set2(struct pmd *pmd, uint16_t ax, uint8_t bl) {
+    pmd->addsize2 = ax;
+    pmd->addsize1 = (uint8_t)(bl & 0x1f);
+    // :796 Bits 5-7 of BL become the slowest three rate bits, inverted.
+    bl = (uint8_t)(((bl << 3) | (bl >> 5)) & 0x07);
+    bl ^= 7;
+    uint8_t al = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, al);
+    al &= 0xf8;
+    al |= bl;
+    outb(pmd, 0xa468, al);
+}
+
+// PCMDRV86.ASM:534
+// Loads a PCM86 voice's data range from the voice table.
+static void neiro_set(struct pmd *pmd, uint8_t al) {
+    const struct pmd_pcm86_voice *v = &pmd->pcm_table.pcm86.pcmadrs[al];
+    pmd->_start_ofs = (uint16_t)v->offset;
+    pmd->_start_ofs2 = (uint16_t)(v->offset >> 16);
+    pmd->_size1 = (uint16_t)v->size;
+    pmd->_size2 = (uint16_t)(v->size >> 16);
+    pmd->repeat_flag = 0;
+    pmd->release_flag1 = 0;
+}
+
+// PCMDRV86.ASM:671
+// Writes a 0..255 volume to the PCM86 volume register.
+static void pcm86_vol_out(struct pmd *pmd, uint8_t al) {
+    if (pmd->pcm86_vol != 0) {
+        // :676 SPB-style volume: the register takes roughly sqrt(al).
+        uint8_t ah = al;
+        uint8_t sq = 0;
+        bool carry = true;
+        for (;;) {
+            unsigned sub = (unsigned)ah - sq - (carry ? 1 : 0);
+            carry = sub > 0xff;
+            ah = (uint8_t)sub;
+            if (carry) break;
+            sub = (unsigned)ah - sq;
+            carry = sub > 0xff;
+            ah = (uint8_t)sub;
+            if (carry) break;
+            sq++;
+            if (sq == 15) break;
+        }
+        al = sq;
+    } else {
+        al >>= 4;
+    }
+    al = (uint8_t)((al & 0x0f) ^ 0x0f);
+    outb(pmd, 0xa466, (uint8_t)(al | 0xa0));
+}
+#endif
+
+#if pcm
+// PCMDRV86.ASM:1004
+// Scales one sample for the quieter side of an off-centre pan. The original
+// multiplies AL by the pan byte with an 8-bit IMUL and keeps the high byte of
+// the doubled product.
+static uint8_t pcm86_pan_scale(struct pmd *pmd, uint8_t data) {
+    int16_t product = (int16_t)((int8_t)data * (int8_t)pmd->pcm86_pan_dat);
+    return (uint8_t)((uint16_t)((uint16_t)product * 2u) >> 8);
+}
+
+// PCMDRV86.ASM:967
+// Writes one stereo sample pair. The pan flag that selects the variant is
+// PPZ8's trans_table index (PCMDRV86.ASM:1415).
+static void pcm86_out_sample(struct pmd *pmd, uint8_t data) {
+    uint8_t left = data;
+    uint8_t right = data;
+    switch (pmd->pcm86_pan_flag & 7) {
+    case 1: // left_trans
+        right = pcm86_pan_scale(pmd, data);
+        break;
+    case 2: // right_trans
+        left = pcm86_pan_scale(pmd, data);
+        break;
+    case 4: // double_trans_g
+    case 7:
+        right = (uint8_t)(0u - data);
+        break;
+    case 5: // left_trans_g
+        right = pcm86_pan_scale(pmd, (uint8_t)(0u - data));
+        break;
+    case 6: // right_trans_g
+        left = pcm86_pan_scale(pmd, data);
+        right = (uint8_t)(0u - data);
+        break;
+    default: // double_trans (centre)
+        break;
+    }
+    outb(pmd, 0xa46c, left);
+    outb(pmd, 0xa46c, right);
+}
+
+// One FIFO transfer's cursor (PCMDRV86.ASM:910).
+struct pcm_transfer {
+    // DS:SI: the mapped sample data and the offset within it.
+    const uint8_t *base;
+    uint16_t si;
+    // DI: the remaining size's low word.
+    uint16_t di;
+    // BP: the bytes written since the last remap.
+    uint16_t bp;
+};
+
+// PCMDRV86.ASM:1094
+// Advances the sample address by one step. Returns true when the transfer is
+// finished, i.e. the original's carry.
+static bool add_address(struct pmd *pmd, struct pcm_transfer *t) {
+    uint16_t sum = (uint16_t)(pmd->addsizew + (uint16_t)pmd->addsize2);
+    bool carry = sum < pmd->addsizew;
+    pmd->addsizew = sum;
+
+    uint16_t add = pmd->addsize1;
+    t->bp = (uint16_t)(t->bp + add + (carry ? 1 : 0));
+    t->si = (uint16_t)(t->si + add + (carry ? 1 : 0));
+
+    if (t->si >= 0x4000) {
+        // The 16 KB EMS window is exhausted: advance and remap.
+        uint32_t offset = ((uint32_t)pmd->start_ofs2 << 16) | pmd->start_ofs;
+        offset += t->bp;
+        pmd->start_ofs = (uint16_t)offset;
+        pmd->start_ofs2 = (uint16_t)(offset >> 16);
+        t->bp = 0;
+        t->base = get_data_offset(pmd);
+        t->si = 0;
+    }
+
+    unsigned di = (unsigned)t->di - add - (carry ? 1 : 0);
+    bool borrow = di > 0xffff;
+    t->di = (uint16_t)di;
+
+    if (!borrow) {
+        if (t->di != 0) return false;
+        if (pmd->size2 != 0) return false;
+    } else {
+        if (pmd->size2 != 0) {
+            pmd->size2--;
+            return false;
+        }
+    }
+
+    // PCMDRV86.ASM:1130 addadd_repchk
+    if (pmd->repeat_flag == 0) return true;
+    if (pmd->release_flag2 == 1) return true;
+
+    pmd->size2 = pmd->repeat_size2;
+    t->di = pmd->repeat_size1;
+    pmd->start_ofs2 = pmd->repeat_ofs2;
+    pmd->start_ofs = pmd->repeat_ofs;
+    t->bp = 0;
+    t->base = get_data_offset(pmd);
+    t->si = 0;
+    return false;
+}
+
+// PCMDRV86.ASM:910
+// Transfers up to `count` stereo samples from the PCM86 data to the FIFO.
+static void pcm_trans(struct pmd *pmd, uint16_t count) {
+    if (pmd->p86 == NULL) goto zero_trans;
+    if (pmd->p86->get_version(pmd->user_data) < 0x10) goto zero_trans;
+    if ((pmd->size1 | pmd->size2) == 0) goto zero_trans;
+
+    pmd->p86->push_ems(pmd->user_data);
+    {
+        struct pcm_transfer t = {
+            .base = get_data_offset(pmd),
+            .si = 0,
+            .di = pmd->size1,
+            .bp = 0,
+        };
+        uint16_t remaining = count;
+        bool finished = false;
+        for (;;) {
+            if (t.base == NULL) {
+                finished = true;
+                break;
+            }
+            pcm86_out_sample(pmd, t.base[t.si]);
+            if (add_address(pmd, &t)) {
+                finished = true;
+                break;
+            }
+            if (--remaining == 0) break;
+        }
+
+        if (finished) {
+            // PCMDRV86.ASM:1177 trans_fin: fill the rest with silence.
+            remaining--;
+            if (remaining != 0) {
+                for (; remaining != 0; remaining--) {
+                    outb(pmd, 0xa46c, 0);
+                    outb(pmd, 0xa46c, 0);
+                }
+            }
+            pmd->size1 = 0;
+            pmd->size2 = 0;
+        } else {
+            // PCMDRV86.ASM:977 trans_exit
+            uint32_t offset = ((uint32_t)pmd->start_ofs2 << 16) | pmd->start_ofs;
+            offset += t.bp;
+            pmd->start_ofs = (uint16_t)offset;
+            pmd->start_ofs2 = (uint16_t)(offset >> 16);
+            pmd->size1 = t.di;
+        }
+    }
+    pmd->p86->pop_ems(pmd->user_data);
+    return;
+
+zero_trans:
+    // PCMDRV86.ASM:1193 Fill the buffer with silence and stop transferring.
+    // The original jumps here before loading dx with the PCM data port, so its
+    // writes land on a leftover port; the FIFO data port is used here.
+    for (uint16_t i = 0; i < count; i++) {
+        outb(pmd, 0xa46c, 0);
+        outb(pmd, 0xa46c, 0);
+    }
+    pmd->trans_flag = 0;
+}
+
+// PCMDRV86.ASM:859
+// The PCM86 FIFO interrupt handler.
+static void fifo_main(struct pmd *pmd) {
+    if (pmd->play86_flag != 0) {
+        if (pmd->trans_flag != 0) {
+            pcm_trans(pmd, trans_size / 2);
+        } else {
+            // Playing with nothing left to transfer: stop and leave the FIFO
+            // interrupt disabled.
+            stop_86pcm(pmd);
+            return;
+        }
+    }
+
+    // PCMDRV86.ASM:894 Reset the FIFO interrupt flag and release it.
+    uint8_t al = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, al);
+    al &= 0xef;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al |= 0x10;
+    outb(pmd, 0xa468, al);
+}
+
+// PCMDRV86.ASM:1205
+static void play_86pcm(struct pmd *pmd) {
+    // :1209 Stop playback, select the CPU-to-FIFO mode, and reset the FIFO.
+    uint8_t al = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, al);
+    al &= 0x7f;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al &= 0xbf;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al |= 0x08;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al &= 0xf7;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al &= 0xdf;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al &= 0xef;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0xa46a, 0xf2); // pan: 8-bit left and right
+
+    // :1249 The first buffer comes from the voice's start.
+    pmd->start_ofs = pmd->_start_ofs;
+    pmd->start_ofs2 = pmd->_start_ofs2;
+    pmd->size1 = pmd->_size1;
+    pmd->size2 = pmd->_size2;
+    pmd->addsizew = 0;
+    pmd->release_flag2 = 0;
+    pcm_trans(pmd, trans_size);
+
+    // :1265 Enable the FIFO interrupt at trans_size bytes.
+    al = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, al);
+    al |= 0x10;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al |= 0x20;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0xa46a, (uint8_t)(trans_size / 128 - 1));
+
+    // :1285 Start playback.
+    al = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, al);
+    al |= 0x80;
+    outb(pmd, 0xa468, al);
+
+    pmd->play86_flag = 1;
+    pmd->trans_flag = 1;
+}
+
+// PCMDRV86.ASM:1300
+// Stops PCM86 playback and leaves the FIFO interrupt disabled.
+static void stop_86pcm(struct pmd *pmd) {
+    uint8_t al = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, al);
+    al &= 0x7f;
+    outb(pmd, 0xa468, al);
+
+    outb(pmd, 0x5f, al);
+    al |= 0x08;
+    outb(pmd, 0xa468, al); // FIFO reset
+    outb(pmd, 0x5f, al);
+    al &= 0xf7;
+    outb(pmd, 0xa468, al); // reset released
+
+    outb(pmd, 0x5f, al);
+    al &= 0xdf;
+    outb(pmd, 0xa468, al); // FIFO interrupt disabled
+
+    outb(pmd, 0x5f, al);
+    al &= 0xef;
+    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, al);
+    al |= 0x10;
+    outb(pmd, 0xa468, al);
+
+    pmd->play86_flag = 0;
+    pmd->trans_flag = 0;
+}
+#endif
+
+#if pcm
+// PCMDRV86.ASM:1347
+// Plays a PCM effect: AL is the effect number, DX the DeltaN, CH the pan, and
+// CL the volume.
+static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
+                       uint8_t cl) {
+    pmd->parts[part10].partmask |= 2;
+    pmd->pcmflag = 1;
+    pmd->pcm_effec_num = al;
+    pmd->_voice_delta_n = dx;
+    pmd->_pcm_volume = cl;
+    pmd->_pcmpan = ch;
+
+    stop_86pcm(pmd);
+
+    neiro_set(pmd, pmd->pcm_effec_num);
+    set_pcm_pan2(pmd, pmd->_pcmpan, 0);
+
+    // :1366 Fold the DeltaN into the addsize pair: the high byte becomes the
+    // rate and the low byte the fraction.
+    uint8_t lo = (uint8_t)pmd->_voice_delta_n;
+    uint8_t hi = (uint8_t)(pmd->_voice_delta_n >> 8);
+    uint8_t bl = (uint8_t)((hi & 0x0f) | ((hi & 0x70) << 1));
+    tone_set2(pmd, (uint16_t)(lo << 8), bl);
+    pcm86_vol_out(pmd, pmd->_pcm_volume);
+    play_86pcm(pmd);
+}
+#elif ademu
+// PCMDRVE.ASM:761 The PPZ8 emulation has no interrupt PCM effect.
+static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
+                       uint8_t cl) {
     (void)pmd;
     (void)al;
+    (void)dx;
+    (void)ch;
+    (void)cl;
+}
+#else
+// PCMDRV.ASM:821
+static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
+                       uint8_t cl) {
+    if (pmd->pcm_gs_flag == 1) return; // the ADPCM is not available
+
+    pmd->parts[part10].partmask |= 2;
+    pmd->pcmflag = 1;
+    pmd->pcm_effec_num = al;
+    pmd->_voice_delta_n = dx;
+    pmd->_pcm_volume = cl;
+    pmd->_pcmpan = ch;
+
+    {
+        const struct pmd_pcm_adpcm_voice *v = &pmd->pcm_table.adpcm_data.pcmadrs[al];
+        pmd->_pcmstart = v->start;
+        pmd->_pcmstop = v->stop;
+    }
+    opnset46(pmd, (uint16_t)((0x0b << 8) | pmd->_pcm_volume));
+    uint16_t bx = pmd->_voice_delta_n;
+    opnset46(pmd, (uint16_t)((0x09 << 8) | (uint8_t)bx));
+    opnset46(pmd, (uint16_t)((0x0a << 8) | (uint8_t)(bx >> 8)));
+
+    // PCMDRV.ASM:884 pcm_keyon
+    opnset46(pmd, 0x0102); // x8 bit mode
+    opnset46(pmd, 0x0021); // PCM reset
+    opnset46(pmd, (uint16_t)((0x02 << 8) | (uint8_t)pmd->_pcmstart));
+    opnset46(pmd, (uint16_t)((0x03 << 8) | (uint8_t)(pmd->_pcmstart >> 8)));
+    opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->_pcmstop));
+    opnset46(pmd, (uint16_t)((0x05 << 8) | (uint8_t)(pmd->_pcmstop >> 8)));
+    opnset46(pmd, 0x00a0); // play once
+    // :883 PCMDRV.ASM:884 rotates the masked pan into the top two bits.
+    opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(((pmd->_pcmpan & 3) << 6) | 2)));
+    opnset46(pmd, 0x1080); // clear EOS
+    opnset46(pmd, 0x1018); // only EOS/TA/TB change
+}
+#endif
+#endif
+
+// The number of effects in efftbl (EFFECT.INC's EFFMAC entries).
+enum {
+    eff_count = 40,
+};
+
+// EFCDRV.ASM:9
+// Plays a rhythm effect through PPSDRV when its voice differs from the one
+// played last, then starts the SSG effect with pitch and volume correction.
+static void effgo(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+    if (pmd->ppsdrv_flag != 0) {
+        al |= 0x80;
+        bool same = pmd->last_shot_data == al;
+        pmd->last_shot_data = al;
+        if (same && pmd->pps != NULL) pmd->pps->keyoff(pmd->user_data);
+    }
+    pmd->hosei_flag = 3; // pitch and volume correction (the rhythm part)
+    eff_main(pmd, di, al);
+}
+
+// EFCDRV.ASM:22
+// The 'n' command's entry: it corrects the pitch only.
+static void eff_on2(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+    pmd->hosei_flag = 1;
+    eff_main(pmd, di, al);
 }
 
 // EFCDRV.ASM:25
 // The INT 60h entry to eff_main, which it reaches with no pitch or volume
 // correction.
-// Phase 8 stub: no-op until the effect driver is translated.
 static void eff_on(struct pmd *pmd, uint8_t al) {
-    (void)pmd;
-    (void)al;
+    pmd->hosei_flag = 0;
+    eff_main(pmd, NULL, al);
 }
 
 // EFCDRV.ASM:25
@@ -1691,9 +3747,128 @@ void pmd_eff_on(struct pmd *pmd, uint8_t efcnum) {
     int60_exit(pmd);
 }
 
+// EFCDRV.ASM:27
+// Starts the effect named by al. A negative effect number goes to PPSDRV when
+// PPSDRV is resident and the effect driver is off; everything else uses the
+// SSG effect table.
+static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+    if (pmd->effflag != 0) return; // the effects are disabled
+
+    if (pmd->ppsdrv_flag != 0 && (int8_t)al < 0) {
+        // :40 ppsdrv
+        if (pmd->effon >= 2) return; // an ordinary effect is sounding
+        pmd->parts[part9].partmask |= 2;
+        pmd->effon = 1; // priority 1 (ppsdrv)
+        pmd->psgefcnum = al;
+
+        uint8_t bh = 0;
+        uint8_t bl = 15;
+        if ((pmd->hosei_flag & 1) != 0) {
+            // BH = the low byte of the part's detune
+            bh = (uint8_t)di->detune;
+            bl = 15;
+        }
+        if ((pmd->hosei_flag & 2) != 0) {
+            if (di->volume < 15) bl = di->volume;
+            uint8_t fade = pmd->fadeout_volume;
+            if (fade != 0) {
+                uint16_t product = (uint16_t)bl * (uint8_t)(-fade);
+                bl = (uint8_t)(product >> 8);
+            }
+        }
+        if (bl == 0) return;
+        bl ^= 0x0f;
+        if (pmd->pps != NULL) {
+            struct pmd_pps_keyon keyon = {
+                .num = (uint8_t)(al & 0x7f),
+                .detune = bh,
+                .volume = bl,
+            };
+            pmd->pps->keyon(keyon, pmd->user_data);
+        }
+        return;
+    }
+
+    // :84 eg_nonppsdrv
+    pmd->psgefcnum = al;
+    if (al >= eff_count) return; // no such effect; the original reads past the table
+    const uint8_t *bx = &efftbl[(unsigned)al * 3];
+    if (pmd->effon > bx[0]) return; // a higher-priority effect is sounding
+
+    if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL) {
+        pmd->pps->keyoff(pmd->user_data);
+    }
+    const uint8_t *si = &efftbl[(unsigned)(bx[1] | (bx[2] << 8))];
+    uint8_t priority = bx[0];
+    pmd->parts[part9].partmask |= 2;
+    efffor(pmd, &si); // the first frame
+    pmd->effon = priority;
+}
+
 // EFCDRV.ASM:118
-// Phase 8 stub: no-op until the effect driver is translated.
-static void effplay(struct pmd *pmd) { (void)pmd; }
+// Advances the SSG effect by one Timer A tick.
+static void effplay(struct pmd *pmd) {
+    if (--pmd->effcnt != 0) {
+        effsweep(pmd);
+        return;
+    }
+    const uint8_t *si = pmd->effadr;
+    efffor(pmd, &si);
+}
+
+// EFCDRV.ASM:178
+// Reads one data byte and writes it to the register in dh, then steps dh.
+static void efsnd(struct pmd *pmd, const uint8_t **si, uint8_t *dh,
+                  uint8_t *dl) {
+    *dl = *(*si)++;
+    opnset44(pmd, (uint16_t)((*dh << 8) | *dl));
+    (*dh)++;
+}
+
+// EFCDRV.ASM:125
+// Plays one effect frame from si and stores the cursor for the sweep ticks.
+static void efffor(struct pmd *pmd, const uint8_t **si) {
+    uint8_t dh;
+    uint8_t dl;
+
+    uint8_t al = *(*si)++;
+    if (al == 0xff) {
+        effend(pmd);
+        return;
+    }
+    pmd->effcnt = al;
+
+    dh = 4; // tone frequency
+    efsnd(pmd, si, &dh, &dl);
+    uint8_t cl = dl;
+    efsnd(pmd, si, &dh, &dl);
+    uint8_t ch = dl;
+    pmd->eswthz = (uint16_t)((ch << 8) | cl);
+
+    pmd->eswnhz = **si;
+    dh = 6; // noise frequency
+    efsnd(pmd, si, &dh, &dl);
+    pmd->psnoi_last = dl;
+
+    // The mix data byte: bit 3 is the tone and bit 5 the noise enable.
+    al = *(*si)++;
+    dl = (uint8_t)(((al << 2) | (al >> 6)) & 0x24);
+    uint8_t reg07 = get07(pmd);
+    dl = (uint8_t)(dl | (reg07 & 0xdb));
+    opnset44(pmd, (uint16_t)((7 << 8) | dl));
+
+    dh = 10; // volume, envelope frequency (two bytes), and envelope pattern
+    efsnd(pmd, si, &dh, &dl);
+    efsnd(pmd, si, &dh, &dl);
+    efsnd(pmd, si, &dh, &dl);
+    efsnd(pmd, si, &dh, &dl);
+
+    pmd->eswtst = (uint16_t)(int16_t)(int8_t)*(*si)++;
+    al = *(*si)++;
+    pmd->eswnst = al;
+    pmd->eswnct = al & 0x0f;
+    pmd->effadr = *si;
+}
 
 // EFCDRV.ASM:184
 // effoff only selects the driver's data segment before falling into effend.
@@ -1704,12 +3879,69 @@ void pmd_effoff(struct pmd *pmd) {
 }
 
 // EFCDRV.ASM:187
-// Phase 8 stub: no-op until the effect driver is translated.
-static void effend(struct pmd *pmd) { (void)pmd; }
+// Silences the SSG effect: PPSDRV is keyed off, the SSG volume goes to its
+// minimum, and the noise channel is cut.
+static void effend(struct pmd *pmd) {
+    if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL) {
+        pmd->pps->keyoff(pmd->user_data);
+    }
+    opnset44(pmd, 0x0a00); // volume min
+    uint8_t dl = get07(pmd);
+    dl = (uint8_t)((dl & 0xdb) | 0x24);
+    opnset44(pmd, (uint16_t)((7 << 8) | dl));
+    pmd->effon = 0;
+    pmd->psgefcnum = 0xff;
+}
+
+// EFCDRV.ASM:210
+// Applies the tone and noise sweeps of the current effect frame.
+static void effsweep(struct pmd *pmd) {
+    uint16_t ax = (uint16_t)(pmd->eswthz + pmd->eswtst);
+    pmd->eswthz = ax;
+    opnset44(pmd, (uint16_t)((4 << 8) | (uint8_t)ax));
+    opnset44(pmd, (uint16_t)((5 << 8) | (uint8_t)(ax >> 8)));
+    // The original rewrites the mix register with its own contents.
+    opnset44(pmd, (uint16_t)((7 << 8) | get07(pmd)));
+
+    uint8_t dl = pmd->eswnst;
+    if (dl == 0) return; // no noise sweep
+
+    if (--pmd->eswnct != 0) return;
+    pmd->eswnct = dl & 0x0f;
+
+    dl = (uint8_t)((int8_t)dl >> 4);
+    pmd->eswnhz = (uint8_t)(pmd->eswnhz + dl);
+    dl = pmd->eswnhz;
+    opnset44(pmd, (uint16_t)((6 << 8) | dl));
+    pmd->psnoi_last = dl;
+}
 
 // :392
-// Phase 8 stub: no-op until the effect driver is translated.
-static void fm_efcplay(struct pmd *pmd) { (void)pmd; }
+// Plays one Timer A tick of the FM effect through part_e.
+static void fm_efcplay(struct pmd *pmd) {
+    pmd->prgdat_adr2 = pmd->efcdat + (pmd->efcdat[254] | (pmd->efcdat[255] << 8));
+
+    struct pmd_qq *di = &pmd->part_e;
+#if board2
+    uint16_t port1 = pmd->fm_port1;
+    uint16_t port2 = pmd->fm_port2;
+    uint8_t partb = pmd->partb;
+    uint8_t fmsel = pmd->fmsel;
+    pmd->partb = 3;
+    sel46(pmd); // the handler must stay on the FM2 bank even if mmain runs
+    uint8_t *si = fmmain(pmd, di);
+    pmd->partb = partb;
+    pmd->fmsel = fmsel;
+    pmd->fm_port1 = port1;
+    pmd->fm_port2 = port2;
+#else
+    uint8_t partb = pmd->partb;
+    pmd->partb = 3;
+    uint8_t *si = fmmain(pmd, di);
+    pmd->partb = partb;
+#endif
+    if (*si == 0x80 && di->leng == 0) fm_effect_off(pmd);
+}
 
 // :377
 uint16_t pmd_get_ss(struct pmd *pmd) {
@@ -1772,8 +4004,13 @@ static void mstart(struct pmd *pmd) {
 
 #if board2 && adpcm
 #if ademu
-    // TODO(phase 8): ADPCM emulation off through PPZ8 (ax=1800h) and mask the
-    // PCM part with partmask bit 4.
+    // :461 ADPCM emulation off, and the PCM part masked with bit 4.
+    pmd->adpcm_emulate = 0;
+    {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) drv->set_adpcm_emulation(false, pmd->user_data);
+    }
+    pmd->parts[part10].partmask |= 0x10;
 #else
     // :466 NEC ADPCM is unavailable: mask the PCM part.
     if (pmd->pcm_gs_flag != 0) {
@@ -1782,8 +4019,15 @@ static void mstart(struct pmd *pmd) {
 #endif
 #endif
 #if ppz
-    // TODO(phase 8): when ppz_call_seg is non-zero, forbid PPZ8 removal
-    // (1901h), initialize it (AH=00h), and stop all channels (AH=06h).
+    // :481 PPZ8 initialization.
+    {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) {
+            drv->set_removal_protection(true, pmd->user_data);
+            drv->init(pmd->user_data);
+            drv->stop_all(pmd->user_data);
+        }
+    }
 #endif
 
     // :490
@@ -2062,7 +4306,15 @@ static void opn_init(struct pmd *pmd) {
     }
 #endif
 #if ppz || ademu
-    // TODO(phase 8): PPZ8 pan initialization through ppz8_call (1300h).
+    // :848 PPZ8 pan initialization: all eight channels to centre (5).
+    {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) {
+            for (uint8_t ch = 8; ch != 0; ch--) {
+                drv->set_pan((uint8_t)(ch - 1), 5, pmd->user_data);
+            }
+        }
+    }
 #endif
 #else
     // :839 YM2608 on a normal board: direct reset through the upper ports.
@@ -2203,10 +4455,12 @@ static PMDC_UNUSED void sel44(struct pmd *pmd) {
 #endif
 
 // :1053
-// The FM part main loop. SI is the part's data cursor; DI is its work area.
-static void fmmain(struct pmd *pmd, struct pmd_qq *di) {
+// The FM part main loop. SI is the part's data cursor and DI its work area;
+// the cursor is returned for fm_efcplay, whose end-of-effect test reads the
+// live SI (:407).
+static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *di) {
     uint8_t *si = di->address;
-    if (si == NULL) return;
+    if (si == NULL) return si;
 
     if (di->partmask != 0) goto fmmain_nonplay;
 
@@ -2279,7 +4533,8 @@ mp_new:
     pmd->volpush_flag = 0;
     di->keyoff_flag = 0;
     if (*si == 0xfb) di->keyoff_flag = 2; // '&' immediately follows
-    { mnp_ret(pmd, di); return; }
+    mnp_ret(pmd, di);
+    return si;
 
 mpexit:
     // :1134 LFO, portamento, and fadeout processing.
@@ -2317,19 +4572,25 @@ mpexit:
         }
         if ((pmd->lfo_switch & 0x22) != 0) goto vol_set;
     }
-    if (pmd->fadeout_speed == 0) { mnp_ret(pmd, di); return; }
+    if (pmd->fadeout_speed == 0) {
+        mnp_ret(pmd, di);
+        return si;
+    }
 
 vol_set:
     volset(pmd, di);
 
     mnp_ret(pmd, di);
-    return;
+    return si;
 
 fmmain_nonplay:
     // :1271
     di->keyoff_flag = 0xff;
     di->leng--;
-    if (di->leng != 0) { mnp_ret(pmd, di); return; }
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return si;
+    }
 
     if ((di->partmask & 2) != 0 && pmd->fm_effec_flag == 0) {
         di->partmask &= 0xfd;
@@ -2354,35 +4615,59 @@ fmmnp_2:
     di->address = si;
     di->loopcheck = 3;
     di->onkai = 0xff;
-    if (di->partloop == NULL) { fmmnp_4(pmd, di); return; }
+    if (di->partloop == NULL) { fmmnp_4(pmd, di); return si; }
     si = di->partloop;
     di->loopcheck = 1;
     goto fmmnp_1;
 
 fmmnp_3:
     // :1306 A rest.
+    rest_note(pmd, di, &si);
+    return si;
+}
+
+// :1306
+// The rest-note path. The original shares it with every part loop by jumping
+// into fmmain's fmmnp_3.
+static void rest_note(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     di->fnum = 0;
     di->onkai = 0xff;
     di->onkai_def = 0xff;
-    al = lod8(&si);
-    di->leng = al;
+    di->leng = lod8(si);
     di->keyon_flag++;
-    di->address = si;
+    di->address = *si;
 
     pmd->volpush_flag--;
-    if (pmd->volpush_flag == 0) { fmmnp_4(pmd, di); return; }
+    if (pmd->volpush_flag == 0) {
+        fmmnp_4(pmd, di);
+        return;
+    }
     di->volpush = 0;
 
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
     mnp_ret(pmd, di);
-    return;
 }
+
+#if ppz
+// :250 _ppz
+// Gives PPZ8's own interrupt handler a turn when its directly callable entry
+// was obtained. With ppz_call_seg == 1 PPZ8 handles its interrupts itself and
+// the macro does nothing.
+static void ppz_int_hook(struct pmd *pmd) {
+    if (pmd->ppz_call_seg == 2 && pmd->ppz8 != NULL &&
+        pmd->ppz8->fm_int != NULL) {
+        pmd->ppz8->fm_int(pmd->user_data);
+    }
+}
+#else
+static void ppz_int_hook(struct pmd *pmd) { (void)pmd; }
+#endif
 
 // :1204
 static void mnp_ret(struct pmd *pmd, struct pmd_qq *di) {
     pmd->loop_work &= di->loopcheck;
-    // TODO(phase 8): the PPZ8 main-loop hook (_ppz macro).
+    ppz_int_hook(pmd);
 }
 
 // :1215
@@ -2503,7 +4788,8 @@ mp_newp:
     pmd->volpush_flag = 0;
     di->keyoff_flag = 0;
     if (*si == 0xfb) di->keyoff_flag = 2;
-    { mnp_ret(pmd, di); return; }
+    mnp_ret(pmd, di);
+    return;
 
 mpexitp:;
     // :1410
@@ -2531,16 +4817,21 @@ mpexitp:;
 
     if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
         pmd->fadeout_speed == 0) {
-        { mnp_ret(pmd, di); return; }
+        mnp_ret(pmd, di);
+    return;
     }
     volsetp(pmd, di);
-    { mnp_ret(pmd, di); return; }
+    mnp_ret(pmd, di);
+    return;
 
 psgmain_nonplay:
     // :1463
     di->keyoff_flag = 0xff;
     di->leng--;
-    if (di->leng != 0) { mnp_ret(pmd, di); return; }
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
     di->lfoswi &= 0xf7;
 
 psgmnp_1:
@@ -2600,7 +4891,10 @@ static void rhythmmain(struct pmd *pmd, struct pmd_qq *di) {
     uint8_t al;
     if (si == NULL) return;
     di->leng--;
-    if (di->leng != 0) { mnp_ret(pmd, di); return; }
+    if (di->leng != 0) {
+        mnp_ret(pmd, di);
+        return;
+    }
 
 rhyms0:
     {
@@ -2683,7 +4977,7 @@ rolop:
                 bits >>= 1;
                 goto rolop;
 rhygo:
-                effgo(pmd, ch);
+                effgo(pmd, di, ch);
                 if (pmd->ppsdrv_flag == 0) goto roret;
                 bits >>= 1; // the scanned instrument is consumed
                 if (bits == 0) goto roret;
@@ -3622,9 +5916,11 @@ static void keyon_sm(struct pmd *pmd, struct pmd_qq *di) {
 static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     uint8_t al = lod8(si);
     if (di->partmask != 0) return PMD_CMD_RETURN;
-    // TODO(phase 8): eff_on2(al) / effoff().
-    (void)al;
-    (void)pmd;
+    if (al != 0) {
+        eff_on2(pmd, di, al);
+    } else {
+        effend(pmd);
+    }
     return PMD_CMD_RETURN;
 }
 
@@ -3632,10 +5928,20 @@ static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint
 static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     uint8_t al = lod8(si);
     if (di->partmask != 0) return PMD_CMD_RETURN;
-    // TODO(phase 8): call fm_effect_on/fm_effect_off, which are translated,
-    // restoring fmsel and partb around them (:2985-3013).
-    (void)al;
-    (void)pmd;
+#if board2
+    uint8_t fmsel = pmd->fmsel;
+#endif
+    uint8_t partb = pmd->partb;
+    if (al != 0) {
+        fm_effect_on(pmd, al);
+    } else {
+        fm_effect_off(pmd);
+    }
+    pmd->partb = partb;
+#if board2
+    if (fmsel == 0) sel44(pmd);
+    else sel46(pmd);
+#endif
     return PMD_CMD_RETURN;
 }
 
@@ -5792,11 +8098,19 @@ s_pcm:;
         opnset46(pmd, 0x1080);
         opnset46(pmd, 0x1018);
 #if pcm
-        // TODO(phase 8): stop_86pcm.
+        stop_86pcm(pmd);
 #endif
     }
 #if ppz
-    // TODO(phase 8): PPZ8 FIFO stop and keyoff on all channels.
+    {
+        const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+        if (drv != NULL) {
+            drv->fifo_interrupt_stop(pmd->user_data);
+            for (uint8_t ch = 0; ch < 8; ch++) {
+                drv->keyoff(ch, pmd->user_data);
+            }
+        }
+    }
 #endif
 #endif
 }
@@ -6348,7 +8662,10 @@ static void maskon_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t 
     case 3: // pm_pcm
 #if adpcm
 #if ademu
-        if (pmd->adpcm_emulate == 1) ppz8_call(pmd, 0x0207);
+        if (pmd->adpcm_emulate == 1) {
+            const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+            if (drv != NULL) drv->keyoff(7, pmd->user_data);
+        }
 #else
         opnset46(pmd, 0x0102); // PAN=0, x8 bit mode
         opnset46(pmd, 0x0001); // PCM reset
@@ -6367,7 +8684,10 @@ static void maskon_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t 
 #if ademu
         if (al == 7 && pmd->adpcm_emulate == 1) return;
 #endif
-        ppz8_call(pmd, (uint16_t)((0x02 << 8) | al));
+        {
+            const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
+            if (drv != NULL) drv->keyoff(al, pmd->user_data);
+        }
         return;
 #endif
     default:
@@ -6526,13 +8846,14 @@ static void opnint(struct pmd *pmd) {
 
 INT_check:
 #if pcm
-    // TODO(phase 8): read 0a468h and run fifo_main when the FIFO interrupt bit
-    // is set, then restart at INT_check (:7540-7550).
+    // :7540 Check the PCM86 FIFO interrupt bit.
+    if ((inb(pmd, 0xa468) & 0x10) != 0) {
+        fifo_main(pmd);
+        goto INT_check;
+    }
 #endif
-#if ppz
-    // TODO(phase 8): dispatch PPZ8's directly callable FM entry when
-    // ppz_call_seg is 2 (:7556).
-#endif
+    // :7556 _ppz
+    ppz_int_hook(pmd);
     // :7561-7566
     if ((rdychk(pmd, pmd->fm1_port1) & 3) != 0) {
         FM_Timer_main(pmd);
@@ -7084,8 +9405,8 @@ static bool check_86b(struct pmd *pmd) {
     // with AL=1) is omitted together with the ROM reads above: it only runs
     // when epson_flag is set, which is now always 0.
 #if pcm
-    // :9152 stop_86pcm (PCMDRV86.ASM) stops PCM playback before the port is
-    // used; it arrives with the PCM86 driver in phase 8.
+    // :9152 Stop PCM playback before the port is reused.
+    stop_86pcm(pmd);
 #endif
     set_port(pmd, dx);
     return true;
