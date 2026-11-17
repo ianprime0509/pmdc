@@ -2885,6 +2885,9 @@ static void test_playback_psg_envelope(void) {
     CHECK_EQ(di->pr1, 2);
     CHECK_EQ(di->pr2, 2);
     CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x08, 15));
+    // keyonp enables the part's own PSG channel, part G being partb 1, whose
+    // tone bit in PSG register 07h is bit 0.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x07, 0x08));
     free_pmd(pmd);
 
     static const uint8_t attack[] = {0xf0, 0x05, 0x09, 0x02, 0x02, 0x40, 1, 0x80};
@@ -3485,8 +3488,9 @@ static void test_int60_part_mask(void) {
     ctx.write_count = 0;
     pmd_part_mask(pmd, 6);
     CHECK_EQ(pmd->parts[6].partmask, 1);
-    // The PSG keyoff mask combines the channel and tone/noise bits.
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x07, 0x12));
+    // The PSG keyoff mask combines the part's own channel bit (bit partb-1)
+    // with the matching noise bit three bits above it.
+    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x07, 0x09));
     pmd_part_mask(pmd, 0x86);
     CHECK_EQ(pmd->parts[6].partmask, 0);
 
@@ -3927,8 +3931,9 @@ static const struct pmd_sys ymfm_sys = {
 };
 
 // Allocates and initializes a driver instance backed by the described chip.
-static struct pmd *ymfm_pmd(enum pmd_ymfm_chip chip, enum pmd_ymfm_board board,
-                            uint16_t base_port) {
+static struct pmd *ymfm_pmd_gain(enum pmd_ymfm_chip chip,
+                                 enum pmd_ymfm_board board, uint16_t base_port,
+                                 double ssg_gain) {
     ctx_reset();
     struct pmd *pmd = alloc_pmd();
     struct pmd_ymfm_config config;
@@ -3936,6 +3941,7 @@ static struct pmd *ymfm_pmd(enum pmd_ymfm_chip chip, enum pmd_ymfm_board board,
     config.chip = chip;
     config.board = board;
     config.base_port = base_port;
+    config.ssg_gain = ssg_gain;
     struct pmd_ymfm *ymfm = pmd_ymfm_create(&config);
     if (ymfm == NULL) {
         fprintf(stderr, "%s:%d: pmd_ymfm_create failed\n", __FILE__, __LINE__);
@@ -3946,6 +3952,11 @@ static struct pmd *ymfm_pmd(enum pmd_ymfm_chip chip, enum pmd_ymfm_board board,
     pmd->user_data = ymfm;
     pmd_init(pmd);
     return pmd;
+}
+
+static struct pmd *ymfm_pmd(enum pmd_ymfm_chip chip, enum pmd_ymfm_board board,
+                            uint16_t base_port) {
+    return ymfm_pmd_gain(chip, board, base_port, PMD_YMFM_SSG_GAIN_DEFAULT);
 }
 
 // The chip, board layout, and base port the current variant was written for.
@@ -4304,6 +4315,66 @@ static void test_ymfm_retrigger(void) {
 }
 #endif
 
+// The SSG mix level scales the AC-coupled SSG output only, and the default is
+// the level a PMD player mixes it at.
+static int32_t ymfm_swing(struct pmd_ymfm *ymfm) {
+    static int32_t samples[2 * 256];
+    int32_t lo = 0, hi = 0;
+    for (unsigned i = 0; i < 4; i++) {
+        pmd_ymfm_generate(ymfm, 256, samples);
+        for (size_t j = 0; j < sizeof(samples) / sizeof(samples[0]); j += 2) {
+            if (samples[j] < lo) lo = samples[j];
+            if (samples[j] > hi) hi = samples[j];
+        }
+    }
+    return hi - lo;
+}
+
+// A full-volume SSG tone on channel 1, after the driver's own initialization.
+static int32_t ymfm_ssg_tone_swing(struct pmd *pmd) {
+    struct pmd_ymfm *ymfm = pmd->user_data;
+    static const uint8_t regs[][2] = {
+        {0x07, 0x3e}, // channel 1 tone on, channels 2/3 and noise off
+        {0x00, 0xdd}, // a mid-range note
+        {0x01, 0x01},
+        {0x08, 0x0f}, // full volume
+    };
+    for (size_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+        pmd_ymfm_outb(ymfm, pmd->fm1_port1, regs[i][0]);
+        pmd_ymfm_outb(ymfm, pmd->fm1_port2, regs[i][1]);
+    }
+    // Drop the queued initialization audio, then let the DC blocker settle.
+    pmd_ymfm_generate(ymfm, 40000, NULL);
+    return ymfm_swing(ymfm);
+}
+
+static void test_ymfm_ssg_gain(void) {
+    struct pmd_ymfm_config config;
+    pmd_ymfm_default_config(&config, NULL);
+
+    struct pmd *pmd = ymfm_pmd_gain(config.chip, config.board,
+                                     config.base_port, 1.0);
+    CHECK(run_ymfm_resident(pmd));
+    int32_t chip = ymfm_ssg_tone_swing(pmd);
+    free_ymfm_pmd(pmd);
+
+    pmd = new_ymfm_pmd();
+    CHECK(run_ymfm_resident(pmd));
+    int32_t mixed = ymfm_ssg_tone_swing(pmd);
+    free_ymfm_pmd(pmd);
+
+    pmd = ymfm_pmd_gain(config.chip, config.board, config.base_port, 0.0);
+    CHECK(run_ymfm_resident(pmd));
+    int32_t muted = ymfm_ssg_tone_swing(pmd);
+    free_ymfm_pmd(pmd);
+
+    CHECK(chip > 0);
+    // The gain scales the AC-coupled level; allow for the note's own edges.
+    CHECK(mixed > (int32_t)(chip * PMD_YMFM_SSG_GAIN_DEFAULT * 0.98));
+    CHECK(mixed < (int32_t)(chip * PMD_YMFM_SSG_GAIN_DEFAULT * 1.02));
+    CHECK_EQ(muted, 0);
+}
+
 // The rhythm ROM is a file the host loads. A missing image must warn through
 // pmd_sys and leave the store silent instead of failing.
 static void test_ymfm_rom(void) {
@@ -4464,6 +4535,7 @@ int main(void) {
     test_ymfm_playback();
     test_ymfm_retrigger();
 #endif
+    test_ymfm_ssg_gain();
     test_ymfm_rom();
     test_timer_a();
     test_timer_b();

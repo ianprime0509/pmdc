@@ -5050,7 +5050,9 @@ static void keyonp(struct pmd *pmd, struct pmd_qq *di) {
 // :5074
 static void psgmsk(struct pmd *pmd, uint8_t *al, uint8_t *ah) {
     uint8_t cl = pmd->partb;
-    *al = (uint8_t)(1u << cl);
+    // The original sets the carry and rotates it into AL once per part, so the
+    // part's own channel bit is 1 << (partb - 1), not 1 << partb.
+    *al = (uint8_t)(cl != 0 ? 1u << (cl - 1) : 0);
     *ah = *al;
     *al <<= 3;
     *ah |= *al;
