@@ -9,13 +9,8 @@
 // The standard C noreturn attribute is not a property of function types and
 // can't be used on function pointers, so we can't use it here.
 #define PMDC_NORETURN __attribute__((noreturn))
-// TODO: PMDC_UNUSED is defined solely for the benefit of implementing the
-// plan phase by phase, so things used only in later phases aren't flagged
-// by the compiler. It will be removed at the end of the plan.
-#define PMDC_UNUSED __attribute__((unused))
 #else
 #define PMDC_NORETURN
-#define PMDC_UNUSED
 #endif
 
 struct pmd;

@@ -139,7 +139,7 @@ static void outb(struct pmd *pmd, uint16_t port, uint8_t value) {
 
 // :7925
 // FM f-number table for one octave (C..B).
-static PMDC_UNUSED const uint16_t fnum_data[12] = {
+static const uint16_t fnum_data[12] = {
     0x026a, // C
     0x028f, // D-
     0x02b6, // D
@@ -156,7 +156,7 @@ static PMDC_UNUSED const uint16_t fnum_data[12] = {
 
 // :7940
 // SSG tone table for one octave (C..B).
-static PMDC_UNUSED const uint16_t psg_tune_data[12] = {
+static const uint16_t psg_tune_data[12] = {
     0x0ee8, // C
     0x0e12, // D-
     0x0d48, // D
@@ -173,7 +173,7 @@ static PMDC_UNUSED const uint16_t psg_tune_data[12] = {
 
 // :7958
 // The carrier masks for the 8 FM algorithms.
-static PMDC_UNUSED const uint8_t carrier_table[16] = {
+static const uint8_t carrier_table[16] = {
     0x80, 0x80, 0x80, 0x80,
     0xa0, 0xe0, 0xe0, 0xf0,
 
@@ -268,9 +268,10 @@ static const uint8_t efftbl[] = {
 };
 
 
+#if board2
 // :8014
 // Rhythm data: PT, pan/volume, and the keyon bit for each rhythm instrument.
-static PMDC_UNUSED const uint8_t rhydat[11][3] = {
+static const uint8_t rhydat[11][3] = {
     {0x18, 0xdf, 0x01}, // bass drum
     {0x19, 0xdf, 0x02}, // snare drum
     {0x1c, 0x5f, 0x10}, // low tom
@@ -283,11 +284,12 @@ static PMDC_UNUSED const uint8_t rhydat[11][3] = {
     {0x1a, 0xdf, 0x04}, // cymbal
     {0x1a, 0x5e, 0x04}, // ride cymbal
 };
+#endif
 
 #if board2 && pcm
 // :10844
 // Translated from HZDATA.INC: /HZ frequency tables 0-7 for the PCM86.
-static PMDC_UNUSED const uint8_t hzdata[8][288] = {
+static const uint8_t hzdata[8][288] = {
     {
         0x00, 0xb7, 0x2a, 0x00, 0x41, 0x2d, 0x00, 0xf2, 0x2f, 0x00, 0xcb, 0x32,
         0x00, 0xd1, 0x35, 0x00, 0x04, 0x39, 0x00, 0x68, 0x3c, 0x00, 0xff, 0x3f,
@@ -500,7 +502,7 @@ static PMDC_UNUSED const uint8_t hzdata[8][288] = {
 
 // TUNEDATA.INC:9
 // The default 16.54kHz PCM86 frequency table (96 notes).
-static PMDC_UNUSED const uint8_t pcm_tune_data_default[288] = {
+static const uint8_t pcm_tune_data_default[288] = {
     0x00, 0xb7, 0x2a, 0x00, 0x41, 0x2d, 0x00, 0xf2, 0x2f, 0x00, 0xcb, 0x32,
     0x00, 0xd1, 0x35, 0x00, 0x04, 0x39, 0x00, 0x68, 0x3c, 0x00, 0xff, 0x3f,
     0x00, 0xce, 0x43, 0x00, 0xd6, 0x47, 0x00, 0x1b, 0x4c, 0x00, 0xa2, 0x50,
@@ -698,9 +700,11 @@ static void print_mes(struct pmd *pmd, const char *mes);
 // :218
 static void _wait(struct pmd *pmd);
 // :223
-static PMDC_UNUSED void _waitP(struct pmd *pmd);
+static void _waitP(struct pmd *pmd);
+#if board2
 // :230
-static PMDC_UNUSED void _rwait(struct pmd *pmd);
+static void _rwait(struct pmd *pmd);
+#endif
 // :242
 static uint8_t rdychk(struct pmd *pmd, uint16_t port);
 // C-only helpers shared by the sequencer.
@@ -876,9 +880,9 @@ static void mstop(struct pmd *pmd);
 static void mmain(struct pmd *pmd);
 #if board2
 // :1029
-static PMDC_UNUSED void sel46(struct pmd *pmd);
+static void sel46(struct pmd *pmd);
 // :1039
-static PMDC_UNUSED void sel44(struct pmd *pmd);
+static void sel44(struct pmd *pmd);
 #endif
 // :1053
 static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *di);
@@ -1032,8 +1036,10 @@ static enum pmd_cmd_result status_add(struct pmd *pmd, struct pmd_qq *di, uint8_
 static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :3229
 static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+#if (board2 && (pcm || adpcm)) || ppz
 // :3237
-static PMDC_UNUSED enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+#endif
 // :3248
 static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :3260
@@ -1136,32 +1142,44 @@ static enum pmd_cmd_result psgsel(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 static enum pmd_cmd_result panset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :3917
 static void panset_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+#if board2
 // :3961
-static PMDC_UNUSED void calc_panout(struct pmd *pmd, struct pmd_qq *di, uint8_t *dl);
+static void calc_panout(struct pmd *pmd, struct pmd_qq *di, uint8_t *dl);
+#endif
 // :3972
 static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :3994
-static PMDC_UNUSED enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+#if board2
 // :4045
-static PMDC_UNUSED void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags);
+static void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags);
+#endif
 // :4064
-static PMDC_UNUSED enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+#if board2
 // :4077
-static PMDC_UNUSED uint8_t *rdat_adr(struct pmd *pmd, uint8_t index);
+static uint8_t *rdat_adr(struct pmd *pmd, uint8_t index);
+#endif
+#if board2
 // :4064
-static PMDC_UNUSED void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl);
+static void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl);
+#endif
 // :4097
-static PMDC_UNUSED enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :4136
-static PMDC_UNUSED enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :4155
-static PMDC_UNUSED enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+#if board2
 // :4166
-static PMDC_UNUSED void volset2r(struct pmd *pmd, uint8_t dl);
+static void volset2r(struct pmd *pmd, uint8_t dl);
+#endif
+#if board2
 // :4169
-static PMDC_UNUSED void volset2rf(struct pmd *pmd, uint8_t dl);
+static void volset2rf(struct pmd *pmd, uint8_t dl);
+#endif
 // :4184
-static PMDC_UNUSED enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
 // :4208
 static uint8_t oshift(struct pmd_qq *di, uint8_t al);
 // :4266
@@ -1238,7 +1256,7 @@ static void silence(struct pmd *pmd);
 static void opnset44(struct pmd *pmd, uint16_t dx);
 #if board2
 // :6200
-static PMDC_UNUSED void opnset46(struct pmd *pmd, uint16_t dx);
+static void opnset46(struct pmd *pmd, uint16_t dx);
 #endif
 // :6226
 static void opnset(struct pmd *pmd, uint16_t dx);
@@ -1281,8 +1299,10 @@ static bool check_esc(struct pmd *pmd);
 // :7808
 // Reads the host's normalized key state.
 static uint8_t read_key_state(struct pmd *pmd);
+#if va
 // :7808
 static uint8_t key_port8(uint8_t state);
+#endif
 // :7831
 static void syousetu_count(struct pmd *pmd);
 // :7844
@@ -1324,9 +1344,9 @@ static bool port_check(struct pmd *pmd);
 #if !va
 // :9314
 static bool check_86b(struct pmd *pmd);
-#if !pcm
+#if !pcm && !ppz
 // :9406
-static PMDC_UNUSED bool check_spb(struct pmd *pmd);
+static bool check_spb(struct pmd *pmd);
 #endif
 // :9468
 static void set_port(struct pmd *pmd, uint16_t dx);
@@ -1675,11 +1695,13 @@ static void _waitP(struct pmd *pmd) {
     // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
 }
 
+#if board2
 // :230
 static void _rwait(struct pmd *pmd) {
     (void)pmd;
     // NOTE: WAIT.INC wait_clock calibration intentionally not implemented.
 }
+#endif
 
 // :242
 // Discards one status read, then waits for the BUSY bit to clear. The original
@@ -4440,14 +4462,14 @@ mmain_exit:
 
 #if board2
 // :1029
-static PMDC_UNUSED void sel46(struct pmd *pmd) {
+static void sel46(struct pmd *pmd) {
     pmd->fm_port1 = pmd->fm2_port1;
     pmd->fm_port2 = pmd->fm2_port2;
     pmd->fmsel = 1;
 }
 
 // :1039
-static PMDC_UNUSED void sel44(struct pmd *pmd) {
+static void sel44(struct pmd *pmd) {
     pmd->fm_port1 = pmd->fm1_port1;
     pmd->fm_port2 = pmd->fm1_port2;
     pmd->fmsel = 0;
@@ -6117,8 +6139,9 @@ static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *di, ui
     return PMD_CMD_RETURN;
 }
 
+#if (board2 && (pcm || adpcm)) || ppz
 // :3237
-static PMDC_UNUSED enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
     unsigned sum = (unsigned)lod8(si) + di->volume;
     uint8_t al;
@@ -6129,6 +6152,7 @@ static PMDC_UNUSED enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pm
     pmd->volpush_flag = 1;
     return PMD_CMD_RETURN;
 }
+#endif
 
 // :3248
 static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
@@ -6742,12 +6766,14 @@ static void panset_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 #endif
 }
 
+#if board2
 // :3961
 static void calc_panout(struct pmd *pmd, struct pmd_qq *di, uint8_t *dl) {
     (void)pmd;
     *dl = di->fmpan;
     if (di->hldelay_c != 0) *dl &= 0xc0;
 }
+#endif
 
 // :3972
 static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
@@ -6803,6 +6829,7 @@ static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     return PMD_CMD_RETURN;
 }
 
+#if board2
 // :4045
 static void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags) {
     (void)pmd;
@@ -6812,6 +6839,7 @@ static void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags) {
         al >>= 1;
     }
 }
+#endif
 
 // :4064
 static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
@@ -6827,6 +6855,7 @@ static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
     return PMD_CMD_RETURN;
 }
 
+#if board2
 // :4077
 // The original addresses `rdat-1 + n` with the 1-based rhythm instrument
 // number, so out-of-range values reach the fields next to rdat.
@@ -6846,6 +6875,7 @@ static void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl) {
     *rdat = dl;
     opnset44(pmd, (uint16_t)((dh << 8) | dl));
 }
+#endif
 
 // :4097
 static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
@@ -6902,6 +6932,7 @@ static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
     return PMD_CMD_RETURN;
 }
 
+#if board2
 // :4166
 static void volset2r(struct pmd *pmd, uint8_t dl) {
     pmd->rhyvol = dl;
@@ -6917,9 +6948,10 @@ static void volset2rf(struct pmd *pmd, uint8_t dl) {
     }
     opnset44(pmd, (uint16_t)((0x11 << 8) | dl));
 }
+#endif
 
 // :4184
-static PMDC_UNUSED enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
     uint8_t dl = lod8(si);
@@ -8129,7 +8161,7 @@ static void opnset44(struct pmd *pmd, uint16_t dx) {
 
 #if board2
 // :6200
-static PMDC_UNUSED void opnset46(struct pmd *pmd, uint16_t dx) {
+static void opnset46(struct pmd *pmd, uint16_t dx) {
     rdychk(pmd, pmd->fm2_port1);
     outb(pmd, pmd->fm2_port1, (uint8_t)(dx >> 8));
     _waitP(pmd);
@@ -9005,11 +9037,12 @@ static uint8_t read_key_state(struct pmd *pmd) {
     return pmd->hw->read_key_state(pmd->user_data);
 }
 
+#if va
 // :7808
 // The VA variant's port 8 is active low; translate the normalized bits to
 // the original key positions (CTRL bit 7, SHIFT bit 6, CAPS bit 5, GRPH
 // bit 4, KANA bit 3).
-static PMDC_UNUSED uint8_t key_port8(uint8_t state) {
+static uint8_t key_port8(uint8_t state) {
     uint8_t port = 0;
     if (state & PMD_KEY_CTRL) port |= 0x80;
     if (state & PMD_KEY_SHIFT) port |= 0x40;
@@ -9018,6 +9051,7 @@ static PMDC_UNUSED uint8_t key_port8(uint8_t state) {
     if (state & PMD_KEY_KANA) port |= 0x08;
     return port;
 }
+#endif
 
 // :7831
 // Counts bars.
@@ -9412,11 +9446,11 @@ static bool check_86b(struct pmd *pmd) {
     return true;
 }
 
-#if !pcm
+#if !pcm && !ppz
 // :9406
 // Probes for an SPB (YM2608) at port_sel or 088h-388h. Returns false when no
 // board was found.
-static PMDC_UNUSED bool check_spb(struct pmd *pmd) {
+static bool check_spb(struct pmd *pmd) {
     pmd->ongen = 1;
     // The EPSON ROM reads are omitted as in check_86b (:9412). Unlike
     // check_86b, an EPSON machine only skips the OPNA off write here.

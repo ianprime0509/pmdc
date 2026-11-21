@@ -31,24 +31,24 @@
 #endif
 
 // :10547
-static PMDC_UNUSED const char mes_warning[] = "\aWARNING:";
+static const char mes_warning[] = "\aWARNING:";
 
 // :10550
 #if board2
 #if pcm || ppz
-static PMDC_UNUSED const char mes_not_board[] = "YM2608+PCM が見つかりません．\n";
+static const char mes_not_board[] = "YM2608+PCM が見つかりません．\n";
 #else
-static PMDC_UNUSED const char mes_not_board[] = "YM2608+ADPCM が見つかりません．\n";
+static const char mes_not_board[] = "YM2608+ADPCM が見つかりません．\n";
 #endif
 #else
-static PMDC_UNUSED const char mes_not_board[] = "ＦＭ音源ボードが装着されていません．\n";
+static const char mes_not_board[] = "ＦＭ音源ボードが装着されていません．\n";
 #endif
 
 // :10558
-static PMDC_UNUSED const char mes_cut[] = "常駐解除しました．\n";
+static const char mes_cut[] = "常駐解除しました．\n";
 
 // :10560
-static PMDC_UNUSED const char mes_title[] =
+static const char mes_title[] =
     "Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version " ver _optnam "\n"
     "Copyright (C)1989," date " by M.Kajihara(KAJA).\n\n";
 
@@ -59,62 +59,62 @@ static PMDC_UNUSED const char mes_title[] =
 // holds the mutable copy. This default must fit in pmd->mes_int. The
 // placeholders are index 4 and, on non-VA builds, index 11.
 #if va
-static PMDC_UNUSED const char default_mes_int[] = "Int  ,Port 44H(";
+static const char default_mes_int[] = "Int  ,Port 44H(";
 #else
-static PMDC_UNUSED const char default_mes_int[] = "Int  ,Port  88H(";
+static const char default_mes_int[] = "Int  ,Port  88H(";
 #endif
-static PMDC_UNUSED const char mes_int2[] = ")を使用します．\n";
+static const char mes_int2[] = ")を使用します．\n";
 
 // :10577
-static PMDC_UNUSED const char mes_ongen0[] = "YM2203";
+static const char mes_ongen0[] = "YM2203";
 // :10578
 // The ADPCM RAM check overwrites the "2608" in this string to report a YMF288
 // (ADRAMCHK.ASM:62), so struct pmd holds the mutable copy.
-static PMDC_UNUSED const char default_mes_ongen1[] = "YM2608";
+static const char default_mes_ongen1[] = "YM2608";
 
 // :10582
 #if board2 && adpcm
-static PMDC_UNUSED const char mes_adpcm[] = "+ADPCM";
-static PMDC_UNUSED const char mes_only[] = " only";
+static const char mes_adpcm[] = "+ADPCM";
+static const char mes_only[] = " only";
 #endif
 
 // :10587
 #if board2 && pcm
-static PMDC_UNUSED const char mes_pcm[] = "+PCM";
+static const char mes_pcm[] = "+PCM";
 #endif
 
 // :10590
-static PMDC_UNUSED const char mes_ppsdrv[] = "PPSDRV(INT64H)に対応します．\n";
+static const char mes_ppsdrv[] = "PPSDRV(INT64H)に対応します．\n";
 #if ppz
-static PMDC_UNUSED const char mes_ppz8[] = "PPZ8(INT7FH)に対応します．\n";
+static const char mes_ppz8[] = "PPZ8(INT7FH)に対応します．\n";
 #endif
-static PMDC_UNUSED const char mes_wait1[] = "FM音源LSI REG-DATA間 Waitloop回数: ";
-static PMDC_UNUSED const char mes_wait2[] = "回 (約 ";
-static PMDC_UNUSED const char mes_wait3[] = "ns)\n";
+static const char mes_wait1[] = "FM音源LSI REG-DATA間 Waitloop回数: ";
+static const char mes_wait2[] = "回 (約 ";
+static const char mes_wait3[] = "ns)\n";
 
 // :10598
-static PMDC_UNUSED const char cantcut_mes[] = "現在常駐解除は禁止されています．PMD関連TSRを先に解放して下さい．\n";
-static PMDC_UNUSED const char pmderror_mes1[] = "常駐時とFM割り込みベクトルが違います．\n";
-static PMDC_UNUSED const char pmderror_mes2[] = "曲データバッファは 1KB 以上にして下さい．\n";
-static PMDC_UNUSED const char pmderror_mes3[] = "曲+音色+効果音データの合計は 40KB 以内にして下さい．\n";
-static PMDC_UNUSED const char pmderror_mes4[] = "解放に失敗しました．\n";
-static PMDC_UNUSED const char pmderror_mes5[] = "ＰＭＤは常駐していません．\n";
-static PMDC_UNUSED const char pmderror_mes6[] = "変更出来ないオプションを指定しています．\n";
-static PMDC_UNUSED const char pmderror_mes7[] = "メモリが確保出来ません。\n";
+static const char cantcut_mes[] = "現在常駐解除は禁止されています．PMD関連TSRを先に解放して下さい．\n";
+static const char pmderror_mes1[] = "常駐時とFM割り込みベクトルが違います．\n";
+static const char pmderror_mes2[] = "曲データバッファは 1KB 以上にして下さい．\n";
+static const char pmderror_mes3[] = "曲+音色+効果音データの合計は 40KB 以内にして下さい．\n";
+static const char pmderror_mes4[] = "解放に失敗しました．\n";
+static const char pmderror_mes5[] = "ＰＭＤは常駐していません．\n";
+static const char pmderror_mes6[] = "変更出来ないオプションを指定しています．\n";
+static const char pmderror_mes7[] = "メモリが確保出来ません。\n";
 
 // :10607
-static PMDC_UNUSED const char mes_exit[] =
+static const char mes_exit[] =
     "常駐しました．\n"
     "INT 60HでPMDを操作可能です．\n";
 
 // :10611
-static PMDC_UNUSED const char mes_key[] = "ESC/GRPHキーで曲の停止、早送りが可能です．\n";
+static const char mes_key[] = "ESC/GRPHキーで曲の停止、早送りが可能です．\n";
 
 // :10613
-static PMDC_UNUSED const char mes_kankyo[] = "環境変数 PMDOPT の設定に誤りがあります．\n";
+static const char mes_kankyo[] = "環境変数 PMDOPT の設定に誤りがあります．\n";
 
 // :10615
-static PMDC_UNUSED const char mes_usage[] =
+static const char mes_usage[] =
     "Usage:\tPMD"
 #if va
     "VA"
@@ -189,55 +189,55 @@ static PMDC_UNUSED const char mes_usage[] =
     "\t(* の付いたoptionは常駐後に再設定可能, - は括弧内に設定)";
 
 // :10692
-static PMDC_UNUSED const char changemes_0[] = "設定を変更しました．\n";
-static PMDC_UNUSED const char crlf[] = "\n";
-static PMDC_UNUSED const char changemes_01[] =
+static const char changemes_0[] = "設定を変更しました．\n";
+static const char crlf[] = "\n";
+static const char changemes_01[] =
     "　----- 現在の設定 -----\n"
     "・曲　　データバッファサイズ:";
-static PMDC_UNUSED const char changemes_02[] = "KB\n・音色　データバッファサイズ:";
-static PMDC_UNUSED const char changemes_03[] = "KB\n・効果音データバッファサイズ:";
-static PMDC_UNUSED const char changemes_1[] = "KB\n・FM音源    音量調整値:";
-static PMDC_UNUSED const char changemes_2[] = "・SSG音源   音量調整値:";
+static const char changemes_02[] = "KB\n・音色　データバッファサイズ:";
+static const char changemes_03[] = "KB\n・効果音データバッファサイズ:";
+static const char changemes_1[] = "KB\n・FM音源    音量調整値:";
+static const char changemes_2[] = "・SSG音源   音量調整値:";
 #if board2
-static PMDC_UNUSED const char changemes_3[] = "・PCM音源   音量調整値:";
+static const char changemes_3[] = "・PCM音源   音量調整値:";
 #if ppz
-static PMDC_UNUSED const char changemes_3z[] = "・PPZ8      音量調整値:";
+static const char changemes_3z[] = "・PPZ8      音量調整値:";
 #endif
-static PMDC_UNUSED const char changemes_4[] = "・RHYTHM音源音量調整値:";
-static PMDC_UNUSED const char changemes_5[] = "・SSGドラム発音時に同時にRHYTHM音源を鳴ら";
-static PMDC_UNUSED const char changemes_5a[] = "す\n";
-static PMDC_UNUSED const char changemes_5b[] = "さない\n";
+static const char changemes_4[] = "・RHYTHM音源音量調整値:";
+static const char changemes_5[] = "・SSGドラム発音時に同時にRHYTHM音源を鳴ら";
+static const char changemes_5a[] = "す\n";
+static const char changemes_5b[] = "さない\n";
 #endif
-static PMDC_UNUSED const char changemes_6[] = "・GRPH/ESCキーで早送り/曲の停止を制御";
-static PMDC_UNUSED const char changemes_6a[] = "する\n";
-static PMDC_UNUSED const char changemes_6b[] = "しない\n";
-static PMDC_UNUSED const char changemes_7[] = "・MSTOP/ESC と同時に使用するキー設定値:";
-static PMDC_UNUSED const char changemes_8[] = "・FF   /GRPHと同時に使用するキー設定値:";
-static PMDC_UNUSED const char changemes_8b[] = "・REW  /GRPHと同時に使用するキー設定値:";
-static PMDC_UNUSED const char changemes_9[] = "・フェードアウト後に曲の演奏を停止";
-static PMDC_UNUSED const char changemes_10[] = "・FM/INT60割り込み中に割り込みを禁止";
-static PMDC_UNUSED const char changemes_11[] = "・PPSDRVを使用";
-static PMDC_UNUSED const char changemes_11_[] = "・PPZ8  を使用";
-static PMDC_UNUSED const char changemes_12[] = "・FM音源LSI REG-DATA間 Waitloop回数: ";
-static PMDC_UNUSED const char changemes_12a[] = "回(約 ";
-static PMDC_UNUSED const char changemes_12b[] = "ns)\n";
-static PMDC_UNUSED const char changemes_13[] = "・GRPHによる早送り時のTimerB値: ";
+static const char changemes_6[] = "・GRPH/ESCキーで早送り/曲の停止を制御";
+static const char changemes_6a[] = "する\n";
+static const char changemes_6b[] = "しない\n";
+static const char changemes_7[] = "・MSTOP/ESC と同時に使用するキー設定値:";
+static const char changemes_8[] = "・FF   /GRPHと同時に使用するキー設定値:";
+static const char changemes_8b[] = "・REW  /GRPHと同時に使用するキー設定値:";
+static const char changemes_9[] = "・フェードアウト後に曲の演奏を停止";
+static const char changemes_10[] = "・FM/INT60割り込み中に割り込みを禁止";
+static const char changemes_11[] = "・PPSDRVを使用";
+static const char changemes_11_[] = "・PPZ8  を使用";
+static const char changemes_12[] = "・FM音源LSI REG-DATA間 Waitloop回数: ";
+static const char changemes_12a[] = "回(約 ";
+static const char changemes_12b[] = "ns)\n";
+static const char changemes_13[] = "・GRPHによる早送り時のTimerB値: ";
 #if board2 && adpcm && !ademu
-static PMDC_UNUSED const char changemes_14[] = "・ADPCM定義速度: ";
-static PMDC_UNUSED const char changemes_14a[] = "高速\n";
-static PMDC_UNUSED const char changemes_14b[] = "中速\n";
-static PMDC_UNUSED const char changemes_14c[] = "低速\n";
+static const char changemes_14[] = "・ADPCM定義速度: ";
+static const char changemes_14a[] = "高速\n";
+static const char changemes_14b[] = "中速\n";
+static const char changemes_14c[] = "低速\n";
 #endif
 #if board2 && pcm
-static PMDC_UNUSED const char changemes_15[] = "・PCMパート仕様をPMDB2に合わせ";
-static PMDC_UNUSED const char changemes_15a[] = "ない\n";
-static PMDC_UNUSED const char changemes_15b[] = "る\n";
-static PMDC_UNUSED const char changemes_16[] = "・PCM再生周波数: ";
+static const char changemes_15[] = "・PCMパート仕様をPMDB2に合わせ";
+static const char changemes_15a[] = "ない\n";
+static const char changemes_15b[] = "る\n";
+static const char changemes_16[] = "・PCM再生周波数: ";
 // The original stores these consecutively after changemes_16a and selects
 // one by adding its offset, so the entries are an array here.
-static PMDC_UNUSED const char *const changemes_16a[] = {
+static const char *const changemes_16a[] = {
     "4.13438", "5.51250", "8.26875", "11.0250", "16.5375",
     "22.0500", "33.0750", "44.1000", "自動選択\n",
 };
-static PMDC_UNUSED const char changemes_16b[] = "KHz 固定\n";
+static const char changemes_16b[] = "KHz 固定\n";
 #endif

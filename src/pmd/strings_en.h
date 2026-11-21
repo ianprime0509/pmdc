@@ -29,24 +29,24 @@
 #endif
 
 // :10547
-static PMDC_UNUSED const char mes_warning[] = "\aWARNING:";
+static const char mes_warning[] = "\aWARNING:";
 
 // :10550
 #if board2
 #if pcm || ppz
-static PMDC_UNUSED const char mes_not_board[] = "YM2608+PCM not found.\n";
+static const char mes_not_board[] = "YM2608+PCM not found.\n";
 #else
-static PMDC_UNUSED const char mes_not_board[] = "YM2608+ADPCM not found.\n";
+static const char mes_not_board[] = "YM2608+ADPCM not found.\n";
 #endif
 #else
-static PMDC_UNUSED const char mes_not_board[] = "The FM sound board is not installed.\n";
+static const char mes_not_board[] = "The FM sound board is not installed.\n";
 #endif
 
 // :10558
-static PMDC_UNUSED const char mes_cut[] = "The resident driver has been removed.\n";
+static const char mes_cut[] = "The resident driver has been removed.\n";
 
 // :10560
-static PMDC_UNUSED const char mes_title[] =
+static const char mes_title[] =
     "Music Driver P.M.D. for PC9801/88VA Version " ver _optnam "\n"
     "Copyright (C)1989," date " by M.Kajihara(KAJA).\n\n";
 
@@ -57,63 +57,63 @@ static PMDC_UNUSED const char mes_title[] =
 // holds the mutable copy. This default must fit in pmd->mes_int. The
 // placeholders are index 4 and, on non-VA builds, index 11.
 #if va
-static PMDC_UNUSED const char default_mes_int[] = "Int  ,Port 44H(";
+static const char default_mes_int[] = "Int  ,Port 44H(";
 #else
-static PMDC_UNUSED const char default_mes_int[] = "Int  ,Port  88H(";
+static const char default_mes_int[] = "Int  ,Port  88H(";
 #endif
-static PMDC_UNUSED const char mes_int2[] = ") is used.\n";
+static const char mes_int2[] = ") is used.\n";
 
 // :10577
-static PMDC_UNUSED const char mes_ongen0[] = "YM2203";
+static const char mes_ongen0[] = "YM2203";
 // :10578
 // The ADPCM RAM check overwrites the "2608" in this string to report a YMF288
 // (ADRAMCHK.ASM:62), so struct pmd holds the mutable copy.
-static PMDC_UNUSED const char default_mes_ongen1[] = "YM2608";
+static const char default_mes_ongen1[] = "YM2608";
 
 // :10582
 #if board2 && adpcm
-static PMDC_UNUSED const char mes_adpcm[] = "+ADPCM";
-static PMDC_UNUSED const char mes_only[] = " only";
+static const char mes_adpcm[] = "+ADPCM";
+static const char mes_only[] = " only";
 #endif
 
 // :10587
 #if board2 && pcm
-static PMDC_UNUSED const char mes_pcm[] = "+PCM";
+static const char mes_pcm[] = "+PCM";
 #endif
 
 // :10590
-static PMDC_UNUSED const char mes_ppsdrv[] = "PPSDRV(INT64H) is supported.\n";
+static const char mes_ppsdrv[] = "PPSDRV(INT64H) is supported.\n";
 #if ppz
-static PMDC_UNUSED const char mes_ppz8[] = "PPZ8(INT7FH) is supported.\n";
+static const char mes_ppz8[] = "PPZ8(INT7FH) is supported.\n";
 #endif
-static PMDC_UNUSED const char mes_wait1[] = "FM LSI REG-DATA wait loop count: ";
-static PMDC_UNUSED const char mes_wait2[] = " (approx. ";
-static PMDC_UNUSED const char mes_wait3[] = "ns)\n";
+static const char mes_wait1[] = "FM LSI REG-DATA wait loop count: ";
+static const char mes_wait2[] = " (approx. ";
+static const char mes_wait3[] = "ns)\n";
 
 // :10598
-static PMDC_UNUSED const char cantcut_mes[] =
+static const char cantcut_mes[] =
     "Resident removal is currently disabled. Release PMD-related TSRs first.\n";
-static PMDC_UNUSED const char pmderror_mes1[] = "The FM interrupt vector differs from the resident one.\n";
-static PMDC_UNUSED const char pmderror_mes2[] = "The music data buffer must be at least 1KB.\n";
-static PMDC_UNUSED const char pmderror_mes3[] = "The music+voice+effect data must total at most 40KB.\n";
-static PMDC_UNUSED const char pmderror_mes4[] = "Removal failed.\n";
-static PMDC_UNUSED const char pmderror_mes5[] = "PMD is not resident.\n";
-static PMDC_UNUSED const char pmderror_mes6[] = "An option that cannot be changed was specified.\n";
-static PMDC_UNUSED const char pmderror_mes7[] = "Unable to allocate memory.\n";
+static const char pmderror_mes1[] = "The FM interrupt vector differs from the resident one.\n";
+static const char pmderror_mes2[] = "The music data buffer must be at least 1KB.\n";
+static const char pmderror_mes3[] = "The music+voice+effect data must total at most 40KB.\n";
+static const char pmderror_mes4[] = "Removal failed.\n";
+static const char pmderror_mes5[] = "PMD is not resident.\n";
+static const char pmderror_mes6[] = "An option that cannot be changed was specified.\n";
+static const char pmderror_mes7[] = "Unable to allocate memory.\n";
 
 // :10607
-static PMDC_UNUSED const char mes_exit[] =
+static const char mes_exit[] =
     "Resident.\n"
     "PMD can be controlled via INT 60H.\n";
 
 // :10611
-static PMDC_UNUSED const char mes_key[] = "The ESC/GRPH keys stop the music and fast-forward.\n";
+static const char mes_key[] = "The ESC/GRPH keys stop the music and fast-forward.\n";
 
 // :10613
-static PMDC_UNUSED const char mes_kankyo[] = "The PMDOPT environment variable is set incorrectly.\n";
+static const char mes_kankyo[] = "The PMDOPT environment variable is set incorrectly.\n";
 
 // :10615
-static PMDC_UNUSED const char mes_usage[] =
+static const char mes_usage[] =
     "Usage:\tPMD"
 #if va
     "VA"
@@ -188,53 +188,53 @@ static PMDC_UNUSED const char mes_usage[] =
     "\t(* options can be changed after residency, - is the value in parentheses)";
 
 // :10692
-static PMDC_UNUSED const char changemes_0[] = "Settings changed.\n";
-static PMDC_UNUSED const char crlf[] = "\n";
-static PMDC_UNUSED const char changemes_01[] =
+static const char changemes_0[] = "Settings changed.\n";
+static const char crlf[] = "\n";
+static const char changemes_01[] =
     "  ----- Current settings -----\n"
     "・Music       data buffer size:";
-static PMDC_UNUSED const char changemes_02[] = "KB\n・Voice       data buffer size:";
-static PMDC_UNUSED const char changemes_03[] = "KB\n・Effect      data buffer size:";
-static PMDC_UNUSED const char changemes_1[] = "KB\n・FM sound     volume adjust:";
-static PMDC_UNUSED const char changemes_2[] = "・SSG sound    volume adjust:";
+static const char changemes_02[] = "KB\n・Voice       data buffer size:";
+static const char changemes_03[] = "KB\n・Effect      data buffer size:";
+static const char changemes_1[] = "KB\n・FM sound     volume adjust:";
+static const char changemes_2[] = "・SSG sound    volume adjust:";
 #if board2
-static PMDC_UNUSED const char changemes_3[] = "・PCM sound    volume adjust:";
+static const char changemes_3[] = "・PCM sound    volume adjust:";
 #if ppz
-static PMDC_UNUSED const char changemes_3z[] = "・PPZ8         volume adjust:";
+static const char changemes_3z[] = "・PPZ8         volume adjust:";
 #endif
-static PMDC_UNUSED const char changemes_4[] = "・RHYTHM sound volume adjust:";
-static PMDC_UNUSED const char changemes_5[] = "・Mute RHYTHM while the SSG drum plays: ";
-static PMDC_UNUSED const char changemes_5a[] = "off\n";
-static PMDC_UNUSED const char changemes_5b[] = "on\n";
+static const char changemes_4[] = "・RHYTHM sound volume adjust:";
+static const char changemes_5[] = "・Mute RHYTHM while the SSG drum plays: ";
+static const char changemes_5a[] = "off\n";
+static const char changemes_5b[] = "on\n";
 #endif
-static PMDC_UNUSED const char changemes_6[] = "・Fast-forward/music stop with GRPH/ESC keys: ";
-static PMDC_UNUSED const char changemes_6a[] = "enabled\n";
-static PMDC_UNUSED const char changemes_6b[] = "disabled\n";
-static PMDC_UNUSED const char changemes_7[] = "・Key used with MSTOP/ESC: ";
-static PMDC_UNUSED const char changemes_8[] = "・Key used with FF   /GRPH: ";
-static PMDC_UNUSED const char changemes_8b[] = "・Key used with REW  /GRPH: ";
-static PMDC_UNUSED const char changemes_9[] = "・Stop the music after a fadeout: ";
-static PMDC_UNUSED const char changemes_10[] = "・Disable interrupts during FM/INT60: ";
-static PMDC_UNUSED const char changemes_11[] = "・Use PPSDRV: ";
-static PMDC_UNUSED const char changemes_11_[] = "・Use PPZ8: ";
-static PMDC_UNUSED const char changemes_12[] = "・FM LSI REG-DATA wait loop count: ";
-static PMDC_UNUSED const char changemes_12a[] = " (approx. ";
-static PMDC_UNUSED const char changemes_12b[] = "ns)\n";
-static PMDC_UNUSED const char changemes_13[] = "・TimerB value for GRPH fast-forward: ";
+static const char changemes_6[] = "・Fast-forward/music stop with GRPH/ESC keys: ";
+static const char changemes_6a[] = "enabled\n";
+static const char changemes_6b[] = "disabled\n";
+static const char changemes_7[] = "・Key used with MSTOP/ESC: ";
+static const char changemes_8[] = "・Key used with FF   /GRPH: ";
+static const char changemes_8b[] = "・Key used with REW  /GRPH: ";
+static const char changemes_9[] = "・Stop the music after a fadeout: ";
+static const char changemes_10[] = "・Disable interrupts during FM/INT60: ";
+static const char changemes_11[] = "・Use PPSDRV: ";
+static const char changemes_11_[] = "・Use PPZ8: ";
+static const char changemes_12[] = "・FM LSI REG-DATA wait loop count: ";
+static const char changemes_12a[] = " (approx. ";
+static const char changemes_12b[] = "ns)\n";
+static const char changemes_13[] = "・TimerB value for GRPH fast-forward: ";
 #if board2 && adpcm && !ademu
-static PMDC_UNUSED const char changemes_14[] = "・ADPCM speed: ";
-static PMDC_UNUSED const char changemes_14a[] = "fast\n";
-static PMDC_UNUSED const char changemes_14b[] = "medium\n";
-static PMDC_UNUSED const char changemes_14c[] = "slow\n";
+static const char changemes_14[] = "・ADPCM speed: ";
+static const char changemes_14a[] = "fast\n";
+static const char changemes_14b[] = "medium\n";
+static const char changemes_14c[] = "slow\n";
 #endif
 #if board2 && pcm
-static PMDC_UNUSED const char changemes_15[] = "・Match the PCM part spec to PMDB2: ";
-static PMDC_UNUSED const char changemes_15a[] = "no\n";
-static PMDC_UNUSED const char changemes_15b[] = "yes\n";
-static PMDC_UNUSED const char changemes_16[] = "・PCM playback frequency: ";
-static PMDC_UNUSED const char *const changemes_16a[] = {
+static const char changemes_15[] = "・Match the PCM part spec to PMDB2: ";
+static const char changemes_15a[] = "no\n";
+static const char changemes_15b[] = "yes\n";
+static const char changemes_16[] = "・PCM playback frequency: ";
+static const char *const changemes_16a[] = {
     "4.13438", "5.51250", "8.26875", "11.0250", "16.5375",
     "22.0500", "33.0750", "44.1000", "auto\n",
 };
-static PMDC_UNUSED const char changemes_16b[] = "KHz fixed\n";
+static const char changemes_16b[] = "KHz fixed\n";
 #endif
