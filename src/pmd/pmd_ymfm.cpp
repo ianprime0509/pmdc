@@ -120,10 +120,8 @@ struct pmd_ymfm : ymfm::ymfm_interface {
     void ymfm_set_busy_end(uint32_t clocks) override;
     bool ymfm_is_busy() override;
     void ymfm_update_irq(bool asserted) override;
-    uint8_t ymfm_external_read(ymfm::access_class type,
-                               uint32_t address) override;
-    void ymfm_external_write(ymfm::access_class type, uint32_t address,
-                             uint8_t data) override;
+    uint8_t ymfm_external_read(ymfm::access_class type, uint32_t address) override;
+    void ymfm_external_write(ymfm::access_class type, uint32_t address, uint8_t data) override;
 
     uint8_t inb(uint16_t port);
     void outb(uint16_t port, uint8_t value);
@@ -228,8 +226,7 @@ bool pmd_ymfm::ymfm_is_busy() { return clocks < busy_end; }
 // port accesses would break the exclusion the host has to provide.
 void pmd_ymfm::ymfm_update_irq(bool asserted) { irq = asserted; }
 
-uint8_t pmd_ymfm::ymfm_external_read(ymfm::access_class type,
-                                     uint32_t address) {
+uint8_t pmd_ymfm::ymfm_external_read(ymfm::access_class type, uint32_t address) {
     if (type == ymfm::ACCESS_ADPCM_A) {
         return address < adpcm_a.size() ? adpcm_a[address] : 0;
     }
@@ -239,8 +236,7 @@ uint8_t pmd_ymfm::ymfm_external_read(ymfm::access_class type,
     return 0;
 }
 
-void pmd_ymfm::ymfm_external_write(ymfm::access_class type, uint32_t address,
-                                   uint8_t data) {
+void pmd_ymfm::ymfm_external_write(ymfm::access_class type, uint32_t address, uint8_t data) {
     if (type == ymfm::ACCESS_ADPCM_B) {
         adpcm_b[address & (adpcm_b_size - 1)] = data;
     }
@@ -399,8 +395,7 @@ extern "C" void pmd_ymfm_default_config(struct pmd_ymfm_config *config,
     config->pmd = pmd;
 }
 
-extern "C" struct pmd_ymfm *
-pmd_ymfm_create(const struct pmd_ymfm_config *config) {
+extern "C" struct pmd_ymfm *pmd_ymfm_create(const struct pmd_ymfm_config *config) {
     if (config == nullptr) return nullptr;
     switch (config->chip) {
     case PMD_YMFM_YM2203:
@@ -425,13 +420,11 @@ extern "C" uint8_t pmd_ymfm_inb(struct pmd_ymfm *ymfm, uint16_t port) {
     return ymfm->inb(port);
 }
 
-extern "C" void pmd_ymfm_outb(struct pmd_ymfm *ymfm, uint16_t port,
-                              uint8_t value) {
+extern "C" void pmd_ymfm_outb(struct pmd_ymfm *ymfm, uint16_t port, uint8_t value) {
     ymfm->outb(port, value);
 }
 
-extern "C" void pmd_ymfm_generate(struct pmd_ymfm *ymfm, uint32_t samples,
-                                  int32_t *out) {
+extern "C" void pmd_ymfm_generate(struct pmd_ymfm *ymfm, uint32_t samples, int32_t *out) {
     ymfm->generate(samples, out);
 }
 
@@ -439,15 +432,13 @@ extern "C" uint32_t pmd_ymfm_sample_rate(const struct pmd_ymfm *ymfm) {
     return ymfm->rate;
 }
 
-extern "C" void pmd_ymfm_load_adpcm_a(struct pmd_ymfm *ymfm,
-                                      const uint8_t *data, size_t size) {
+extern "C" void pmd_ymfm_load_adpcm_a(struct pmd_ymfm *ymfm, const uint8_t *data, size_t size) {
     if (size > ymfm->adpcm_a.size()) size = ymfm->adpcm_a.size();
     std::memset(ymfm->adpcm_a.data(), 0, ymfm->adpcm_a.size());
     if (size != 0) std::memcpy(ymfm->adpcm_a.data(), data, size);
 }
 
-extern "C" void pmd_ymfm_load_adpcm_a_file(struct pmd_ymfm *ymfm,
-                                           const char *path) {
+extern "C" void pmd_ymfm_load_adpcm_a_file(struct pmd_ymfm *ymfm, const char *path) {
     std::FILE *file = std::fopen(path, "rb");
     std::vector<uint8_t> image;
     if (file != nullptr) {
@@ -471,8 +462,7 @@ extern "C" void pmd_ymfm_load_adpcm_a_file(struct pmd_ymfm *ymfm,
     pmd_ymfm_load_adpcm_a(ymfm, image.data(), image.size());
 }
 
-extern "C" uint8_t pmd_ymfm_adpcm_a_byte(const struct pmd_ymfm *ymfm,
-                                         uint32_t address) {
+extern "C" uint8_t pmd_ymfm_adpcm_a_byte(const struct pmd_ymfm *ymfm, uint32_t address) {
     return address < ymfm->adpcm_a.size() ? ymfm->adpcm_a[address] : 0;
 }
 
@@ -484,8 +474,7 @@ static void hw_outb(uint16_t port, uint8_t value, void *user_data) {
     static_cast<pmd_ymfm *>(user_data)->outb(port, value);
 }
 
-static void hw_install_fm_timer_handler(void (*handler)(struct pmd *),
-                                        void *user_data) {
+static void hw_install_fm_timer_handler(void (*handler)(struct pmd *), void *user_data) {
     static_cast<pmd_ymfm *>(user_data)->handler = handler;
 }
 

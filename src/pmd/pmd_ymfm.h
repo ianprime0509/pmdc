@@ -105,8 +105,7 @@ uint32_t pmd_ymfm_sample_rate(const struct pmd_ymfm *ymfm);
 
 // The ADPCM-A sample store (the rhythm ROM). The chip reads it through
 // ymfm_external_read; addresses past the loaded image read as zero.
-void pmd_ymfm_load_adpcm_a(struct pmd_ymfm *ymfm, const uint8_t *data,
-                           size_t size);
+void pmd_ymfm_load_adpcm_a(struct pmd_ymfm *ymfm, const uint8_t *data, size_t size);
 // Loads exactly `path`. When it cannot be read, the store stays silent and the
 // backend warns through pmd_sys once per instance.
 void pmd_ymfm_load_adpcm_a_file(struct pmd_ymfm *ymfm, const char *path);

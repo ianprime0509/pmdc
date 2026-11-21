@@ -105,8 +105,7 @@ enum {
 
 // struct pmd has a fixed layout, so its part array must cover max_part1 for
 // every variant. Equality holds for the largest (PPZ8) one.
-static_assert(PMD_MAX_PARTS >= max_part1,
-              "PMD_MAX_PARTS must cover max_part1");
+static_assert(PMD_MAX_PARTS >= max_part1, "PMD_MAX_PARTS must cover max_part1");
 
 // :8275
 enum {
@@ -1492,11 +1491,9 @@ void pmd_init(struct pmd *pmd) {
 #define lengthof(arr) (sizeof((arr)) / sizeof((arr)[0]))
 
     // :10567
-    static_assert(lengthof(default_mes_int) <= lengthof(pmd->mes_int),
-                  "mes_int is too small for default_mes_int");
+    static_assert(lengthof(default_mes_int) <= lengthof(pmd->mes_int), "mes_int is too small for default_mes_int");
     // :10578
-    static_assert(lengthof(default_mes_ongen1) <= lengthof(pmd->mes_ongen1),
-                  "mes_ongen1 is too small for default_mes_ongen1");
+    static_assert(lengthof(default_mes_ongen1) <= lengthof(pmd->mes_ongen1), "mes_ongen1 is too small for default_mes_ongen1");
 
     // :8080
     pmd->rhyvol = 0x3c;
@@ -1710,8 +1707,7 @@ static void _rwait(struct pmd *pmd) {
 static uint8_t rdychk(struct pmd *pmd, uint16_t port) {
     uint8_t al;
     (void)inb(pmd, port);
-    while ((al = inb(pmd, port)) & 0x80) {
-    }
+    while ((al = inb(pmd, port)) & 0x80) ;
     return al;
 }
 
