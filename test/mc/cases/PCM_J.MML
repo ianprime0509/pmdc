@@ -3,7 +3,7 @@
 
 #Title PCM_J
 #Filename PCM_J.M
-#Option /v/c/p
+#Option /v/c
 
 ; PCM/J-part positive test. Targets J channel parsing; goal is compile.
 
