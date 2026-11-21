@@ -1,5 +1,5 @@
-; Output: PORTA_ARP.M
-; Console: PORTA_ARP.OUT
+; Output: PORTAARP.M
+; Console: PORTAARP.OUT
 
 #Title PORTA_ARP
 #Option /v/c

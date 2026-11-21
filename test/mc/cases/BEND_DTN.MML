@@ -1,5 +1,5 @@
-; Output: BEND_DETUNE.M
-; Console: BEND_DETUNE.OUT
+; Output: BEND_DTN.M
+; Console: BEND_DTN.OUT
 
 #Title BEND_DETUNE
 #Option /v/c

@@ -1,5 +1,5 @@
-; Output: MULTI_FEATURES.M
-; Console: MULTI_FEATURES.OUT
+; Output: MULTI_FT.M
+; Console: MULTI_FT.OUT
 
 #Title MULTI_FEATURES
 #Option /v/c

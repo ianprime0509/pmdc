@@ -1,5 +1,5 @@
-; Output: Q_GATE_ALT.M
-; Console: Q_GATE_ALT.OUT
+; Output: QGATEALT.M
+; Console: QGATEALT.OUT
 
 #Title Q_GATE_ALT
 #Option /v/c

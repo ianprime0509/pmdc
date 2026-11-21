@@ -1,5 +1,5 @@
-; Output: VOL_FLAGS.M
-; Console: VOL_FLAGS.OUT
+; Output: VOLFLAGS.M
+; Console: VOLFLAGS.OUT
 
 #Title VOL_FLAGS
 #Option /v/c

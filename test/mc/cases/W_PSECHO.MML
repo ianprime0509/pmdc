@@ -1,5 +1,5 @@
-; Output: W_PSEUDO_ECHO.M
-; Console: W_PSEUDO_ECHO.OUT
+; Output: W_PSECHO.M
+; Console: W_PSECHO.OUT
 
 #Title W_PSEUDO_ECHO
 #Option /v/c

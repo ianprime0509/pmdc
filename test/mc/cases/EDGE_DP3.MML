@@ -1,5 +1,5 @@
-; Output: EDGE_DEEP3.M
-; Console: EDGE_DEEP3.OUT
+; Output: EDGE_DP3.M
+; Console: EDGE_DP3.OUT
 
 #Title EDGE_DEEP3
 #Option /v/c

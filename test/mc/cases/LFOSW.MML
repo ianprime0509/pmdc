@@ -1,5 +1,5 @@
-; Output: LFOSWITCH.M
-; Console: LFOSWITCH.OUT
+; Output: LFOSW.M
+; Console: LFOSW.OUT
 
 #Title LFOSWITCH
 #Option /v/c

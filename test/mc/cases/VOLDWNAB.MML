@@ -1,5 +1,5 @@
-; Output: VOLDOWN_ABS.M
-; Console: VOLDOWN_ABS.OUT
+; Output: VOLDWNAB.M
+; Console: VOLDWNAB.OUT
 
 #Title VOLDOWN_ABS
 #Option /v/c

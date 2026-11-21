@@ -1,8 +1,8 @@
-; Output: LOOPS_MACRO.M
-; Console: LOOPS_MACRO.OUT
+; Output: LOOPSMCR.M
+; Console: LOOPSMCR.OUT
 
 #Title LOOPS_MACRO
-#Filename LOOPS_MACRO.M
+#Filename LOOPSMCR.M
 #Option /v/c
 
 ; Exercise repeats, alternate endings, ties, slurs

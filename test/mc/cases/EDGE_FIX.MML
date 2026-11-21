@@ -1,5 +1,5 @@
-; Output: EDGE_FIXES.M
-; Console: EDGE_FIXES.OUT
+; Output: EDGE_FIX.M
+; Console: EDGE_FIX.OUT
 
 #Title EDGE_FIXES
 #Option /v/c

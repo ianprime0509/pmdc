@@ -1,5 +1,5 @@
-; Output: PMD_COMMANDS.M
-; Console: PMD_COMMANDS.OUT
+; Output: PMD_CMDS.M
+; Console: PMD_CMDS.OUT
 
 #Title PMD_COMMANDS
 #Option /v/c

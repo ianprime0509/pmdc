@@ -1,5 +1,5 @@
-; Output: DEPTH_VOL.M
-; Console: DEPTH_VOL.OUT
+; Output: DEPTHVOL.M
+; Console: DEPTHVOL.OUT
 
 #Title DEPTH_VOL
 #Option /v/c

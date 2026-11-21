@@ -1,5 +1,5 @@
-; Output: BLOCK_SKIP.M
-; Console: BLOCK_SKIP.OUT
+; Output: BLOCKSKP.M
+; Console: BLOCKSKP.OUT
 
 `
 ;skipped header comment in first pass
