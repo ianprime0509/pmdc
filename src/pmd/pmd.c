@@ -2619,7 +2619,13 @@ static const uint16_t pcm_adpcm_tune_data[12] = {
 static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     (void)pmd;
     uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) goto fnrest_m; // a rest
+    if (ah == 0x0f) {
+        // :775 a rest
+        di->onkai = 0xff;
+        if ((di->lfoswi & 0x11) != 0) return;
+        di->fnum = 0;
+        return;
+    }
     di->onkai = al;
 
     uint8_t cl = (uint8_t)(al >> 4);
@@ -2639,12 +2645,6 @@ static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
         ax = (uint16_t)(ax >> shift);
     }
     di->fnum = ax;
-    return;
-
-fnrest_m:
-    di->onkai = 0xff;
-    if ((di->lfoswi & 0x11) != 0) return;
-    di->fnum = 0;
 }
 #else
 // PCMDRV86.ASM:817
@@ -2652,7 +2652,14 @@ fnrest_m:
 // fnum2 the fraction, both taken from the frequency table.
 static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) goto fnrest_m; // a rest
+    if (ah == 0x0f) {
+        // :821 a rest
+        di->onkai = 0xff;
+        if ((di->lfoswi & 0x11) != 0) return;
+        // PMD.ASM:4296 fnrest clears fnum only; fnum2 keeps its old value.
+        di->fnum = 0;
+        return;
+    }
 
     if (pmd->pcm86_vol == 1 && al >= 0x65) {
         // :823 /S plays everything from 65h up one octave lower.
@@ -2666,13 +2673,6 @@ static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     const uint8_t *entry = pmd->p86_freqtable + (unsigned)bl * 3;
     di->fnum = (uint16_t)(0xff00 | entry[0]);
     di->fnum2 = (uint16_t)(entry[1] | (entry[2] << 8));
-    return;
-
-fnrest_m:
-    di->onkai = 0xff;
-    if ((di->lfoswi & 0x11) != 0) return;
-    // PMD.ASM:4296 fnrest clears fnum only; fnum2 keeps its old value.
-    di->fnum = 0;
 }
 #endif
 
@@ -3269,7 +3269,14 @@ static void otodasiz(struct pmd *pmd, struct pmd_qq *di) {
 static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     (void)pmd;
     uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) goto fnrestz; // a rest
+    if (ah == 0x0f) {
+        // :805 a rest
+        di->onkai = 0xff;
+        if ((di->lfoswi & 0x11) != 0) return;
+        di->fnum = 0;
+        di->fnum2 = 0;
+        return;
+    }
     di->onkai = al;
 
     uint16_t ax = ppz_tune_data[ah];
@@ -3277,24 +3284,18 @@ static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 
     uint8_t cl = (uint8_t)((al >> 4) & 0x0f); // the octave
     if (cl < 4) {
+        // :824 shr ax,cl
         ax = (uint16_t)(ax >> (4 - cl));
-        goto ppz_fnumset;
+    } else {
+        // :830 ppz_over_o5_loop
+        for (cl -= 4; cl != 0; cl--) {
+            dx = (uint16_t)((dx << 1) | (ax >> 15));
+            ax = (uint16_t)(ax << 1);
+        }
     }
-    if (cl == 4) goto ppz_fnumset;
-    for (cl -= 4; cl != 0; cl--) {
-        dx = (uint16_t)((dx << 1) | (ax >> 15));
-        ax = (uint16_t)(ax << 1);
-    }
-ppz_fnumset:
+    // :839 ppz_fnumset
     di->fnum = ax;
     di->fnum2 = dx;
-    return;
-
-fnrestz:
-    di->onkai = 0xff;
-    if ((di->lfoswi & 0x11) != 0) return;
-    di->fnum = 0;
-    di->fnum2 = 0;
 }
 #endif
 
@@ -3479,9 +3480,21 @@ static bool add_address(struct pmd *pmd, struct pcm_transfer *t) {
 // PCMDRV86.ASM:910
 // Transfers up to `count` stereo samples from the PCM86 data to the FIFO.
 static void pcm_trans(struct pmd *pmd, uint16_t count) {
-    if (pmd->p86 == NULL) goto zero_trans;
-    if (pmd->p86->get_version(pmd->user_data) < 0x10) goto zero_trans;
-    if ((pmd->size1 | pmd->size2) == 0) goto zero_trans;
+    bool usable = pmd->p86 != NULL &&
+                  pmd->p86->get_version(pmd->user_data) >= 0x10 &&
+                  (pmd->size1 | pmd->size2) != 0;
+    if (!usable) {
+        // PCMDRV86.ASM:1193 zero_trans fills the buffer with silence and stops
+        // transferring. The original jumps here before loading dx with the PCM
+        // data port, so its writes land on a leftover port; the FIFO data port
+        // is used here.
+        for (uint16_t i = 0; i < count; i++) {
+            outb(pmd, 0xa46c, 0);
+            outb(pmd, 0xa46c, 0);
+        }
+        pmd->trans_flag = 0;
+        return;
+    }
 
     pmd->p86->push_ems(pmd->user_data);
     {
@@ -3527,17 +3540,6 @@ static void pcm_trans(struct pmd *pmd, uint16_t count) {
         }
     }
     pmd->p86->pop_ems(pmd->user_data);
-    return;
-
-zero_trans:
-    // PCMDRV86.ASM:1193 Fill the buffer with silence and stop transferring.
-    // The original jumps here before loading dx with the PCM data port, so its
-    // writes land on a leftover port; the FIFO data port is used here.
-    for (uint16_t i = 0; i < count; i++) {
-        outb(pmd, 0xa46c, 0);
-        outb(pmd, 0xa46c, 0);
-    }
-    pmd->trans_flag = 0;
 }
 
 // PCMDRV86.ASM:859
@@ -4408,34 +4410,33 @@ static void mmain(struct pmd *pmd) {
     fmmain(pmd, &pmd->parts[part3c]);
     fmmain(pmd, &pmd->parts[part3d]);
 
-    if (pmd->x68_flg != 0) goto mmain_exit;
-
     // :967
-    rhythmmain(pmd, &pmd->parts[part11]);
+    if (pmd->x68_flg == 0) {
+        rhythmmain(pmd, &pmd->parts[part11]);
 #if board2
-    pcmmain(pmd, &pmd->parts[part10]);
+        pcmmain(pmd, &pmd->parts[part10]);
 #endif
 #if ppz
-    pmd->partb = 0;
-    ppzmain(pmd, &pmd->parts[part10a]);
-    pmd->partb = 1;
-    ppzmain(pmd, &pmd->parts[part10b]);
-    pmd->partb = 2;
-    ppzmain(pmd, &pmd->parts[part10c]);
-    pmd->partb = 3;
-    ppzmain(pmd, &pmd->parts[part10d]);
-    pmd->partb = 4;
-    ppzmain(pmd, &pmd->parts[part10e]);
-    pmd->partb = 5;
-    ppzmain(pmd, &pmd->parts[part10f]);
-    pmd->partb = 6;
-    ppzmain(pmd, &pmd->parts[part10g]);
-    pmd->partb = 7;
-    ppzmain(pmd, &pmd->parts[part10h]);
+        pmd->partb = 0;
+        ppzmain(pmd, &pmd->parts[part10a]);
+        pmd->partb = 1;
+        ppzmain(pmd, &pmd->parts[part10b]);
+        pmd->partb = 2;
+        ppzmain(pmd, &pmd->parts[part10c]);
+        pmd->partb = 3;
+        ppzmain(pmd, &pmd->parts[part10d]);
+        pmd->partb = 4;
+        ppzmain(pmd, &pmd->parts[part10e]);
+        pmd->partb = 5;
+        ppzmain(pmd, &pmd->parts[part10f]);
+        pmd->partb = 6;
+        ppzmain(pmd, &pmd->parts[part10g]);
+        pmd->partb = 7;
+        ppzmain(pmd, &pmd->parts[part10h]);
 #endif
+    }
 
-mmain_exit:
-    // :994
+    // :994 mmain_exit
     if (pmd->loop_work == 0) return;
 
     // :999
@@ -5628,9 +5629,7 @@ static void neiro_reset(struct pmd *pmd, struct pmd_qq *di) {
     di->slot4 = (uint8_t)(slot2 >> 8);
 
     uint8_t al = (uint8_t)(~di->carrier & di->slotmask);
-    if (al == 0) goto nr_exit;
-
-    {
+    if (al != 0) {
         uint8_t dh = (uint8_t)(0x4c - 1 + pmd->partb);
         al = (uint8_t)((al << 1) | (al >> 7)); // rol al,1
         if (al & 1) opnset(pmd, (uint16_t)((dh << 8) | di->slot4));
@@ -5645,7 +5644,7 @@ static void neiro_reset(struct pmd *pmd, struct pmd_qq *di) {
         if (al & 1) opnset(pmd, (uint16_t)((dh << 8) | di->slot1));
     }
 
-nr_exit:;
+    // :2465 nr_exit
 #if board2
     {
         uint8_t dh = (uint8_t)(pmd->partb + 0xb3);
@@ -5826,28 +5825,30 @@ static void ch3mode_set(struct pmd *pmd, struct pmd_qq *di) {
     else if (di == &pmd->parts[part3c]) al = 4;
     else al = 8;
 
+    // :2756 cmset_00: a part with no masked slot, or one whose mask the LFOs
+    // drive, leaves CSM/window mode clear.
+    bool clear;
+    if ((di->slotmask & 0xf0) == 0) clear = true;
+    else if ((di->slotmask & 0xf0) != 0xf0) clear = false;
+    else if ((di->volmask & 0x0f) == 0) clear = true;
+    else if ((di->lfoswi & 1) != 0) clear = false;
+    else if ((di->_volmask & 0x0f) == 0) clear = true;
+    else clear = (di->lfoswi & 0x10) == 0;
+
     uint8_t ah;
-    if ((di->slotmask & 0xf0) == 0) goto cm_clear;
-    if ((di->slotmask & 0xf0) != 0xf0) goto cm_set;
-    if ((di->volmask & 0x0f) == 0) goto cm_clear;
-    if ((di->lfoswi & 1) != 0) goto cm_set;
-    if ((di->_volmask & 0x0f) == 0) goto cm_clear;
-    if ((di->lfoswi & 0x10) != 0) goto cm_set;
+    if (clear) {
+        // :2770 cm_clear
+        al = (uint8_t)~al;
+        pmd->slot3_flag &= al;
+        if (pmd->slot3_flag != 0 || pmd->slotdetune_flag == 1) ah = 0x7f; // :2781 cm_set2
+        else ah = 0x3f;
+    } else {
+        // :2779 cm_set
+        pmd->slot3_flag |= al;
+        ah = 0x7f;
+    }
 
-cm_clear:
-    al = (uint8_t)~al;
-    pmd->slot3_flag &= al;
-    if (pmd->slot3_flag != 0) goto cm_set2;
-    if (pmd->slotdetune_flag == 1) goto cm_set2;
-    ah = 0x3f;
-    goto cm_set_main;
-
-cm_set:
-    pmd->slot3_flag |= al;
-cm_set2:
-    ah = 0x7f;
-
-cm_set_main:
+    // :2783 cm_set_main
 #if !board2
     if ((di->partmask & 2) != 0) {
         pmd->ch3mode_push = ah;
@@ -5880,37 +5881,40 @@ static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *di, uint
     al &= 0x0f;
     if (al != 0) {
         di->carrier = (uint8_t)((al << 4) | (al >> 4));
-        goto sm_set;
-    }
-
-    uint8_t bl;
-    if (fm3_active(pmd, di)) {
-        bl = pmd->fm3_alg_fb;
     } else {
-        uint8_t *bx;
-        toneadr_calc(pmd, di, di->voicenum, &bx);
-        bl = bx[24];
+        // :2851 sm_not_car
+        uint8_t bl;
+        if (fm3_active(pmd, di)) {
+            bl = pmd->fm3_alg_fb;
+        } else {
+            uint8_t *bx;
+            toneadr_calc(pmd, di, di->voicenum, &bx);
+            bl = bx[24];
+        }
+        bl &= 7;
+        di->carrier = carrier_table[bl];
     }
-    bl &= 7;
-    di->carrier = carrier_table[bl];
 
-sm_set:
+    // :2877 sm_set
     ah &= 0xf0;
     if (di->slotmask == ah) return PMD_CMD_RETURN;
     di->slotmask = ah;
     if ((ah & 0xf0) != 0) di->partmask &= 0xdf;
     else di->partmask |= 0x20;
 
+    // :2889 sms_ns
     if (ch3_setting(pmd, di)) {
-        if (di == &pmd->parts[part3]) goto sm_exit;
-        keyon_sm(pmd, &pmd->parts[part3]);
-        if (di == &pmd->parts[part3b]) goto sm_exit;
-        keyon_sm(pmd, &pmd->parts[part3b]);
-        if (di == &pmd->parts[part3c]) goto sm_exit;
-        keyon_sm(pmd, &pmd->parts[part3c]);
+        // :2892 The earlier channel-3 parts are keyed before the jump to
+        // sm_exit.
+        struct pmd_qq *const ch3[] = {
+            &pmd->parts[part3],
+            &pmd->parts[part3b],
+            &pmd->parts[part3c],
+        };
+        for (int i = 0; i < 3 && di != ch3[i]; i++) keyon_sm(pmd, ch3[i]);
     }
-sm_exit:
 
+    // :2914 sm_exit
     ah = 0;
     al = di->slotmask;
     if (al & 0x80) ah |= 0x11;
@@ -6407,24 +6411,24 @@ static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *di, uint8_t
 static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     uint8_t al = lod8(si);
     if (al == 0) {
+        // :3565 muloop, an unconditional loop
         (*si)++;
         di->loopcheck = 1;
-        goto reloop;
+    } else {
+        uint8_t ah = al;
+        (*si)[0]++;
+        al = lod8(si);
+        if (ah == al) {
+            *si += 2;
+            return PMD_CMD_RETURN;
+        }
     }
-    uint8_t ah = al;
-    (*si)[0]++;
-    al = lod8(si);
-    if (ah != al) goto reloop;
-    *si += 2;
-    return PMD_CMD_RETURN;
 
-reloop:
-    {
-        uint16_t ax = lod16(si);
-        ax = (uint16_t)(ax + 2);
-        uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
-        *si = base + ax;
-    }
+    // :3575 reloop
+    uint16_t ax = lod16(si);
+    ax = (uint16_t)(ax + 2);
+    uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
+    *si = base + ax;
     return PMD_CMD_RETURN;
 }
 
@@ -6999,7 +7003,13 @@ static uint8_t oshift(struct pmd_qq *di, uint8_t al) {
 static void fnumset(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     (void)pmd;
     uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) goto fnrest;
+    if (ah == 0x0f) {
+        // :4292 fnrest
+        di->onkai = 0xff;
+        if ((di->lfoswi & 0x11) != 0) return;
+        di->fnum = 0;
+        return;
+    }
     di->onkai = al;
 
     uint8_t ch = (uint8_t)(((al >> 1) | (al << 7)) & 0x38);
@@ -7007,12 +7017,6 @@ static void fnumset(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     uint16_t ax = fnum_data[bl];
     uint8_t ah_out = (uint8_t)((ax >> 8) | ch);
     di->fnum = (uint16_t)((ah_out << 8) | (uint8_t)ax);
-    return;
-
-fnrest:
-    di->onkai = 0xff;
-    if ((di->lfoswi & 0x11) != 0) return;
-    di->fnum = 0;
 }
 
 // :4302
@@ -7141,19 +7145,16 @@ static void otodasip(struct pmd *pmd, struct pmd_qq *di) {
         ax = (uint16_t)(ax - di->detune);
         if ((di->lfoswi & 1) != 0) ax = (uint16_t)(ax - di->lfodat);
         if ((di->lfoswi & 0x10) != 0) ax = (uint16_t)(ax - di->_lfodat);
-        goto tonesetp;
-    }
+    } else {
+        // Extended detune.
+        if (di->detune != 0) {
+            int32_t product = (int16_t)ax * di->detune;
+            int16_t dx = (int16_t)(((uint32_t)product << 4) >> 16);
+            if (dx < 0) dx--;
+            else dx++;
+            ax = (uint16_t)(ax - (uint16_t)dx);
+        }
 
-    // Extended detune.
-    if (di->detune != 0) {
-        int32_t product = (int16_t)ax * di->detune;
-        int16_t dx = (int16_t)(((uint32_t)product << 4) >> 16);
-        if (dx < 0) dx--;
-        else dx++;
-        ax = (uint16_t)(ax - (uint16_t)dx);
-    }
-
-    {
         int16_t dx = 0;
         if ((di->lfoswi & 0x11) != 0) {
             if ((di->lfoswi & 1) != 0) dx = di->lfodat;
@@ -7168,7 +7169,7 @@ static void otodasip(struct pmd *pmd, struct pmd_qq *di) {
         }
     }
 
-tonesetp:
+    // :4677 tonesetp
     if (ax >= 0x1000) ax = (int16_t)ax < 0 ? 0 : 0xfff;
     {
         uint8_t dh = (uint8_t)((pmd->partb - 1) * 2);
@@ -7558,97 +7559,101 @@ static bool lfo(struct pmd *pmd, struct pmd_qq *di) {
 // :5375
 static void lfo_main(struct pmd *pmd, struct pmd_qq *di) {
     (void)pmd;
-    if (di->speed == 1) goto lfo2;
-    if (di->speed == 0xff) return;
-    di->speed--;
-    return;
+    if (di->speed != 1) {
+        if (di->speed == 0xff) return;
+        di->speed--;
+        return;
+    }
 
-lfo2:
+    // :5383 lfo2
     di->speed = di->speed2;
-    uint8_t bl = di->lfo_wave;
-    if (bl == 0 || bl == 4) goto lfo_sankaku;
-    if (bl == 2) goto lfo_kukei;
-    if (bl == 6) goto lfo_oneshot;
-    if (bl == 5) goto lfo_sankaku;
-    if (bl == 1) goto lfo_nokogiri;
-    goto lfo_random;
-
-lfo_sankaku:
-    {
-        uint16_t ax;
-        if (di->lfo_wave == 5) {
-            int8_t al = (int8_t)di->step;
-            uint8_t mag = (uint8_t)(al < 0 ? -al : al);
-            ax = (uint16_t)((int16_t)al * (int16_t)mag);
-        } else {
-            ax = (uint16_t)(int16_t)(int8_t)di->step;
+    switch (di->lfo_wave) {
+    case 0:
+    case 4:
+    case 5:
+        // :5408 lfo_sankaku
+        {
+            uint16_t ax;
+            if (di->lfo_wave == 5) {
+                int8_t al = (int8_t)di->step;
+                uint8_t mag = (uint8_t)(al < 0 ? -al : al);
+                ax = (uint16_t)((int16_t)al * (int16_t)mag);
+            } else {
+                ax = (uint16_t)(int16_t)(int8_t)di->step;
+            }
+            di->lfodat = (int16_t)(di->lfodat + (int16_t)ax);
+            if (di->lfodat == 0) md_inc(di);
         }
-        di->lfodat = (int16_t)(di->lfodat + (int16_t)ax);
-        if (di->lfodat == 0) md_inc(di);
-    }
-    {
-        uint8_t al = di->time;
-        if (al == 0xff) goto lfo3;
-        al--;
-        if (al != 0) goto lfo3;
-        al = di->time2;
-        if (di->lfo_wave != 4) al = (uint8_t)(al + al);
-        di->time = al;
-        di->step = (uint8_t)(0 - di->step);
-        return;
-lfo3:
-        di->time = al;
-        return;
-    }
-
-lfo_nokogiri:
-    di->lfodat = (int16_t)(di->lfodat +
-                           (int16_t)(int8_t)di->step);
-    {
-        uint8_t al = di->time;
-        if (al == 0xff) goto nk_lfo3;
-        al--;
-        if (al != 0) goto nk_lfo3;
-        di->lfodat = (int16_t)(0 - di->lfodat);
-        md_inc(di);
-        al = di->time2;
-        al = (uint8_t)(al + al);
-nk_lfo3:
-        di->time = al;
-        return;
-    }
-
-lfo_oneshot:
-    {
-        uint8_t al = di->time;
-        if (al == 0) return;
-        if (al != 0xff) {
-            al--;
+        {
+            // :5429 lfo3
+            uint8_t al = di->time;
+            if (al != 0xff) {
+                al--;
+                if (al == 0) {
+                    al = di->time2;
+                    if (di->lfo_wave != 4) al = (uint8_t)(al + al);
+                    di->time = al;
+                    di->step = (uint8_t)(0 - di->step);
+                    return;
+                }
+            }
             di->time = al;
+            return;
         }
-        di->lfodat = (int16_t)(di->lfodat +
-                               (int16_t)(int8_t)di->step);
-        return;
-    }
 
-lfo_kukei:
-    {
-        uint16_t ax = (uint16_t)((int16_t)(int8_t)di->step *
-                                 (int16_t)(int8_t)di->time);
-        di->lfodat = (int16_t)ax;
-        md_inc(di);
-        di->step = (uint8_t)(0 - di->step);
-        return;
-    }
+    case 1:
+        // :5434 lfo_nokogiri
+        di->lfodat = (int16_t)(di->lfodat + (int16_t)(int8_t)di->step);
+        {
+            // :5450 nk_lfo3
+            uint8_t al = di->time;
+            if (al != 0xff) {
+                al--;
+                if (al == 0) {
+                    di->lfodat = (int16_t)(0 - di->lfodat);
+                    md_inc(di);
+                    al = di->time2;
+                    al = (uint8_t)(al + al);
+                }
+            }
+            di->time = al;
+            return;
+        }
 
-lfo_random:
-    {
-        uint8_t al = di->step;
-        if ((al & 0x80) != 0) al = (uint8_t)(0 - al);
-        uint16_t x = (uint16_t)((unsigned)al * di->time);
-        uint16_t r = rnd(pmd, (uint16_t)(x + x));
-        di->lfodat = (int16_t)(r - x);
-        return;
+    case 6:
+        // :5454 lfo_oneshot
+        {
+            uint8_t al = di->time;
+            if (al == 0) return;
+            if (al != 0xff) {
+                al--;
+                di->time = al;
+            }
+            di->lfodat = (int16_t)(di->lfodat + (int16_t)(int8_t)di->step);
+            return;
+        }
+
+    case 2:
+        // :5470 lfo_kukei
+        {
+            uint16_t ax = (uint16_t)((int16_t)(int8_t)di->step *
+                                     (int16_t)(int8_t)di->time);
+            di->lfodat = (int16_t)ax;
+            md_inc(di);
+            di->step = (uint8_t)(0 - di->step);
+            return;
+        }
+
+    default:
+        // :5479 not_nokogiri / lfo_random, waves 3 and above
+        {
+            uint8_t al = di->step;
+            if ((al & 0x80) != 0) al = (uint8_t)(0 - al);
+            uint16_t x = (uint16_t)((unsigned)al * di->time);
+            uint16_t r = rnd(pmd, (uint16_t)(x + x));
+            di->lfodat = (int16_t)(r - x);
+            return;
+        }
     }
 }
 
@@ -7660,11 +7665,9 @@ static void md_inc(struct pmd_qq *di) {
 
     uint8_t al = di->mdc;
     if (al == 0) return;
-    if ((al & 0x80) != 0) goto mdi21;
-    al--;
-    di->mdc = al;
+    if ((al & 0x80) == 0) di->mdc = (uint8_t)(al - 1);
 
-mdi21:
+    // :5512 mdi21
     al = di->step;
     if ((al & 0x80) != 0) {
         al = (uint8_t)(0 - al);
@@ -7707,46 +7710,44 @@ static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
         ah = al & 0x0f;
     }
     di->onkai_def = al;
-    if (ah == 0x0f) goto lfo_exitp;
 
-    di->porta_num = 0;
-    if ((pmd->tieflag & 1) == 0) goto seinit;
+    if (ah != 0x0f) {
+        di->porta_num = 0;
+        if ((pmd->tieflag & 1) == 0) {
+            if (di->envf == 0xff) {
+                // :5612 extenv_init, the extended SSG envelope
+                di->eenv_arc = (uint8_t)(di->eenv_ar - 16);
+                uint8_t v = (uint8_t)(di->eenv_dr - 16);
+                if ((v & 0x80) != 0) v = (uint8_t)(v + v);
+                di->eenv_drc = v;
+                v = (uint8_t)(di->eenv_sr - 16);
+                if ((v & 0x80) != 0) v = (uint8_t)(v + v);
+                di->eenv_src = v;
+                di->eenv_rrc = (uint8_t)((di->eenv_rr + di->eenv_rr) - 16);
+                di->eenv_volume = di->eenv_al;
+                di->eenv_count = 1;
+                ext_ssgenv_main(di);
+            } else {
+                // :5593 seinit
+                di->envf = 0;
+                di->penv = 0;
+                ah = di->patb;
+                di->pat = ah;
+                if (ah == 0) {
+                    di->envf = 1;
+                    di->penv = di->pv2;
+                }
+                di->pr1 = di->pr1b;
+                di->pr2 = di->pr2b;
+            }
+            lfin1(pmd, di);
+            return al;
+        }
+    }
 
-lfo_exitp:
+    // :5584 lfo_exitp
     soft_env(pmd, di);
     lfo_exit_common(pmd, di);
-    return al;
-
-seinit:
-    if (di->envf == 0xff) goto extenv_init;
-    di->envf = 0;
-    di->penv = 0;
-    ah = di->patb;
-    di->pat = ah;
-    if (ah == 0) {
-        di->envf = 1;
-        di->penv = di->pv2;
-    }
-    di->pr1 = di->pr1b;
-    di->pr2 = di->pr2b;
-    lfin1(pmd, di);
-    return al;
-
-extenv_init:
-    di->eenv_arc = (uint8_t)(di->eenv_ar - 16);
-    {
-        uint8_t v = (uint8_t)(di->eenv_dr - 16);
-        if ((v & 0x80) != 0) v = (uint8_t)(v + v);
-        di->eenv_drc = v;
-        v = (uint8_t)(di->eenv_sr - 16);
-        if ((v & 0x80) != 0) v = (uint8_t)(v + v);
-        di->eenv_src = v;
-        di->eenv_rrc = (uint8_t)((di->eenv_rr + di->eenv_rr) - 16);
-    }
-    di->eenv_volume = di->eenv_al;
-    di->eenv_count = 1;
-    ext_ssgenv_main(di);
-    lfin1(pmd, di);
     return al;
 }
 
@@ -7758,14 +7759,15 @@ static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
         ah = al & 0x0f;
     }
     di->onkai_def = al;
-    if (ah == 0x0f) goto lfo_exit;
-    di->porta_num = 0;
-    if ((pmd->tieflag & 1) == 0) {
-        lfin1(pmd, di);
-        return al;
+    if (ah != 0x0f) {
+        di->porta_num = 0;
+        if ((pmd->tieflag & 1) == 0) {
+            lfin1(pmd, di);
+            return al;
+        }
     }
 
-lfo_exit:
+    // :5665 lfo_exit
     lfo_exit_common(pmd, di);
     return al;
 }
@@ -7998,27 +8000,26 @@ static void fadeout(struct pmd *pmd) {
     if (pmd->pause_flag == 1) return;
     uint8_t al = pmd->fadeout_speed;
     if (al == 0) return;
-    if ((al & 0x80) != 0) goto fade_in;
 
     unsigned sum = (unsigned)al + pmd->fadeout_volume;
-    if (sum > 0xff) {
-        pmd->fadeout_volume = 255;
-        pmd->fadeout_speed = 0;
-        if (pmd->fade_stop_flag == 1) pmd->music_flag |= 2;
-        return;
-    }
-    pmd->fadeout_volume = (uint8_t)sum;
-    return;
-
-fade_in:
-    sum = (unsigned)al + pmd->fadeout_volume;
-    if (sum <= 0xff) {
-        pmd->fadeout_volume = 0;
-        pmd->fadeout_speed = 0;
+    if ((al & 0x80) == 0) {
+        // :5978 fadeout_end
+        if (sum > 0xff) {
+            pmd->fadeout_volume = 255;
+            pmd->fadeout_speed = 0;
+            if (pmd->fade_stop_flag == 1) pmd->music_flag |= 2;
+            return;
+        }
+    } else {
+        // :5987 fade_in
+        if (sum <= 0xff) {
+            pmd->fadeout_volume = 0;
+            pmd->fadeout_speed = 0;
 #if board2
-        volset2rf(pmd, pmd->rhyvol);
+            volset2rf(pmd, pmd->rhyvol);
 #endif
-        return;
+            return;
+        }
     }
     pmd->fadeout_volume = (uint8_t)sum;
 }
@@ -8047,32 +8048,28 @@ static void silence(struct pmd *pmd) {
     static const uint8_t fmoff_ef[] = {0, 1, 4, 5, 8, 9, 12, 13, 0xff};
 #if board2
     sel44(pmd);
-    uint8_t ah = 2;
+    // :6045 oploop masks both chips, the first chip's first.
+    for (uint8_t ah = 2; ah != 0; ah--) {
 #endif
+        const uint8_t *table;
+        if (pmd->fm_effec_flag == 1
+#if board2
+            && ah == 1
+#endif
+        ) {
+            table = fmoff_ef;
+        } else {
+            table = fmoff_nef;
+        }
+        for (;;) {
+            uint8_t dh = *table++;
+            if (dh == 0xff) break;
+            opnset(pmd, (uint16_t)(((dh + 0x80) << 8) | 0xff));
+        }
 
 #if board2
-oploop:;
-#endif
-    const uint8_t *table;
-    if (pmd->fm_effec_flag == 1
-#if board2
-        && ah == 1
-#endif
-    ) {
-        table = fmoff_ef;
-    } else {
-        table = fmoff_nef;
+        sel46(pmd);
     }
-    for (;;) {
-        uint8_t dh = *table++;
-        if (dh == 0xff) break;
-        opnset(pmd, (uint16_t)(((dh + 0x80) << 8) | 0xff));
-    }
-
-#if board2
-    sel46(pmd);
-    ah--;
-    if (ah != 0) goto oploop;
 #endif
 
     {
@@ -8100,21 +8097,19 @@ oploop:;
     }
 #endif
 
-    if (pmd->effon != 0) goto psg_ef;
-    if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL &&
-        pmd->pps->keyoff != NULL) {
-        pmd->pps->keyoff(pmd->user_data);
-    }
-    opnset44(pmd, 0x07bf);
-    goto s_pcm;
-
-psg_ef:
-    {
+    if (pmd->effon != 0) {
+        // :6107 psg_ef
         uint8_t dl = (uint8_t)((get07(pmd) & 0x3f) | 0x9b);
         opnset44(pmd, (uint16_t)((0x07 << 8) | dl));
+    } else {
+        if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL &&
+            pmd->pps->keyoff != NULL) {
+            pmd->pps->keyoff(pmd->user_data);
+        }
+        opnset44(pmd, 0x07bf); // PSG KEYOFF
     }
 
-s_pcm:;
+    // :6118 s_pcm
 #if board2
     // :6126 a missing ADPCM RAM skips the second chip's whole reset block,
     // not just the PAN/PCM writes at its start.
@@ -8450,13 +8445,16 @@ void pmd_pause_off(struct pmd *pmd) {
     pmd->partb = 2;
     neiro_reset(pmd, &pmd->parts[part2]);
 #if !board2
-    if (pmd->fm_effec_flag == 1) goto pauoff_exit;
+    if (pmd->fm_effec_flag != 1) {
+#else
+    {
 #endif
-    pmd->partb = 3;
-    neiro_reset(pmd, &pmd->parts[part3]);
-    neiro_reset(pmd, &pmd->parts[part3b]);
-    neiro_reset(pmd, &pmd->parts[part3c]);
-    neiro_reset(pmd, &pmd->parts[part3d]);
+        pmd->partb = 3;
+        neiro_reset(pmd, &pmd->parts[part3]);
+        neiro_reset(pmd, &pmd->parts[part3b]);
+        neiro_reset(pmd, &pmd->parts[part3c]);
+        neiro_reset(pmd, &pmd->parts[part3d]);
+    }
 
 #if board2
     sel46(pmd);
@@ -8464,12 +8462,13 @@ void pmd_pause_off(struct pmd *pmd) {
     neiro_reset(pmd, &pmd->parts[part4]);
     pmd->partb = 2;
     neiro_reset(pmd, &pmd->parts[part5]);
-    if (pmd->fm_effec_flag == 1) goto pauoff_exit;
-    pmd->partb = 3;
-    neiro_reset(pmd, &pmd->parts[part6]);
+    if (pmd->fm_effec_flag != 1) {
+        pmd->partb = 3;
+        neiro_reset(pmd, &pmd->parts[part6]);
+    }
 #endif
 
-pauoff_exit:
+    // :6732 pauoff_exit
     pmd->pause_flag = 0;
     pmd->play_flag = 1;
     int60_exit(pmd);
@@ -8530,61 +8529,60 @@ uint8_t pmd_ff_music(struct pmd *pmd, uint16_t bar) {
 // Fast-forwards to bar `dx`. The original masks the FM interrupt around this
 // call; the host owns that exclusion.
 static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx) {
-    uint8_t al;
-
     if (pmd->status2 == 0xff) return PMD_FF_MUSIC_STOPPED;
 
     pmd->skip_flag = 1;
-    if (dx > pmd->syousetu) goto ffm_main;
-
-    // :6835 Restart from the top before skipping forward.
-    pmd->skip_flag = 2;
-    if (pmd->effon == 1) effend(pmd);
-    data_init2(pmd);
-    play_init(pmd);
-    opn_init(pmd);
-    if (dx != 0) goto ffm_main;
-    silence(pmd);
-    goto ffm_exit0b;
-
-ffm_main:;
-    maskon_all(pmd);
-#if board2
-    opnset44(pmd, 0x10ff); // dump the rhythm source
-#endif
-
-    // :6856 The fadeout and rhythm mask are suspended for the skip.
-    uint8_t fadeout_volume = pmd->fadeout_volume;
-    uint8_t rhythmmask = pmd->rhythmmask;
-    pmd->fadeout_volume = 0xff;
-    pmd->rhythmmask = 0;
-
-    uint16_t bp = dx;
-    for (;;) {
-        mmain(pmd);
-        syousetu_count(pmd);
-        if (pmd->status2 == 0xff) {
-            maskoff_all(pmd);
-            al = PMD_FF_MUSIC_PAST;
-            goto ffm_exit;
-        }
-        if (bp <= pmd->syousetu) break;
+    bool skip = dx > pmd->syousetu;
+    if (!skip) {
+        // :6835 Restart from the top before skipping forward.
+        pmd->skip_flag = 2;
+        if (pmd->effon == 1) effend(pmd);
+        data_init2(pmd);
+        play_init(pmd);
+        opn_init(pmd);
+        skip = dx != 0;
     }
 
-    pmd->fadeout_volume = fadeout_volume;
-    pmd->rhythmmask = rhythmmask;
+    if (skip) {
+        // :6844 ffm_main
+        maskon_all(pmd);
 #if board2
-    if (fadeout_volume == 0) volset2rf(pmd, pmd->rhyvol);
+        opnset44(pmd, 0x10ff); // dump the rhythm source
 #endif
-    maskoff_all(pmd);
 
-ffm_exit0b:
-    // :6890 One less than the fast-forward tempo.
+        // :6856 The fadeout and rhythm mask are suspended for the skip.
+        uint8_t fadeout_volume = pmd->fadeout_volume;
+        uint8_t rhythmmask = pmd->rhythmmask;
+        pmd->fadeout_volume = 0xff;
+        pmd->rhythmmask = 0;
+
+        uint16_t bp = dx;
+        for (;;) {
+            mmain(pmd);
+            syousetu_count(pmd);
+            if (pmd->status2 == 0xff) {
+                // :6886 ffm_exit1
+                maskoff_all(pmd);
+                pmd->skip_flag = 0;
+                return PMD_FF_MUSIC_PAST;
+            }
+            if (bp <= pmd->syousetu) break;
+        }
+
+        pmd->fadeout_volume = fadeout_volume;
+        pmd->rhythmmask = rhythmmask;
+#if board2
+        if (fadeout_volume == 0) volset2rf(pmd, pmd->rhyvol);
+#endif
+        maskoff_all(pmd);
+    } else {
+        silence(pmd);
+    }
+
+    // :6881 ffm_exit0b
     stb_ff(pmd, (uint8_t)(pmd->ff_tempo - 1));
-    al = PMD_FF_MUSIC_OK;
-ffm_exit:
     pmd->skip_flag = 0;
-    return al;
+    return PMD_FF_MUSIC_OK;
 }
 
 // :6902
@@ -8876,20 +8874,23 @@ static void opnint(struct pmd *pmd) {
     outb(pmd, 2, (uint8_t)(vsync_save | 4));
 #endif
 
-INT_check:
+    // :7538 INT_check, retried from the top after each handler runs.
+    for (;;) {
 #if pcm
-    // :7540 Check the PCM86 FIFO interrupt bit.
-    if ((inb(pmd, 0xa468) & 0x10) != 0) {
-        fifo_main(pmd);
-        goto INT_check;
-    }
+        // :7540 Check the PCM86 FIFO interrupt bit.
+        if ((inb(pmd, 0xa468) & 0x10) != 0) {
+            fifo_main(pmd);
+            continue;
+        }
 #endif
-    // :7556 _ppz
-    ppz_int_hook(pmd);
-    // :7561-7566
-    if ((rdychk(pmd, pmd->fm1_port1) & 3) != 0) {
-        FM_Timer_main(pmd);
-        goto INT_check;
+        // :7556 _ppz
+        ppz_int_hook(pmd);
+        // :7561-7566
+        if ((rdychk(pmd, pmd->fm1_port1) & 3) != 0) {
+            FM_Timer_main(pmd);
+            continue;
+        }
+        break;
     }
 
     // :7571 opnint_fin
@@ -10075,35 +10076,37 @@ static void adpcm_ram_check(struct pmd *pmd) {
 
     pmd->adpcm_wait = 2;
     memset(check_data, 0, sizeof(check_data));
-    if (pcmstore(pmd, check_data)) goto found_ymf288;
+    if (pcmstore(pmd, check_data)) {
+        // :61 found_ymf288
+        // ADRAMCHK.ASM:62 overwrites the "2608" in mes_ongen1 with "F288".
+        memcpy(pmd->mes_ongen1 + 2, "F288", 4);
+        pmd->pcm_gs_flag = 1;
+        return;
+    }
 
     // :29 The saved speed skips the faster settings.
     if (wait != 2 && wait != 1) {
         pmd->adpcm_wait = 0;
         pcmstore(pmd, (const uint8_t *)check_code);
         pcmread(pmd, check_data);
-        if (pcmcompare(check_data)) goto arc_found_exit;
+        if (pcmcompare(check_data)) {
+            pmd->pcm_gs_flag = 0; // :57 the ADPCM RAM is present
+            return;
+        }
     }
     if (wait != 2) {
         pmd->adpcm_wait = 1;
         pcmstore(pmd, (const uint8_t *)check_code);
         pcmread(pmd, check_data);
-        if (pcmcompare(check_data)) goto arc_found_exit;
+        if (pcmcompare(check_data)) {
+            pmd->pcm_gs_flag = 0; // :57 the ADPCM RAM is present
+            return;
+        }
     }
     pmd->adpcm_wait = 2;
     pcmstore(pmd, (const uint8_t *)check_code);
     pcmread(pmd, check_data);
-    if (!pcmcompare(check_data)) goto arc_no_exit;
-
-arc_found_exit: // :57 the ADPCM RAM is present
-    pmd->pcm_gs_flag = 0;
-    return;
-
-found_ymf288: // :61
-    // ADRAMCHK.ASM:62 overwrites the "2608" in mes_ongen1 with "F288".
-    memcpy(pmd->mes_ongen1 + 2, "F288", 4);
-arc_no_exit:
-    pmd->pcm_gs_flag = 1;
+    pmd->pcm_gs_flag = pcmcompare(check_data) ? 0 : 1; // :57, :64
 }
 
 // ADRAMCHK.ASM:72

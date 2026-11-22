@@ -102,6 +102,14 @@ the definitions:
   the end of a block; later phases replace a stub in place.
 - `pmd_init` stays at the top of the definitions and the lifecycle entry points
   (`pmd_resident_main`, `pmd_resident_cut`) at the end.
+- The ordering requirement above is about declarations. Statements inside a
+  function need not appear in source order: what matters is that they are
+  *executed* in the original's order. A block may therefore be moved within its
+  function (inlining the body of a label into the branch that jumps to it, for
+  example) as long as the resulting execution order is unchanged. Line-number
+  comments keep that traceable: give the moved block the line number of the
+  original statement or label it translates, so a reader can follow the logic
+  even when it is written somewhere else.
 
 ### Names
 
@@ -126,14 +134,22 @@ the definitions:
 - Follow the source logic and flow as exactly as possible, including bugs. If
   the original has behavior that is clearly a bug but is observable, preserve
   it and mark it with a `BUG:` comment. Do not silently fix the original.
-- Prefer structured C control flow where the original is structured. Where the
-  original uses jumps and a direct translation would require a large
-  restructuring, use a strategic `goto` that mirrors the original label rather
-  than inventing a different control-flow shape. The MC port does this in
-  several places; follow its example.
+- Prefer structured C control flow. A `goto` is only justified where the
+  original's label is genuinely re-entered from several places (a shared
+  epilogue or a chained state machine), so that structured C would have to
+  duplicate a block or nest several conditions. In particular, a label that
+  sits at the end of the function body after a `return`, or a jump that only
+  selects between mutually exclusive blocks, is written as an early return or
+  an `if`/`else` instead. Where the original uses jumps and a direct
+  translation would require a large restructuring, use a strategic `goto` that
+  mirrors the original label rather than inventing a different control-flow
+  shape. The MC port does this in several places; follow its example.
 - Preserve the original's ordering of side effects. This matters especially for
   register writes, interrupt-visible state, and the `si`/`di`-style pointer
-  updates.
+  updates. The requirement is on execution order, not on the order the
+  statements are written: a block may be moved within the translation of a
+  function (see "Source organization") as long as everything still executes in
+  the original's order.
 - Keep the original's register-oriented state where it is real driver state or
   effects observable behavior, as MC does with `si`/`di`; `partb` is a PMD
   example. Do not preserve `ds_push`, `dx_push`, `ah_push`, or `al_push` merely
@@ -957,8 +973,9 @@ Work items:
 - Translate `fadeout`/`rew` and the keyboard check (`key_check`, `esc_sp_key`,
   `grph_sp_key`, `rew_sp_key`); the keyboard state source is a host concern and
   should be a small helper (see below).
-- Keep the original `BUG:` behavior and the original's `goto`/label structure
-  where necessary.
+- Keep the original `BUG:` behavior, and keep the original's `goto`/label
+  structure only where the structured form would have to duplicate or nest
+  heavily (see "Logic and control flow").
 - Extend `test/pmd` with small checked-in module buffers (reusing suitable
   `test/mc/cases/*.M` fixtures where practical), explicit part-state
   expectations, and recorded OPN writes for start/stop, notes, commands, loops,
