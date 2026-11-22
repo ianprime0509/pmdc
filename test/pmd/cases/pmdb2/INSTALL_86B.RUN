@@ -1,0 +1,6 @@
+; Driver: pmdb2
+; Board: 86B
+; Chip: YM2608
+
+main /C
+status

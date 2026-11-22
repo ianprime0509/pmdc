@@ -154,8 +154,8 @@ pub fn build(b: *std.Build) void {
     }
 
     // The trace-driven golden tests share one harness executable and run it
-    // against each variant's own trace host; a case names the driver it
-    // belongs to, so the other variants skip it.
+    // against each variant's own trace host. Cases are grouped by driver, so
+    // each variant runs its own directory under test/pmd/cases.
     const pmd_trace_step = b.step("test-pmd-traces", "Run the PMD trace tests");
     const replay = b.option(bool, "replay", "Drive the trace tests from the goldens' timer lines") orelse false;
     const pmd_trace_harness_mod = b.createModule(.{
@@ -176,7 +176,7 @@ pub fn build(b: *std.Build) void {
         const trace_run = b.addRunArtifact(pmd_trace_harness_exe);
         if (replay) trace_run.addArg("--replay");
         trace_run.addFileArg(trace_exe.getEmittedBin());
-        trace_run.addDirectoryArg(b.path("test/pmd/cases"));
+        trace_run.addDirectoryArg(b.path(b.fmt("test/pmd/cases/{s}", .{variant.name})));
         trace_run.addCheck(.{ .expect_term = .{ .exited = 0 } });
         // The cache does not see changes to the cases directory.
         trace_run.has_side_effects = true;

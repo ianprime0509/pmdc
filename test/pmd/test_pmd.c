@@ -4654,8 +4654,7 @@ static void test_ymfm_rom(void) {
 
     // Missing image: one warning naming the file, and no sample data.
     pmd_ymfm_load_adpcm_a_file(ymfm, "ym2608_adpcm_rom.bin");
-    CHECK_OUTPUT_CONTAINS(mes_warning);
-    CHECK_OUTPUT_CONTAINS("ym2608_adpcm_rom.bin");
+    CHECK_OUTPUT_CONTAINS("WARNING:ym2608_adpcm_rom.bin");
     CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0), 0);
     CHECK_EQ(pmd_ymfm_adpcm_a_byte(ymfm, 0x1234), 0);
 

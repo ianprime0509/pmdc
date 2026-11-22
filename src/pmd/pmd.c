@@ -8116,12 +8116,16 @@ psg_ef:
 
 s_pcm:;
 #if board2
-    if (pmd->pcmflag == 0) {
+    // :6126 a missing ADPCM RAM skips the second chip's whole reset block,
+    // not just the PAN/PCM writes at its start.
+    if (pmd->pcmflag == 0
 #if adpcm && !ademu
-        if (pmd->pcm_gs_flag != 1) {
-            opnset46(pmd, 0x0102);
-            opnset46(pmd, 0x0001);
-        }
+        && pmd->pcm_gs_flag != 1
+#endif
+    ) {
+#if adpcm && !ademu
+        opnset46(pmd, 0x0102);
+        opnset46(pmd, 0x0001);
 #endif
         opnset46(pmd, 0x1080);
         opnset46(pmd, 0x1018);
@@ -10295,12 +10299,12 @@ void pmd_resident_main(struct pmd *pmd, char *cmdline) {
         int_init(pmd);
 
 #if va
-        // :8690
-        opnset44(pmd, 0x2900);
-        opnset44(pmd, 0x2400);
-        opnset44(pmd, 0x2500);
-        opnset44(pmd, 0x2600);
-        opnset44(pmd, 0x273f);
+        // :8690 The original loads AX with the five timer values but opnset44
+        // takes its argument from DX, which mask_eoi_set (:9049) left at the
+        // master or slave PIC command port. The writes therefore repeat that
+        // port word; setint writes the timer registers later anyway.
+        uint16_t pic_cmd = (uint16_t)((pmd->int_level & 8) != 0 ? 0x0184 : 0x0188);
+        for (unsigned i = 0; i < 5; i++) opnset44(pmd, pic_cmd);
 #else
         // :8707
         opninit_loop(pmd);

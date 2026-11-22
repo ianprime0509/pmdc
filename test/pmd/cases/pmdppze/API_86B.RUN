@@ -1,0 +1,29 @@
+; Driver: pmdppze
+; Board: 86B
+; Chip: YM2608
+
+main /C
+drvchk
+size
+ss
+fv
+ppsdrv
+psgefcnum
+fmefcnum
+pcmefcnum
+joy
+status
+mstart
+mstop
+status
+fout 32
+partmask 130
+partmask 0
+effon 0
+effoff
+fmefon 0
+fmefoff
+ff 1
+status
+pause
+resume

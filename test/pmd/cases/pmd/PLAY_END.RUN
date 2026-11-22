@@ -3,8 +3,10 @@
 ; Chip: YM2203
 
 main /C
-load SSGEG_S.M
+load ../fixtures/DEFONKAI.M
 mstart
 status
-run b 16
+run-until status2 ff max 512
+status
+mstop
 status

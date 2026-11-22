@@ -3,10 +3,8 @@
 ; Chip: YM2203
 
 main /C
-load DEFONKAI.M
+load ../fixtures/SAMPLE2.M
 mstart
 status
-run-until status2 ff max 512
-status
-mstop
+run b 16
 status

@@ -3,7 +3,7 @@
 ; Chip: YM2203
 
 main /C
-load SAMPLE2.M
+load ../fixtures/SSGEG_S.M
 mstart
 status
 run b 16

@@ -59,9 +59,17 @@ TRAP_ADDR = TRAP_SEG * 16 + TRAP_OFF
 CF = 1 << 0
 IF = 1 << 9
 
-# PC-98 host ports the translated driver leaves to the host: the two 8259 PIC
-# banks and the 8254 PIT. `trace.c` never emits them, so they are not recorded.
-HOST_PORTS = {0x00, 0x02, 0x08, 0x0A, 0x71, 0x77}
+# Host ports the translated driver leaves to the host: the two PC-98 8259 PIC
+# banks and the 8254 PIT, and the 88VA's port 32h, where int_init clears the
+# OPN interrupt request. On the 88VA the PICs move to 184h-18Ah (PMD.ASM:265),
+# so those four ports are host-owned there and the FM board sits at 044h
+# instead. `trace.c` never emits them, so they are not recorded.
+HOST_PORTS = {0x00, 0x02, 0x08, 0x0A, 0x32, 0x71, 0x77}
+VA_HOST_PORTS = {0x184, 0x186, 0x188, 0x18A}
+
+
+def is_host_port(port: int, board_kind: str) -> bool:
+    return port in HOST_PORTS or (board_kind == "VA" and port in VA_HOST_PORTS)
 
 # Register 0Eh bits 6-7 select the FM interrupt. The fake board reports 00h,
 # which is IRQ 3 and INT 0Bh (vector_table in PMD.ASM).
@@ -138,7 +146,7 @@ class Board:
     """The fake FM board: just enough of the OPN to satisfy PMD."""
 
     def __init__(self, kind: str, chip: str):
-        if kind not in ("26K", "86B", "none"):
+        if kind not in ("26K", "86B", "VA", "none"):
             raise EmulationError(f"unsupported board {kind!r}")
         if chip not in ("YM2203", "YM2608"):
             raise EmulationError(f"unsupported chip {chip!r}")
@@ -151,12 +159,29 @@ class Board:
         elif kind == "86B":
             self.base = 0x188
             self.opna = True
+        elif kind == "VA":
+            # The 88VA ships with either chip: PMDVA drives a YM2608 and
+            # PMDVA1 a YM2203 (which has no OPNA ID port behavior).
+            self.base = 0x044
+            self.opna = chip == "YM2608"
         else:
             self.base = None
             self.opna = False
-        # Address registers and the last data write, per port pair. The 0AAh
+        # The first and second chip's address and data ports. The PC-98
+        # boards use word pairs (base, base+2, base+4, base+6); the 88VA
+        # drives the YM2608 through four adjacent byte ports.
+        if self.kind == "VA":
+            self.fm1_addr, self.fm1_data = 0x044, 0x045
+            self.fm2_addr, self.fm2_data = 0x046, 0x047
+        elif self.base is not None:
+            self.fm1_addr, self.fm1_data = self.base, self.base + 2
+            self.fm2_addr, self.fm2_data = self.base + 4, self.base + 6
+        else:
+            self.fm1_addr = self.fm1_data = self.fm2_addr = self.fm2_data = None
+        # Each chip's address register and the last data write. The 0AAh
         # probe reads the last data write back.
-        self.addr: dict[int, int] = {}
+        self.addr1 = 0
+        self.addr2 = 0
         self.latch: dict[int, int] = {}
         # Status flags: 1 = Timer A, 2 = Timer B.
         self.flags = 0
@@ -171,10 +196,15 @@ class Board:
         # second-chip status port reads FFh while off and not busy while on.
         self.opna_on = False
 
+    def candidate_port(self, base: int, port: int) -> bool:
+        if base == 0x044:
+            return 0x044 <= port <= 0x047
+        return base <= port < base + 8 and (port - base) % 2 == 0
+
     def pair(self, port: int) -> int | None:
-        candidates = (0x088, 0x188, 0x288, 0x388)
-        for base in candidates:
-            if base <= port < base + 8 and (port - base) % 2 == 0:
+        """The base of the candidate chip a port belongs to."""
+        for base in (0x044, 0x088, 0x188, 0x288, 0x388):
+            if self.candidate_port(base, port):
                 return base
         return None
 
@@ -244,7 +274,7 @@ class Board:
         return latched
 
     def inb(self, port: int) -> int:
-        if port in HOST_PORTS:
+        if is_host_port(port, self.kind):
             # The PIC mask register reads back all-masked, so PMD's intset
             # sees a fresh interrupt and skips its saved INT 5h handler.
             return 0xFF
@@ -252,20 +282,23 @@ class Board:
         if base is not None:
             if not self.present(base):
                 return 0xFF
-            if port == base:
+            if port == self.fm1_addr:
                 return self.flags
-            if port == base + 2:
-                address = self.addr.get(base, 0)
-                if address == 0x0E or address == 0x0F:
+            if port == self.fm1_data:
+                if self.addr1 in (0x0E, 0x0F):
                     return 0x00
                 # The 86 board's OPNA answers register FFh with 1, which is
                 # what check_86b probes for; an absent chip echoes the probe.
-                if self.opna and address == 0xFF:
+                if self.opna and self.addr1 == 0xFF:
                     return 0x01
                 return self.latch.get(port, 0xFF)
             # The second chip: FFh is the probe value check_86b looks for,
             # and the driver's rdychk needs BUSY clear once the OPNA is on.
-            if port == base + 4:
+            # The 88VA has no OPNA gate, and its ADPCM BRDY stays clear so
+            # that adpcm_ram_check reports a YMF288 through its poll timeout.
+            if port == self.fm2_addr:
+                if self.kind == "VA":
+                    return 0x00
                 return 0x00 if self.opna_on else 0xFF
             return 0xFF
         if port == 0xA460:
@@ -279,12 +312,14 @@ class Board:
     def outb(self, port: int, value: int, now: int) -> None:
         base = self.pair(port)
         if base is not None:
-            if port == base:
-                self.addr[base] = value
-            elif port == base + 2:
+            if port == self.fm1_addr:
+                self.addr1 = value
+            elif port == self.fm1_data:
                 self.latch[port] = value
                 if self.present(base):
-                    self.write_register(self.addr.get(base, 0), value, now)
+                    self.write_register(self.addr1, value, now)
+            elif port == self.fm2_addr:
+                self.addr2 = value
             else:
                 self.latch[port] = value
             return
@@ -514,13 +549,13 @@ class Machine:
     # -- Port I/O --------------------------------------------------------
 
     def _on_out(self, mu, port, size, value, user_data) -> None:
-        if port in HOST_PORTS:
+        if is_host_port(port, self.board.kind):
             return
         self.record.write(f"{self.now} outb {hexval(port)} {hexval(value)}\n")
         self.board.outb(port, value, self.now)
 
     def _on_in(self, mu, port, size, user_data) -> None:
-        if self.reads and port not in HOST_PORTS:
+        if self.reads and not is_host_port(port, self.board.kind):
             self.record.write(f"{self.now} inb {hexval(port)}\n")
         return self.board.inb(port)
 

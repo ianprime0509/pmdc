@@ -5,7 +5,9 @@ writes FM/PSG registers and (with the optional resident drivers) calls into
 them. These tests capture that stream from the original binary and compare it
 with the same stream produced by the translation.
 
-Each case is a script (`NAME.RUN`) plus its fixtures. Two hosts execute it:
+Cases are grouped by driver under `cases/<driver>/`, and shared modules live
+in `cases/fixtures/`. Each case is a script (`NAME.RUN`) plus its fixtures;
+two hosts execute it:
 
 - `repro.py` runs one of the reference `.COM` files from `original/pmd48s`
   under Unicorn, with a fake DOS, a fake FM board, and a virtual timer.
@@ -22,18 +24,21 @@ Unicorn. Regenerating a golden needs both.
 
 ## Reproducing a golden
 
-The original binaries live in `original/pmd48s`. Run one case at a time:
+The original binaries live in `original/pmd48s`. The case directory names the
+driver, and the header selects the matching COM. Run one case at a time:
 
     cd test/pmd
-    uv run repro.py ../../original/pmd48s cases INSTALL_26K
+    uv run repro.py ../../original/pmd48s cases/pmd INSTALL_26K
 
-That reads `cases/INSTALL_26K.RUN`, runs `PMD.COM`, and rewrites
-`cases/INSTALL_26K.OUT` and `cases/INSTALL_26K.LOG`. Add `--replay` to take the
-timer schedule from the existing golden instead of from the board's timer
-registers; see "Timer model" below for why that is useful.
+That reads `cases/pmd/INSTALL_26K.RUN`, runs `PMD.COM`, and rewrites
+`cases/pmd/INSTALL_26K.OUT` and `cases/pmd/INSTALL_26K.LOG`. Fixtures shared by
+several cases live in `cases/fixtures`; a script names them relative to its own
+directory, e.g. `load ../fixtures/SAMPLE.M`. Add `--replay` to take the timer
+schedule from the existing golden instead of from the board's timer registers;
+see "Timer model" below for why that is useful.
 
-The trace tests are `zig build test-pmd-traces`, which runs the harness for
-every variant (a case names the driver it belongs to, so the others skip it).
+The trace tests are `zig build test-pmd-traces`, which runs each variant's
+harness against `cases/<variant>`.
 `zig build test-pmd-traces -Dreplay=true` forwards `--replay` to every host.
 The harness accepts `--verbose` for per-case results and `--replay` itself.
 
@@ -47,13 +52,17 @@ A `;` starts a comment. Comment lines at the top of the file are headers:
     ; PMDOPT: /M10
 
 - `Driver` is the reference binary: `pmd` for `PMD.COM`, `pmd86` for
-  `PMD86.COM`, and so on. It also selects the translated variant; a host skips
-  a case whose driver is not the one it was built for.
+  `PMD86.COM`, and so on. It must match the case directory; that directory is
+  also what selects the translated build, and a mismatch fails the case rather
+  than skipping it.
 - `Board` selects the fake board: `26K` (PC-98, chip at 088h), `86B` (PC-98
-  86B, chip at 188h, OPNA present), or `none`, which answers every probe as
-  absent. `86` (PC-88) and `VA` (chip at 44h) are not modelled yet.
+  86B, chip at 188h, OPNA present), `VA` (PC-88VA, chips at 044h and 046h), or
+  `none`, which answers every probe as absent. `86` (PC-88) is not modelled:
+  no shipped binary targets that machine.
 - `Chip` is `YM2203` or `YM2608`. The timer constants are the same for both,
-  so this only documents the case.
+  so it only documents the case, except on `Board: VA`, where it selects
+  whether the OPNA register test succeeds (`pmdva` needs YM2608, `pmdva1`
+  YM2203).
 - `PMDOPT` sets the environment variable the resident options are read from.
   Optional.
 - `Reads: on` records `inb` events on both hosts for diagnosis. No checked-in
@@ -143,19 +152,27 @@ The fake board is deliberately small and must stay identical in both hosts:
 - FM data port reads: register 0Eh and 0Fh return 00h (the interrupt-number
   bits are 0, i.e. IRQ 3 / INT 0Bh); every other address returns the last byte
   written to that data port, which is how the 0AAh probe reads back.
-- The OPNA ID port 0A460h: FFh when no OPNA is declared, 00h otherwise. Writes
-  to it track the driver's OPNA on/off sequence, which matters twice: while the
-  OPNA is off the second chip's status port (base+4) reads FFh, which is the
-  value `check_86b` probes for, and while it is on it reads 00h so `rdychk`
-  does not wait forever. The second chip's data port (base+6) reads FFh. That
-  is enough for the YM2608 probe sequences, and no supported case uses the
-  ADPCM ports yet. The mute ports 0A66Eh and 0A468h read 00h.
+- The second chip: its status port (base+4) reads FFh while the OPNA is off,
+  which is what `check_86b` probes for, and 00h once it is on, so `rdychk`
+  does not wait forever. Its data port (base+6) reads FFh. The ADPCM RAM check
+  polls the status port's BRDY bit, which never sets, so it times out on its
+  low-speed path and reports a YMF288. No case reads ADPCM data back.
+- The OPNA ID port 0A460h: FFh when no OPNA is declared, 00h otherwise, and
+  writes to it track the driver's OPNA on/off sequence. The mute ports 0A66Eh
+  and 0A468h read 00h.
+- `Board: VA` uses four adjacent byte ports instead of word pairs: the same
+  rules apply at 044h/045h and 046h/047h, and the second chip's status port
+  reads 00h (the 88VA has no OPNA gate, and its ADPCM BRDY stays clear the
+  same way).
 - An unmodelled read or write fails the case.
 
-Host-owned PC-98 ports are neither recorded nor modelled beyond what the
-original's installer needs: the PIC mask register 02h reads all-masked, so the
-installer installs its own handler instead of chaining the previous INT 5h,
-and the PIT/PIC writes (00h, 02h, 08h, 0Ah, 71h, 77h) never reach the trace.
+Host-owned ports are neither recorded nor modelled beyond what the original's
+installer needs: the PIC mask registers read all-masked, so the installer
+installs its own handler instead of chaining the previous INT 5h, and the
+PIT/PIC writes never reach the trace. Those ports are 00h, 02h, 08h, 0Ah,
+71h, and 77h on the PC-98 boards, plus 32h on the 88VA (where `int_init`
+clears the OPN interrupt request) and 184h-18Ah, which is where the 88VA's
+8259s live.
 
 `repro.py` builds the DOS structures the installer reads directly: the PSP,
 the environment block, the MCB size that `memchk_init` compares against, and
@@ -214,6 +231,11 @@ Only these host differences are normalized:
   the module data area are logged as offsets from the data area base, and
   other pointers are interned as aliases in first-seen order.
 
+The VA builds print through a NUL-terminated DOS call while the other builds
+use the `$`-terminated one. `mes_warning` has no terminator of its own, so the
+VA console prints `WARNING:$` and the board message twice. That is driver
+output and the translation reproduces it; it is not normalized.
+
 `.OUT` is UTF-8 in both hosts: `repro.py` decodes the reference console and
 re-encodes it, while the translation prints its UTF-8 strings. The decoding
 uses the JIS mapping of Shift JIS rather than Windows CP932, because that is
@@ -222,6 +244,21 @@ turn the usage text's `8160h` wave dash into U+FF5E and report a difference.
 Console cases must avoid module-derived text such as the music name.
 
 ## Cases
+
+Each variant's directory covers the same shapes: a no-board install, a board
+install, the INT 60h probes, and a short playback.
+
+| Directory | Board | Cases |
+| --- | --- | --- |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
+| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
+| `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
+
+What the `pmd` cases cover:
 
 | Case | Covers |
 | --- | --- |
@@ -233,23 +270,32 @@ Console cases must avoid module-derived text such as the music name.
 | `PLAY_SAMPLE` | official `SAMPLE.M`, `mstart`, 16 ticks, status |
 | `PLAY_SAMPLE2` | official `SAMPLE2.M`, same shape |
 | `PLAY_SSGEG` | official `SSGEG_S.M`, same shape |
+| `PLAY_86B` | `SAMPLE.M` on the 86B board: the FM6/rhythm writes the second chip adds |
 | `PLAY_END` | `DEFONKAI.M` (from `test/mc/cases`) played to its end, bounded by `run-until status2 ff max 512` |
 | `USAGE_NONE` | no board plus `/H`: the full usage text and exit status 255 |
 | `OPTIONS_26K` | `PMDOPT` buffers overridden by the command line, `/K-`, and the `size`/`drvchk`/`ppsdrv` results |
 
+The variant directories reuse those shapes: the install cases pin each build's
+probe and initialization sequence, the API cases pin its `drvchk` board value
+and no-module results, and the playback cases pin its timer and register
+writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
+and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's YMF288 timeout.
+
 `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` come from the official 4.8s
-distribution; `DEFONKAI.M` is an MC output copied from `test/mc/cases`.
+distribution; `DEFONKAI.M` is an MC output copied from `test/mc/cases`. They
+live in `cases/fixtures` and every playback case loads one from there.
 
 ## Limitations
 
-The variant matrix, external drivers, and the data-memory paths are follow-ups
-tracked in `PLAN.md`: only `pmd` has cases so far, `Board: VA` and `Board: 86`
-are not modelled, and the PPZ8/P86DRV/ADPCM ports need their own fixtures. The
-harness, script format, and board/timer models are in place for those cases to
-land without changing the design. The 86B install case proves the OPNA probe
-path; playback on a YM2608 board would additionally need the ADPCM/rhythm
-registers, which the current board model deliberately does not answer.
+External drivers and the data-memory paths are follow-ups tracked in
+`PLAN.md`. The PPZ8, PPSDRV, and P86DRV vtables are NULL in the trace host, so
+none of these cases enters their call paths; those need mock drivers in both
+hosts. `Board: 86` (PC-88) is not modelled because no shipped binary targets
+it, and the ADPCM RAM check only reproduces the YMF288 timeout path, not a
+successful transfer. Pointer-valued API actions, long fade/FF/pause traces,
+and voice or effect fixtures are likewise still open.
 
-To add a case: write `NAME.RUN` (plus any fixture), regenerate the goldens with
-`repro.py`, and run `zig build test-pmd-traces`. Do not hand-edit a golden
-without checking the change against the assembly or a replay run.
+To add a case: write `NAME.RUN` (plus any fixture) in the driver's directory,
+regenerate the goldens with `repro.py`, and run `zig build test-pmd-traces`.
+Do not hand-edit a golden without checking the change against the assembly or
+a replay run.

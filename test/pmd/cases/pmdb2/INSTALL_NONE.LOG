@@ -1,0 +1,6 @@
+0 outb 88 ff
+0 outb 188 ff
+0 outb 288 ff
+0 outb 388 ff
+0 ret exit 00
+0 ret status ff ff

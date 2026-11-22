@@ -1,0 +1,6 @@
+; Driver: pmdva1
+; Board: none
+; Chip: YM2203
+
+main /C
+status

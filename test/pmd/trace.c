@@ -29,7 +29,8 @@ enum {
     host_pic_mask = 0xFF,
 };
 
-static const uint16_t candidate_bases[] = {0x088, 0x188, 0x288, 0x388};
+// The 88VA's YM2608 sits at 044h; the PC-98 boards at 088h-388h.
+static const uint16_t candidate_bases[] = {0x044, 0x088, 0x188, 0x288, 0x388};
 
 static const uint16_t timer_a_step = 72;
 static const uint16_t timer_b_step = 1152;
@@ -38,20 +39,39 @@ static const uint16_t timer_b_step = 1152;
 // which is IRQ 3 and INT 0Bh (vector_table in PMD.ASM).
 static const uint8_t board_0eh = 0x00;
 
-// PC-98 host ports the translated driver leaves to the host: the two 8259 PIC
-// banks and the 8254 PIT. repro.py does not record them either.
+// The 88VA relocates the 8259 PICs to 184h-18Ah (PMD.ASM:265).
+static bool va_ports;
+
+// Host ports the translated driver leaves to the host: the two PC-98 8259 PIC
+// banks and 8254 PIT, and the 88VA's port 32h, where int_init clears the OPN
+// interrupt request. On the 88VA the PICs move to 184h-18Ah (PMD.ASM:265), so
+// those four ports are host-owned there and the FM board sits at 044h instead.
+// repro.py does not record these ports either.
 static bool is_host_port(uint16_t port) {
     switch (port) {
     case 0x00:
     case 0x02:
     case 0x08:
     case 0x0A:
+    case 0x32:
     case 0x71:
     case 0x77:
         return true;
     default:
-        return false;
+        break;
     }
+    if (va_ports) {
+        switch (port) {
+        case 0x184:
+        case 0x186:
+        case 0x188:
+        case 0x18A:
+            return true;
+        default:
+            break;
+        }
+    }
+    return false;
 }
 
 struct timer {
@@ -61,12 +81,20 @@ struct timer {
 };
 
 struct board {
-    enum { BOARD_NONE, BOARD_26K, BOARD_86B } kind;
+    enum { BOARD_NONE, BOARD_26K, BOARD_86B, BOARD_VA } kind;
     uint16_t base;
+    // The first and second chip's address and data ports. The PC-98 boards
+    // use word pairs (base, base+2, base+4, base+6); the 88VA drives the
+    // YM2608 through four adjacent byte ports.
+    uint16_t fm1_addr;
+    uint16_t fm1_data;
+    uint16_t fm2_addr;
+    uint16_t fm2_data;
     bool opna;
-    // The address register and last data write, per candidate port pair. The
-    // 0AAh probe reads the last data write back.
-    uint8_t addr[4];
+    // Each chip's address register and the last data write. The 0AAh probe
+    // reads the last data write back.
+    uint8_t addr1;
+    uint8_t addr2;
     uint8_t latch[0x200];
     uint8_t flags;
     uint8_t control;
@@ -252,20 +280,34 @@ static void parse_script(const char *path) {
 
 // -- Board and timer model ------------------------------------------------
 
-static int pair_index(uint16_t base) {
-    for (unsigned i = 0; i < sizeof(candidate_bases) / sizeof(candidate_bases[0]); i++) {
-        if (candidate_bases[i] == base) return (int)i;
-    }
-    return -1;
+// Whether `port` belongs to the chip that would sit at `base`. A candidate
+// base that is not the declared board's answers FFh, which is how the probes
+// discover an absent chip.
+static bool candidate_port(uint16_t base, uint16_t port) {
+    if (base == 0x044) return port >= 0x044 && port <= 0x047;
+    return port >= base && port < base + 8 && (port - base) % 2 == 0;
 }
 
-// The base of the port pair a port belongs to, or 0 if it is not a chip port.
-static uint16_t pair_base(uint16_t port) {
+// The base of the candidate chip a port belongs to, or 0 if it is not one.
+static uint16_t candidate_base(uint16_t port) {
     for (unsigned i = 0; i < sizeof(candidate_bases) / sizeof(candidate_bases[0]); i++) {
-        uint16_t base = candidate_bases[i];
-        if (port >= base && port < base + 8 && (port - base) % 2 == 0) return base;
+        if (candidate_port(candidate_bases[i], port)) return candidate_bases[i];
     }
     return 0;
+}
+
+static void set_ports(struct board *board) {
+    if (board->kind == BOARD_VA) {
+        board->fm1_addr = 0x044;
+        board->fm1_data = 0x045;
+        board->fm2_addr = 0x046;
+        board->fm2_data = 0x047;
+    } else {
+        board->fm1_addr = board->base;
+        board->fm1_data = (uint16_t)(board->base + 2);
+        board->fm2_addr = (uint16_t)(board->base + 4);
+        board->fm2_data = (uint16_t)(board->base + 6);
+    }
 }
 
 static bool board_present(uint16_t base) {
@@ -316,13 +358,12 @@ static void board_write_register(uint8_t reg, uint8_t value, uint64_t now) {
 static uint8_t board_inb(uint16_t port) {
     struct board *board = &trace.board;
     if (is_host_port(port)) return host_pic_mask;
-    uint16_t base = pair_base(port);
+    uint16_t base = candidate_base(port);
     if (base != 0) {
         if (!board_present(base)) return 0xFF;
-        int index = pair_index(base);
-        if (port == base) return board->flags;
-        if (port == base + 2) {
-            uint8_t addr = index >= 0 ? board->addr[index] : 0;
+        if (port == board->fm1_addr) return board->flags;
+        if (port == board->fm1_data) {
+            uint8_t addr = board->addr1;
             if (addr == 0x0E || addr == 0x0F) return board_0eh;
             // The 86 board's OPNA answers register FFh with 1, which is what
             // check_86b probes for; an absent chip echoes the probe.
@@ -330,8 +371,12 @@ static uint8_t board_inb(uint16_t port) {
             return board->latch[port >> 1];
         }
         // The second chip: FFh is the probe value check_86b looks for, and
-        // the driver's rdychk needs BUSY clear once the OPNA is on.
-        if (port == base + 4) return board->opna_on ? 0x00 : 0xFF;
+        // the driver's rdychk needs BUSY clear once the OPNA is on. The 88VA
+        // has no OPNA gate, and its ADPCM BRDY stays clear so that
+        // adpcm_ram_check reports a YMF288 through its poll timeout.
+        if (port == board->fm2_addr) {
+            return board->kind == BOARD_VA ? 0x00 : board->opna_on ? 0x00 : 0xFF;
+        }
         return 0xFF;
     }
     switch (port) {
@@ -348,16 +393,15 @@ static uint8_t board_inb(uint16_t port) {
 
 static void board_outb(uint16_t port, uint8_t value, uint64_t now) {
     struct board *board = &trace.board;
-    uint16_t base = pair_base(port);
+    uint16_t base = candidate_base(port);
     if (base != 0) {
-        int index = pair_index(base);
-        if (port == base) {
-            if (index >= 0) board->addr[index] = value;
-        } else if (port == base + 2) {
+        if (port == board->fm1_addr) {
+            board->addr1 = value;
+        } else if (port == board->fm1_data) {
             board->latch[port >> 1] = value;
-            if (board_present(base) && index >= 0) {
-                board_write_register(board->addr[index], value, now);
-            }
+            if (board_present(base)) board_write_register(board->addr1, value, now);
+        } else if (port == board->fm2_addr) {
+            board->addr2 = value;
         } else {
             board->latch[port >> 1] = value;
         }
@@ -662,6 +706,11 @@ static void setup_board(void) {
         board->kind = BOARD_86B;
         board->base = 0x188;
         board->opna = true;
+    } else if (strcmp(script.board, "VA") == 0) {
+        board->kind = BOARD_VA;
+        board->base = 0x044;
+        board->opna = strcmp(script.chip, "YM2608") == 0;
+        va_ports = true;
     } else if (strcmp(script.board, "none") == 0) {
         board->kind = BOARD_NONE;
         board->base = 0;
@@ -669,6 +718,7 @@ static void setup_board(void) {
     } else {
         fail("unsupported board '%s'", script.board);
     }
+    set_ports(board);
 }
 
 // The golden's timer lines are the replay schedule.
@@ -703,10 +753,11 @@ static void load_replay(void) {
 }
 
 static void check_case(void) {
+    // Cases live in the directory named after their driver, so a mismatch is a
+    // misplaced case rather than a reason to skip.
     if (strcmp(script.driver, trace_variant) != 0) {
-        fprintf(stderr, "%s: skipped (driver %s, built for %s)\n", script.name,
-                script.driver, trace_variant);
-        exit(77);
+        fail("case is for driver %s, but this host was built for %s", script.driver,
+             trace_variant);
     }
     if (strcmp(script.chip, "YM2203") != 0 && strcmp(script.chip, "YM2608") != 0) {
         fail("unsupported chip '%s'", script.chip);
@@ -718,6 +769,8 @@ static void check_case(void) {
     if (strcmp(script.board, "86B") == 0 && strcmp(script.chip, "YM2608") != 0) {
         fail("board 86B is a YM2608 board, not %s", script.chip);
     }
+    // The 88VA is the one board that ships with either chip (PMDVA is the
+    // YM2608 build, PMDVA1 the YM2203 one).
 }
 
 int main(int argc, char **argv) {

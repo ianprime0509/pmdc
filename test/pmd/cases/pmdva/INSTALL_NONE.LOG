@@ -1,0 +1,4 @@
+0 outb 44 b
+0 outb 45 aa
+0 ret exit 00
+0 ret status ff ff

@@ -1,0 +1,10 @@
+; Driver: pmd86
+; Board: 86B
+; Chip: YM2608
+
+main /C
+load ../fixtures/SAMPLE.M
+mstart
+status
+run b 16
+status

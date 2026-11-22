@@ -1,0 +1,10 @@
+; Driver: pmdva1
+; Board: VA
+; Chip: YM2203
+
+main /C
+load ../fixtures/SAMPLE.M
+mstart
+status
+run b 16
+status

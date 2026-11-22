@@ -31,6 +31,21 @@
 #endif
 
 // :10547
+// "eof" is 0 in the VA builds, so print_mes writes from the label to the next
+// NUL. mes_warning has no terminator of its own, so printing it also prints
+// the board message that follows it, and the VA console repeats that line.
+#if va
+#define mes_warning_prefix "\aWARNING:$"
+#if board2 && (pcm || ppz)
+static const char mes_warning[] = mes_warning_prefix "YM2608+PCM が見つかりません．\n";
+#elif board2
+static const char mes_warning[] = mes_warning_prefix "YM2608+ADPCM が見つかりません．\n";
+#else
+static const char mes_warning[] = mes_warning_prefix "ＦＭ音源ボードが装着されていません．\n";
+#endif
+// :10550
+static const char *const mes_not_board = mes_warning + sizeof(mes_warning_prefix) - 1;
+#else
 static const char mes_warning[] = "\aWARNING:";
 
 // :10550
@@ -42,6 +57,7 @@ static const char mes_not_board[] = "YM2608+ADPCM が見つかりません．\n"
 #endif
 #else
 static const char mes_not_board[] = "ＦＭ音源ボードが装着されていません．\n";
+#endif
 #endif
 
 // :10558

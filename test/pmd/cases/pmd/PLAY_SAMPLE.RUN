@@ -3,7 +3,7 @@
 ; Chip: YM2203
 
 main /C
-load SAMPLE.M
+load ../fixtures/SAMPLE.M
 mstart
 status
 run b 16

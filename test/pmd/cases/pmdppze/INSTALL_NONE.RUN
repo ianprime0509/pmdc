@@ -1,0 +1,6 @@
+; Driver: pmdppze
+; Board: none
+; Chip: YM2608
+
+main /C
+status

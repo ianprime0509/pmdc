@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !u8 {
             try runTest(gpa, io, test_dir_entry.name, test_dir, tmp_dir, trace_path_abs, test_dir_abs, replay, &results);
         }
     }
-    log.info("pass: {}, fail: {}, skip: {}", .{ results.n_pass, results.n_fail, results.n_skip });
+    log.info("pass: {}, fail: {}", .{ results.n_pass, results.n_fail });
     return if (results.n_fail == 0) 0 else 1;
 }
 
@@ -95,8 +95,6 @@ fn runTest(
     switch (process_output.term) {
         .exited => |status| switch (status) {
             0 => {},
-            // The variant under test does not own this case.
-            77 => return results.skip(run_path),
             else => return results.fail(run_path, "trace host exited with status {}", .{status}),
         },
         else => |term| return results.fail(run_path, "trace host exited abnormally: {}", .{term}),
@@ -229,18 +227,12 @@ fn lineContaining(text: []const u8, at: usize) []const u8 {
 const Results = struct {
     n_pass: u32,
     n_fail: u32,
-    n_skip: u32,
 
-    const init: Results = .{ .n_pass = 0, .n_fail = 0, .n_skip = 0 };
+    const init: Results = .{ .n_pass = 0, .n_fail = 0 };
 
     fn pass(results: *Results, run_path: []const u8) void {
         log.info("pass: {s}", .{run_path});
         results.n_pass += 1;
-    }
-
-    fn skip(results: *Results, run_path: []const u8) void {
-        log.info("skip: {s}", .{run_path});
-        results.n_skip += 1;
     }
 
     fn fail(results: *Results, run_path: []const u8, comptime fmt: []const u8, args: anytype) void {

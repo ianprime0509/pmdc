@@ -1236,8 +1236,9 @@ already declared in `test/pyproject.toml`.
   (`UC_HOOK_INSN` with `UC_X86_INS_IN`/`UC_X86_INS_OUT`) to serve the
   YM2203/YM2608 register file, status/busy/ID reads, and the ADPCM/PCM86
   ports, and record each write at the current virtual clock. Drop the
-  host-owned PC-98 PIC and PIT ports (`00h`, `02h`, `71h`, `77h`) from the
-  recorded trace; the translated driver does not touch them. Raise on
+  host-owned PIC and PIT ports (`00h`, `02h`, `08h`, `0Ah`, `71h`, `77h`, and
+  on the 88VA also `32h` and `184h`-`18Ah`) from the recorded trace; the
+  translated driver does not touch them. Raise on
   unimplemented ports or registers so a probe path cannot pass by accident.
 - Derive the clock from the timer programming, as the translation's trace host
   does: on writes to registers `24h`/`25h`/`26h`/`27h`, recompute the Timer
@@ -1296,13 +1297,17 @@ harness compares them:
 ```
 
 - `Driver` selects the reference binary (`pmd` for `PMD.COM`, `pmdva` for
-  `PMDVA.COM`, ...) and the translated build the case runs against. The
-  harness skips a case whose driver is not the variant under test.
-- `Board` selects the fake board: `26K` (PC-98, chip at 088h), `86` (PC-88),
-  `86B` (PC-98 86B, chip at 188h), `VA` (chip at 44h), or `none`, which
-  answers every probe as absent.
+  `PMDVA.COM`, ...) and the translated build the case runs against. Cases are
+  grouped under `test/pmd/cases/<driver>/`, and a header that does not match
+  its directory is a failure.
+- `Board` selects the fake board: `26K` (PC-98, chip at 088h), `86B` (PC-98
+  86B, chip at 188h), `VA` (PC-88VA, chips at 044h and 046h), or `none`, which
+  answers every probe as absent. `86` (PC-88) is not modelled: no shipped
+  binary targets it.
 - `Chip` selects the YM2203 (3,993,600 Hz) or the YM2608 (7,987,200 Hz) and
-  so the clock unit; it must agree with `Board` and `Driver`.
+  so the clock unit; it must agree with `Board` and `Driver`. On `Board: VA`
+  it also selects whether the OPNA register test succeeds, which is how
+  `pmdva` (YM2608) and `pmdva1` (YM2203) differ.
 - `PMDOPT` sets the environment variable the installer reads. Optional.
 
 Every other line is one action, in order. The initial set is deliberately
@@ -1456,12 +1461,14 @@ timer lines so a first mismatch does not cascade; that run still fails.
 
 Normalize only these documented host differences:
 
-- PC-98 PIC and PIT ports. The translation leaves interrupt masking, EOI, and
-  the `WAIT.INC` calibration to the host; the original writes PIC ports
-  `00h`/`02h` and PIT ports `71h`/`77h` and reads them back. `repro.py` drops
-  those ports, and the INT 2Fh Windows probe, from the trace. `vsync` is not
-  a shipped variant and its port 2 writes are real driver writes, so it stays
-  unit-tested in `test_pmd.c` instead of being reference-traced.
+- PIC and PIT ports. The translation leaves interrupt masking, EOI, and the
+  `WAIT.INC` calibration to the host; the original writes PIC ports
+  `00h`/`02h`, PIT ports `71h`/`77h`, and on the 88VA the relocated PIC ports
+  `184h`-`18Ah` and the OPN interrupt flag at `32h`, and reads them back.
+  `repro.py` drops those ports, and the INT 2Fh Windows probe, from the
+  trace. `vsync` is not a shipped variant and its port 2 writes are real
+  driver writes, so it stays unit-tested in `test_pmd.c` instead of being
+  reference-traced.
 - The install status line's two wait counts. `fm_check` calibrates
   `wait_clock`/`wait1_clock` by timing a `loop $` against the PIT, which has
   no meaning under a virtual clock, and the translation intentionally keeps
@@ -1489,13 +1496,13 @@ tempo is about 62 ticks per second.
 ##### Layout and build
 
 ```
-test/pmd/cases/NAME.RUN     script
-test/pmd/cases/NAME.M       module fixture (reuse test/mc/cases where possible)
-test/pmd/cases/NAME.LOG     expected trace
-test/pmd/cases/NAME.OUT     expected console output
-test/pmd/trace.c            action dispatch, fake board, timer model
-test/pmd/harness.zig        runs trace-<variant> on each case, compares files
-test/pmd/repro.py           runs the reference COM under Unicorn, writes goldens
+test/pmd/cases/<driver>/NAME.RUN   script
+test/pmd/cases/fixtures/NAME.M     shared module fixture (reuse test/mc/cases)
+test/pmd/cases/<driver>/NAME.LOG   expected trace
+test/pmd/cases/<driver>/NAME.OUT   expected console output
+test/pmd/trace.c                   action dispatch, fake board, timer model
+test/pmd/harness.zig               runs trace-<variant> on each case, compares files
+test/pmd/repro.py                  runs the reference COM under Unicorn, writes goldens
 ```
 
 `test/pmd/trace.c` is built once per variant (`pmd-trace-<variant>`), as
@@ -1521,18 +1528,23 @@ needs no Python or Unicorn.
 
 #### Implementation status
 
-The first Phase 9 trace landed with `test/pmd/repro.py` (fake DOS, board, and
+The Phase 9 trace landed with `test/pmd/repro.py` (fake DOS, board, and
 virtual timer under Unicorn), `test/pmd/trace.c` (the same models against the
 translated driver), `test/pmd/harness.zig`, and the `test-pmd-traces` step in
-`zig build test`. Checked-in cases cover the no-board install, the 26K install,
-the timer-only interleaving, the INT 60h calls that need no module, and
-playback of `SAMPLE.M`, `SAMPLE2.M`, `SSGEG_S.M`, and an MC-produced module to
-its end. `--replay` is available on both hosts and in the build
-(`-Dreplay=true`). The script grammar, event format, board and timer models,
-normalization list, and reproduction steps are documented in
-`test/pmd/README.md`. Still open from the follow-up list: the remaining variants
-and boards (`86`, `VA`), external-driver calls, data-memory paths, pointer
-aliasing actions, sanitizer runs, and audio smoke tests.
+`zig build test`. Cases are grouped by driver; every shipped variant has a
+no-board install, a board install, an INT 60h API case, and a short playback.
+The `pmd` directory additionally covers the 26K and 86B installs, the
+timer-only interleaving, three official modules, an 86B playback, a module
+played to its end, the usage text, and `PMDOPT` overrides. The board model
+covers `26K`, `86B`, `VA` (both chips), and `none`. `--replay` is available on
+both hosts and in the build (`-Dreplay=true`). The script grammar, event
+format, board and timer models, normalization list, and reproduction steps are
+documented in `test/pmd/README.md`. Writing these cases exposed and fixed two
+translation mismatches: the VA initial register writes use a leaked PIC port
+word rather than the intended timer values, and `silence` skipped too little
+when ADPCM was unavailable. Still open from the follow-up list: `Board: 86`,
+external-driver calls, a successful ADPCM RAM transfer, data-memory paths,
+pointer aliasing actions, and sanitizer runs.
 
 #### References
 
@@ -1548,10 +1560,9 @@ aliasing actions, sanitizer runs, and audio smoke tests.
 
 #### Follow-up items to consider
 
-The script harness, the initial action set, the install/console cases, and the
-INT 60h API cases are the main work items above. The following later items are
-valuable once the core harness lands; they should not block the first Phase 9
-trace.
+The script harness, the action set, the install/console cases, the INT 60h
+API cases, and the variant/board matrix have landed. The following later
+items are valuable once the core harness is in place.
 
 4. **External drivers, PCM/data paths, and long-run timer cases.**
    - Record PPSDRV/PPZ8/P86DRV call sequences with fake resident drivers or
@@ -1585,11 +1596,11 @@ trace.
 - `zig build test` runs the trace harness against the checked-in files without
   requiring Python or Unicorn, and reports the first differing event with its
   clock, action, and the surrounding lines.
-- The goldens include at least a `Board: none` install case, a board-present
-  install case, a timer-only case that pins the Timer A/B periods, and a
-  `load`/`mstart` playback trace plus its `status` results for the default
-  `PMD` variant; the variant matrix and the follow-up items above are tracked
-  separately if not yet complete.
+- The goldens include a `Board: none` install case, a board-present install
+  case, a timer-only case that pins the Timer A/B periods, and a
+  `load`/`mstart` playback trace plus its `status` results for every shipped
+  variant. The follow-up items above are tracked separately if not yet
+  complete.
 - The script grammar, the trace format, the timer rules, the normalization
   list, and the reproduction procedure are documented in `test/pmd/README.md`
   and `PLAN.md`.
