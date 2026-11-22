@@ -3,8 +3,9 @@
 This is a C translation of the [Professional Music Driver
 (PMD)](http://www5.airnet.ne.jp/kajapon/tool.html) version 4.8s source code,
 originally written by [Masahiro Kajihara (KAJA)](https://x.com/kajaponn).
-Currently, only MC.EXE has been translated, and it is highly likely that some
-bugs remain from the translation process.
+MC, MCH, EFC, and PMD have been translated. It is highly likely that some bugs
+remain from the translation process; the trace tests described below compare
+PMD's timer-driven register stream with the shipped binaries.
 
 This project has several goals:
 
@@ -38,16 +39,38 @@ information, errors, etc. To compile with English messages, run
 
 ## Usage
 
+`zig build` installs MC, MCH, EFC, every PMD variant, and a player per variant
+into `zig-out/bin`:
+
+```
+mc SONG.MML              # MML compiler
+mch SONG.MML             # MML compiler with evaluation listings
+efc SONG.MML             # EFC effect compiler
+pmd /M16                 # resident PMD, one-shot: prints the install report
+pmd-play SONG.M           # play a module on an FM chip
+pmd86-play SONG.M         # the PCM86 variant, and so on for pmdb2, pmdppz,
+                          # pmdppze, pmdva, and pmdva1
+```
+
+`pmd` and the other PMD programs accept the same options as the originals
+(`/M`, `/V`, `/E`, `/K`, `/C`, ...); run one with no arguments to install with
+its defaults. Unlike the original, `pmd` cannot stay resident: the process
+prints its report and exits. `pmd-play` is the host-side equivalent of
+PMP, and `pmd-play --help` lists its chip, board, and output options.
+
 This translation is intended to behave in exactly the same way as the original
 programs, including bugs and quirks, with a few exceptions:
 
 - Program output printed to the console is encoded in UTF-8 rather than Shift
   JIS so that it will display correctly on modern systems.
 - Functionality specific to DOS can't be implemented as-is, notably, any
-  functionality requiring PMD to be "resident" in memory. In the long term, I'd
-  like to find a solution to this which is as cross-platform as possible
-  (although it's a moot point currently when the only available program is
-  MC.EXE).
+  functionality requiring PMD to be "resident" in memory. The translation
+  replaces residency with a host interface: the FM timer, port I/O, and the
+  PPSDRV/PPZ8/P86DRV resident drivers are supplied through `struct pmd_hw` and
+  the driver vtables in `pmd.h`. The `pmd-play` utility is one such host (YMFM
+  audio output); `test/pmd/trace.c` is another (a recording fake board). In
+  the long term, I'd like to find a solution to residency which is as
+  cross-platform as possible.
 
 Any other difference in behavior is considered a bug in this translation.
 
@@ -57,6 +80,14 @@ typically not observable when using DOSBox or another emulator as a simple
 wrapper. For example, if you don't provide a composer or arranger in MML, it is
 likely that your current system username will be used as a default via the
 `USER` environment variable.
+
+## Tests
+
+`zig build test` runs the MC compiler goldens, the PMD unit tests, and the PMD
+trace tests. The trace tests compare PMD's console output and its ordered port
+write/timer interrupt stream with the shipped 4.8s binaries; see
+`test/pmd/README.md` for the case format and for how to regenerate a golden
+with `repro.py` (which needs Python and Unicorn, unlike a normal test run).
 
 ## License
 

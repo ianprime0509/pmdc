@@ -1,0 +1,10 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+
+main /C
+load SAMPLE2.M
+mstart
+status
+run b 16
+status

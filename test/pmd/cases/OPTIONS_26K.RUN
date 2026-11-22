@@ -1,0 +1,9 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+; PMDOPT: /M12 /V8 /E2
+
+main /M16 /K- /C
+size
+drvchk
+ppsdrv

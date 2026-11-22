@@ -1,0 +1,8 @@
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+WARNING:ＦＭ音源ボードが装着されていません．
+FM音源LSI REG-DATA間 Waitloop回数: 0回 (約 0ns)
+常駐しました．
+INT 60HでPMDを操作可能です．
+ESC/GRPHキーで曲の停止、早送りが可能です．

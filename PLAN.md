@@ -1413,11 +1413,16 @@ accident.
   invocation shares a clock and line order is the only ordering within a
   tick. There is no wall clock, no cycle count, and no emulator setting to
   pin.
-- Both timers run from the install: `setint` writes `24h`/`25h` = 0,
-  `26h` = 200 (`tempo_d`), and `27h` = 3Fh. The first events after `main` are
-  therefore an `a` at 73,728 clocks and a `b` at 64,512, and A and B coincide
-  every 8 B ticks at the default tempo (72/63 = 8/7). Ties are part of the
-  first traces, not an exotic case.
+- Both timers run from the install. The probe-time initialization
+  (`opninit_loop`) writes `27h` = 3Fh while `24h`/`25h`/`26h` are still 0, so
+  the first periods are 1024 * 72 = 73,728 for A and 256 * 1,152 = 294,912 for
+  B. `setint` then writes `26h` = 200 (`tempo_d`) and `27h` = 3Fh, but a load
+  write to a running timer does not move its deadline, so B keeps its first
+  294,912-clock period and only the reloads after that expiry use 64,512.
+  The first events after `main` are therefore an `a` at 73,728 and a `b` at
+  294,912, which is also the first `ab`. After the first B expiry, A and B
+  coincide every 8 B ticks at the default tempo (72/63 = 8/7). Ties are part
+  of the first traces, not an exotic case.
 - At a deadline, latch that timer's status flag, reschedule it to
   `now + period` from the register values at that instant, and then deliver
   one interrupt. A handler that writes `26h` therefore retimes the reload
@@ -1513,6 +1518,21 @@ needs no Python or Unicorn.
 4. `load` + `mstart` + `run b N`: real sequencer output.
 5. INT 60h API actions and their `ret` values.
 6. Effects, external drivers, and the variant matrix as their actions appear.
+
+#### Implementation status
+
+The first Phase 9 trace landed with `test/pmd/repro.py` (fake DOS, board, and
+virtual timer under Unicorn), `test/pmd/trace.c` (the same models against the
+translated driver), `test/pmd/harness.zig`, and the `test-pmd-traces` step in
+`zig build test`. Checked-in cases cover the no-board install, the 26K install,
+the timer-only interleaving, the INT 60h calls that need no module, and
+playback of `SAMPLE.M`, `SAMPLE2.M`, `SSGEG_S.M`, and an MC-produced module to
+its end. `--replay` is available on both hosts and in the build
+(`-Dreplay=true`). The script grammar, event format, board and timer models,
+normalization list, and reproduction steps are documented in
+`test/pmd/README.md`. Still open from the follow-up list: the remaining variants
+and boards (`86`, `VA`), external-driver calls, data-memory paths, pointer
+aliasing actions, sanitizer runs, and audio smoke tests.
 
 #### References
 

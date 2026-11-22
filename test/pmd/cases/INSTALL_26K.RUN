@@ -1,0 +1,6 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+
+main /C
+status
