@@ -1,0 +1,7 @@
+[project]
+name = "pmdc_test"
+version = "0.0.0"
+requires-python = ">=3.14"
+dependencies = [
+    "unicorn>=2.1.4",
+]
