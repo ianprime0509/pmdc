@@ -5062,6 +5062,8 @@ static enum pmd_cmd_result command00(struct pmd *pmd, struct pmd_qq *di, uint8_t
         **si = 0x80;
         return PMD_CMD_RETURN;
     }
+    // :1734 PPZ8's FM entry runs before each command handler.
+    ppz_int_hook(pmd);
     return table[0xff - al](pmd, di, si);
 }
 

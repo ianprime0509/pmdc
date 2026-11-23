@@ -1559,9 +1559,30 @@ format, board and timer models, normalization list, and reproduction steps are
 documented in `test/pmd/README.md`. Writing these cases exposed and fixed two
 translation mismatches: the VA initial register writes use a leaked PIC port
 word rather than the intended timer values, and `silence` skipped too little
-when ADPCM was unavailable. Still open from the follow-up list: `Board: 86`,
-external-driver calls, a successful ADPCM RAM transfer, data-memory paths,
-pointer aliasing actions, and sanitizer runs.
+when ADPCM was unavailable.
+
+The follow-up coverage then landed on the same harness:
+
+- Pointer-valued actions: `musdat`/`tondat`/`efcdat`/`memo` as data-area
+  offsets, `pcm`/`workadr` as first-seen aliases, plus `DATA_26K` for the
+  buffer layout and the memo table.
+- External drivers: `repro.py` installs fake PPSDRV (INT 64h) and PPZ8
+  (INT 7Fh) resident drivers with the original's signature checks, and
+  `trace.c` passes the matching mock vtables. `PPS_26K` pins detection and
+  the effect keyon/keyoff calls; `PPZ_86B`, `PPZ_RESET_86B`, and
+  `PPZ_PLAY_86B` (pmdppz and pmdppze) pin the 0410h/0409h handshake, the
+  removal-protection, FIFO and keyoff sequences, and PPZ8 playback through
+  `PPZEXT.M`, including the directly called FM entry. This also exposed a
+  third translation mismatch: `command00` was missing the `_ppz` call at
+  `PMD.ASM:1734`, so PPZ8's FM entry was not reached from command dispatch.
+- A successful `ADRAMCHK.ASM` transfer: both hosts model the ADPCM-B high
+  register bank and its external memory (address shift, two dummy reads,
+  BRDY), so `pmdb2`/`pmdppz`/`pmdva` now report ADPCM RAM present.
+  `ADPCM_86B` pins the transfer and the part masking it changes.
+
+Still open from the follow-up list: data-memory fixtures (legacy `tondat`
+modules, EFC/ADPCM/PCM data, rhythm ROM), the PDR switch, P86DRV, long
+fade/FF/pause traces, `Board: 86`, and sanitizer runs.
 
 #### References
 
@@ -1582,14 +1603,18 @@ API cases, and the variant/board matrix have landed. The following later
 items are valuable once the core harness is in place.
 
 4. **External drivers, PCM/data paths, and long-run timer cases.**
-   - Record PPSDRV/PPZ8/P86DRV call sequences with fake resident drivers or
-     Unicorn stubs, and compare the same calls through the translation's mock
-     vtables. Cover key-on/key-off, volume/tone/loop/pan/rate, ADPCM
-     emulation, removal protection, FIFO/EMS operations, and unavailable-driver
-     fallbacks.
+   - PPSDRV and PPZ8 are traced: fake resident drivers answer the original's
+     residency checks on both hosts, and the cases cover detection, the
+     install/reset handshakes, effect keyon/keyoff, a PPZ8 playback, and the
+     unavailable-driver (NULL vtable / absent vector) paths. Still open: the
+     PDR switch, P86DRV (which needs a modelled PCM86 card), and the EMS/FIFO
+     calls that only a PCM86 board reaches.
    - Add traces with voice banks, EFC data, ADPCM/PCM86 data reads, loop
      offsets, and rhythm ROM contents. These need fixtures and a data-memory
      model in the trace host, so keep them separate from the basic OPN trace.
+     A voice-bank case additionally needs a module without an embedded
+     program area, because MC modules always carry one and so never read
+     `tondat`.
    - Add long-run timing traces for coincident Timer A/B overflows, tempo and
      timer reprogramming, fade, fast-forward/skip, pause, part masks, and
      effect/music masking. These are the cases where trace comparison is most

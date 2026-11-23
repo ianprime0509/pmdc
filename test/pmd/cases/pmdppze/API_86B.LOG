@@ -444,3 +444,10 @@
 0 outb 18a 6
 0 ret ff 02
 0 ret status 00 ff
+0 ret musdat 0
+0 ret tondat 4000
+0 ret efcdat 6000
+0 ret pcm p1
+0 ret workadr p2
+0 ret memo none
+0 ret memo none

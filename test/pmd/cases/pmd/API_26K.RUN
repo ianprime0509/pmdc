@@ -27,3 +27,10 @@ ff 1
 status
 pause
 resume
+musdat
+tondat
+efcdat
+pcm
+workadr
+memo 0
+memo 1

@@ -1,0 +1,20 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+; PMDOPT: /M10 /V4 /E3
+
+main /C
+musdat
+tondat
+efcdat
+pcm
+workadr
+memo 0
+load ../fixtures/DEFONKAI.M
+memo 0
+memo 1
+memo 2
+memo 3
+memo 7
+memo 8
+status

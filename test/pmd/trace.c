@@ -103,6 +103,17 @@ struct board {
     // check_86b switches the OPNA off, probes, then switches it on. Its
     // second-chip status port reads FFh while off and not busy while on.
     bool opna_on;
+    // The second chip's ADPCM-B external memory bank (registers 0x00-0x0F in
+    // the high register bank, 0x110 for the flag control). ADRAMCHK.ASM reads
+    // back what it wrote and only needs BRDY (bit 3) to be set; EOS is not
+    // checked. The address is masked into the modeled memory the way the
+    // 8-bit/ROM modes shift the register value by five bits.
+    uint8_t adpcm_regs[0x20];
+    uint8_t adpcm_mem[0x10000];
+    uint16_t adpcm_addr;
+    uint8_t adpcm_dummy;
+    bool adpcm_external;
+    bool adpcm_record;
 };
 
 struct action {
@@ -117,6 +128,8 @@ struct script {
     char *chip;
     char *pmdopt;
     bool reads;
+    bool pps;
+    bool ppz8;
     struct action actions[max_actions];
     size_t action_count;
 };
@@ -130,6 +143,9 @@ struct trace {
     const char *cases_dir;
     const char *name;
     void (*handler)(struct pmd *);
+    // First-seen order aliases for pointers the two hosts cannot compare.
+    const void *aliases[16];
+    size_t alias_count;
 };
 
 // --replay turns the golden's timer lines into the delivery schedule, so a
@@ -231,6 +247,16 @@ static void script_header(const char *key, char *value) {
         script.pmdopt = xstrdup(value);
     } else if (strcmp(key, "reads") == 0) {
         script.reads = strcmp(value, "on") == 0;
+    } else if (strcmp(key, "drivers") == 0) {
+        for (char *token = strtok(value, " "); token != NULL; token = strtok(NULL, " ")) {
+            if (strcmp(token, "pps") == 0) {
+                script.pps = true;
+            } else if (strcmp(token, "ppz8") == 0) {
+                script.ppz8 = true;
+            } else {
+                fail("unsupported driver '%s'", token);
+            }
+        }
     } else {
         fail("unknown header '%s'", key);
     }
@@ -355,6 +381,54 @@ static void board_write_register(uint8_t reg, uint8_t value, uint64_t now) {
     }
 }
 
+// The ADPCM-B address register pair in the second chip's high register bank,
+// shifted by the memory mode: the 8-bit and ROM/RAM modes address in 32-byte
+// units (ymfm_adpcm.cpp:687).
+static uint16_t adpcm_address(const struct board *board) {
+    unsigned shift = (board->adpcm_regs[0x01] & 0x03) != 0 ? 5 : 2;
+    unsigned address = board->adpcm_regs[0x02] | ((unsigned)board->adpcm_regs[0x03] << 8);
+    return (uint16_t)((address << shift) & 0xFFFF);
+}
+
+static void adpcm_write_register(struct board *board, uint8_t reg, uint8_t value) {
+    board->adpcm_regs[reg] = value;
+    switch (reg) {
+    case 0x00:
+        board->adpcm_external = (value & 0x20) != 0;
+        board->adpcm_record = (value & 0x40) != 0;
+        // A read transfer consumes two dummy reads before data; a record
+        // transfer clears them on its first write (ymfm_adpcm.cpp:575).
+        board->adpcm_dummy = board->adpcm_external && !board->adpcm_record ? 2 : 0;
+        break;
+    case 0x03:
+        board->adpcm_addr = adpcm_address(board);
+        break;
+    case 0x08:
+        if (board->adpcm_record && board->adpcm_external) {
+            if (board->adpcm_dummy != 0) {
+                board->adpcm_dummy = 0;
+                board->adpcm_addr = adpcm_address(board);
+            }
+            board->adpcm_mem[board->adpcm_addr++] = value;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// The data port reads back the stored ADPCM bytes in read mode; the two dummy
+// reads do not advance. Other modes leave the last write latched.
+static uint8_t adpcm_read_data(struct board *board) {
+    if (!board->adpcm_external || board->adpcm_record) return 0xFF;
+    if (board->adpcm_dummy != 0) {
+        board->adpcm_dummy--;
+        board->adpcm_addr = adpcm_address(board);
+        return 0;
+    }
+    return board->adpcm_mem[board->adpcm_addr++];
+}
+
 static uint8_t board_inb(uint16_t port) {
     struct board *board = &trace.board;
     if (is_host_port(port)) return host_pic_mask;
@@ -372,11 +446,13 @@ static uint8_t board_inb(uint16_t port) {
         }
         // The second chip: FFh is the probe value check_86b looks for, and
         // the driver's rdychk needs BUSY clear once the OPNA is on. The 88VA
-        // has no OPNA gate, and its ADPCM BRDY stays clear so that
-        // adpcm_ram_check reports a YMF288 through its poll timeout.
+        // has no OPNA gate. BRDY (bit 3) reports the ADPCM-B bank as ready,
+        // which is what ADRAMCHK.ASM polls.
         if (port == board->fm2_addr) {
+            if (board->adpcm_external) return 0x08;
             return board->kind == BOARD_VA ? 0x00 : board->opna_on ? 0x00 : 0xFF;
         }
+        if (port == board->fm2_data) return adpcm_read_data(board);
         return 0xFF;
     }
     switch (port) {
@@ -402,6 +478,13 @@ static void board_outb(uint16_t port, uint8_t value, uint64_t now) {
             if (board_present(base)) board_write_register(board->addr1, value, now);
         } else if (port == board->fm2_addr) {
             board->addr2 = value;
+        } else if (port == board->fm2_data) {
+            board->latch[port >> 1] = value;
+            // Registers 00h-1Fh of the high bank are the ADPCM-B interface;
+            // the rest are the FM6/rhythm registers (ymfm_opn.cpp:1224).
+            if (board_present(base) && board->addr2 < 0x20) {
+                adpcm_write_register(board, board->addr2, value);
+            }
         } else {
             board->latch[port >> 1] = value;
         }
@@ -512,6 +595,138 @@ static const struct pmd_hw trace_hw = {
     .read_key_state = NULL,
 };
 
+// -- External driver mocks ------------------------------------------------
+
+// repro.py's fake resident PPSDRV and PPZ8 record the same named operations
+// from the original's INT 64h/7Fh register contracts, so the two traces are
+// comparable.
+
+static void pps_keyoff(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " pps keyoff\n", t->now);
+}
+
+static void pps_keyon(struct pmd_pps_keyon keyon, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " pps keyon %02x %02x %02x\n", t->now, keyon.num,
+            keyon.detune, keyon.volume);
+}
+
+static void pps_pdr_switch(uint8_t value, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " pps pdr %02x %02x\n", t->now, value >> 1,
+            (unsigned)(value & 1));
+}
+
+static const struct pmd_drv_pps trace_pps = {
+    .keyoff = pps_keyoff,
+    .keyon = pps_keyon,
+    .pdr_switch = pps_pdr_switch,
+};
+
+#if ppz
+static void ppz8_init(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 init\n", t->now);
+}
+
+static void ppz8_stop_all(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 stop\n", t->now);
+}
+
+static void ppz8_fifo_interrupt_stop(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 fifo\n", t->now);
+}
+
+static void ppz8_keyon(uint8_t channel, uint16_t voice, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 keyon %02x %04x\n", t->now, channel, voice);
+}
+
+static void ppz8_keyoff(uint8_t channel, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 keyoff %02x\n", t->now, channel);
+}
+
+static void ppz8_set_volume(uint8_t channel, uint8_t volume, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 volume %02x %02x\n", t->now, channel, volume);
+}
+
+static void ppz8_set_tone(uint8_t channel, uint16_t tone, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 tone %02x %04x\n", t->now, channel, tone);
+}
+
+static void ppz8_set_loop(uint8_t channel, uint32_t start, uint32_t end, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 loop %02x %x %x\n", t->now, channel, start, end);
+}
+
+static void ppz8_set_pan(uint8_t channel, uint8_t pan, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 pan %02x %02x\n", t->now, channel, pan);
+}
+
+static void ppz8_set_source_rate(uint8_t channel, uint16_t rate, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 rate %02x %04x\n", t->now, channel, rate);
+}
+
+static void ppz8_set_adpcm_emulation(bool enable, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 adpcm %02x\n", t->now, (unsigned)enable);
+}
+
+static void ppz8_set_removal_protection(bool protect, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 protect %02x\n", t->now, (unsigned)protect);
+}
+
+// The fake board reports IRQ 3, so PPZ8 answers the same level the driver
+// expects from its own 010h register read.
+static uint8_t ppz8_get_irq_level(void *user_data) {
+    struct trace *t = user_data;
+    uint8_t level = (uint8_t)(t->pmd->int_level + 8);
+    fprintf(t->log, "%" PRIu64 " ppz8 irq %02x\n", t->now, level);
+    return level;
+}
+
+// The fake PZI bank the same way repro.py's resident PPZ8 does: a zeroed
+// entry for every voice, so the loop and rate it reports are both zero.
+static const struct pmd_ppz8_voice *ppz8_get_voice(uint8_t voice, void *user_data) {
+    static const struct pmd_ppz8_voice zero_voice;
+    (void)voice;
+    (void)user_data;
+    return &zero_voice;
+}
+
+static void ppz8_fm_int(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " ppz8 fmint\n", t->now);
+}
+
+static const struct pmd_drv_ppz8 trace_ppz8 = {
+    .init = ppz8_init,
+    .stop_all = ppz8_stop_all,
+    .fifo_interrupt_stop = ppz8_fifo_interrupt_stop,
+    .keyon = ppz8_keyon,
+    .keyoff = ppz8_keyoff,
+    .set_volume = ppz8_set_volume,
+    .set_tone = ppz8_set_tone,
+    .set_loop = ppz8_set_loop,
+    .set_pan = ppz8_set_pan,
+    .set_source_rate = ppz8_set_source_rate,
+    .set_adpcm_emulation = ppz8_set_adpcm_emulation,
+    .set_removal_protection = ppz8_set_removal_protection,
+    .get_irq_level = ppz8_get_irq_level,
+    .get_voice = ppz8_get_voice,
+    .fm_int = ppz8_fm_int,
+};
+#endif
+
 // -- Actions --------------------------------------------------------------
 
 static void event_ret(const char *name, uint8_t first, uint8_t second, bool two) {
@@ -520,6 +735,32 @@ static void event_ret(const char *name, uint8_t first, uint8_t second, bool two)
     } else {
         fprintf(trace.log, "%" PRIu64 " ret %s %02x\n", trace.now, name, first);
     }
+}
+
+// A pointer inside the driver is interned as p1, p2, ... in first-seen order:
+// the translated struct is not the original's byte layout, so only the alias
+// pattern is comparable.
+static void event_pointer(const char *name, const void *pointer) {
+    if (pointer == NULL) {
+        fprintf(trace.log, "%" PRIu64 " ret %s none\n", trace.now, name);
+        return;
+    }
+    size_t index = 0;
+    while (index < trace.alias_count && trace.aliases[index] != pointer) index++;
+    if (index == trace.alias_count) {
+        if (trace.alias_count == sizeof(trace.aliases) / sizeof(trace.aliases[0])) {
+            fail("too many pointer aliases");
+        }
+        trace.aliases[trace.alias_count++] = pointer;
+    }
+    fprintf(trace.log, "%" PRIu64 " ret %s p%zu\n", trace.now, name, index + 1);
+}
+
+// A pointer into the data area is compared as an offset from its base: that
+// layout is the original's and both hosts share it.
+static void event_data_offset(const char *name, const void *pointer) {
+    ptrdiff_t offset = (const uint8_t *)pointer - pmd_get_musdat_adr(trace.pmd);
+    fprintf(trace.log, "%" PRIu64 " ret %s %zx\n", trace.now, name, (size_t)offset);
 }
 
 static uint8_t result_flag(bool ok) {
@@ -664,6 +905,23 @@ static void run_actions(void) {
         } else if (strcmp(verb, "joy") == 0) {
             struct pmd_joy joy = pmd_get_joy(trace.pmd);
             event_ret("joy", joy.joystick1, joy.joystick2, true);
+        } else if (strcmp(verb, "musdat") == 0) {
+            event_data_offset("musdat", pmd_get_musdat_adr(trace.pmd));
+        } else if (strcmp(verb, "tondat") == 0) {
+            event_data_offset("tondat", pmd_get_tondat_adr(trace.pmd));
+        } else if (strcmp(verb, "efcdat") == 0) {
+            event_data_offset("efcdat", pmd_get_efcdat_adr(trace.pmd));
+        } else if (strcmp(verb, "pcm") == 0) {
+            event_pointer("pcm", pmd_get_pcm_adr(trace.pmd));
+        } else if (strcmp(verb, "workadr") == 0) {
+            event_pointer("workadr", pmd_get_workadr(trace.pmd));
+        } else if (strcmp(verb, "memo") == 0) {
+            uint8_t *memo = pmd_get_memo(trace.pmd, (uint8_t)parse_number(rest));
+            if (memo == NULL) {
+                event_pointer("memo", NULL);
+            } else {
+                event_data_offset("memo", memo);
+            }
         } else if (strcmp(verb, "fout") == 0) {
             pmd_fout(trace.pmd, (uint8_t)parse_number(rest));
         } else if (strcmp(verb, "setfv") == 0) {
@@ -810,8 +1068,12 @@ int main(int argc, char **argv) {
     memset(&pmd, 0, sizeof(pmd));
     pmd.sys = &trace_sys;
     pmd.hw = &trace_hw;
-    pmd.pps = NULL;
+    pmd.pps = script.pps ? &trace_pps : NULL;
+#if ppz
+    pmd.ppz8 = script.ppz8 ? &trace_ppz8 : NULL;
+#else
     pmd.ppz8 = NULL;
+#endif
     pmd.p86 = NULL;
     pmd.user_data = &trace;
     trace.pmd = &pmd;

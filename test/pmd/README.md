@@ -67,6 +67,10 @@ A `;` starts a comment. Comment lines at the top of the file are headers:
   Optional.
 - `Reads: on` records `inb` events on both hosts for diagnosis. No checked-in
   case uses it; reads are otherwise not part of a golden.
+- `Drivers` lists the fake resident drivers to install, space separated:
+  `pps` (INT 64h) and `ppz8` (INT 7Fh). The original checks the vectors'
+  residency signature; the translation receives the matching mock vtables.
+  `p86` (INT 65h) is not modelled because no board here has a PCM86 card.
 
 Every other line is one action, in order.
 
@@ -86,6 +90,10 @@ Every other line is one action, in order.
 | `psgefcnum` | AH=15h, `pmd_get_psgefcnum` | `ret psgefcnum AH AL` |
 | `ppsdrv` | AH=17h, `pmd_get_ppsdrv_flag` | `ret ppsdrv AL` |
 | `joy` | AH=16h, `pmd_get_joy` | `ret joy AL AH` |
+| `musdat` / `tondat` / `efcdat` | AH=06h/07h/0Bh, the data-area pointers | `ret NAME OFFSET` |
+| `pcm` | AH=0Eh, `pmd_get_pcm_adr` | `ret pcm ALIAS` or `none` |
+| `workadr` | AH=10h, `pmd_get_workadr` | `ret workadr ALIAS` |
+| `memo N` | AH=1Dh, `pmd_get_memo` | `ret memo OFFSET` or `none` |
 | `fout N` | AH=02h, AL=N, `pmd_fout` | none |
 | `setfv N` | AH=19h, AL=N, `pmd_set_fv` | none |
 | `partmask N` | AH=1Eh, AL=N, `pmd_part_mask` | none |
@@ -131,6 +139,11 @@ of OPN master clocks; ports, registers, and values are lowercase hex.
   and B overflow is one delivery, `ab`, never two.
 - `ret NAME VALUES`: a scripted action's result, including `ret exit STATUS`
   at the end of `main`.
+- `pps OP ARGS`, `ppz8 OP ARGS`: a call into a fake resident driver, named
+  for the interface operation rather than the interrupt register contract
+  (`pps keyon NUM DETUNE VOLUME`, `ppz8 protect BOOL`, ...). The PPZ8 entry
+  obtained through 0409h is recorded as `ppz8 fmint`, and the voice-table
+  query is not recorded because only its contents affect the driver.
 
 Not recorded:
 
@@ -154,16 +167,22 @@ The fake board is deliberately small and must stay identical in both hosts:
   written to that data port, which is how the 0AAh probe reads back.
 - The second chip: its status port (base+4) reads FFh while the OPNA is off,
   which is what `check_86b` probes for, and 00h once it is on, so `rdychk`
-  does not wait forever. Its data port (base+6) reads FFh. The ADPCM RAM check
-  polls the status port's BRDY bit, which never sets, so it times out on its
-  low-speed path and reports a YMF288. No case reads ADPCM data back.
+  does not wait forever. Its data port (base+6) reads FFh. The high register
+  bank is the ADPCM-B interface: registers 00h-0Fh are modelled (control,
+  memory mode, start address, data) and 10h is the flag control. The model
+  keeps a 64 KiB external memory, shifts the start address by five bits in
+  the 8-bit and ROM/RAM modes (`ymfm_adpcm.cpp`), consumes the two dummy
+  reads before a read transfer, and returns the stored bytes from the data
+  port, so `ADRAMCHK.ASM` reads back what it wrote. The status port reports
+  BRDY (bit 3) while the bank is in external mode, which is all the check
+  polls; EOS is not modelled because the driver never tests it.
 - The OPNA ID port 0A460h: FFh when no OPNA is declared, 00h otherwise, and
   writes to it track the driver's OPNA on/off sequence. The mute ports 0A66Eh
   and 0A468h read 00h.
 - `Board: VA` uses four adjacent byte ports instead of word pairs: the same
   rules apply at 044h/045h and 046h/047h, and the second chip's status port
-  reads 00h (the 88VA has no OPNA gate, and its ADPCM BRDY stays clear the
-  same way).
+  reads 00h until its ADPCM bank is in external mode (the 88VA has no OPNA
+  gate).
 - An unmodelled read or write fails the case.
 
 Host-owned ports are neither recorded nor modelled beyond what the original's
@@ -227,9 +246,15 @@ Only these host differences are normalized:
 - `mstart`/`mstop`'s deferred/rejected result is recorded as a flag, and `ss`
   as AL only, because the original's no-board entries leave the other bits
   untouched.
-- No pointer-valued action is scripted yet. When they are added, pointers into
-  the module data area are logged as offsets from the data area base, and
-  other pointers are interned as aliases in first-seen order.
+- Pointer-valued actions. `musdat`, `tondat`, `efcdat` and `memo` point into
+  the module data area, whose layout is the original's, so they are logged as
+  offsets from the data-area base (`musdat` is 0 by definition). `pcm` and
+  `workadr` point inside the translated `struct pmd`, whose layout is not
+  comparable, so they are interned as aliases (`p1`, `p2`, ...) in first-seen
+  order; that catches an accidental alias between the two without asserting
+  an address. The default and VA1 builds have no PCM driver, so their
+  `pmd_get_pcm_adr` reports absence where the original returns the address of
+  a table nothing reads; `ret pcm none` is recorded for both.
 
 The VA builds print through a NUL-terminated DOS call while the other builds
 use the `$`-terminated one. `mes_warning` has no terminator of its own, so the
@@ -250,11 +275,11 @@ install, the INT 60h probes, and a short playback.
 
 | Directory | Board | Cases |
 | --- | --- | --- |
-| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
 | `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
 | `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
 
@@ -267,6 +292,8 @@ What the `pmd` cases cover:
 | `INSTALL_86B` | 86B install with `/C`: OPNA probe/on/off sequence and the YM2608 init |
 | `TIMER_26K` | `/C` plus `run b 8`: Timer A/B periods and their interleaving with no module |
 | `API_26K` | the INT 60h probes and controls that need no module, with a board |
+| `DATA_26K` | `PMDOPT` buffer sizes, the resulting `tondat`/`efcdat` offsets, the pointer aliases, and the memo table before and after `load` |
+| `PPS_26K` | a resident PPSDRV: detection, then the `pps keyon`/`keyoff` calls `effon`/`effoff` make |
 | `PLAY_SAMPLE` | official `SAMPLE.M`, `mstart`, 16 ticks, status |
 | `PLAY_SAMPLE2` | official `SAMPLE2.M`, same shape |
 | `PLAY_SSGEG` | official `SSGEG_S.M`, same shape |
@@ -275,25 +302,41 @@ What the `pmd` cases cover:
 | `USAGE_NONE` | no board plus `/H`: the full usage text and exit status 255 |
 | `OPTIONS_26K` | `PMDOPT` buffers overridden by the command line, `/K-`, and the `size`/`drvchk`/`ppsdrv` results |
 
+The board2 variants add their own driver-specific cases:
+
+| Case | Covers |
+| --- | --- |
+| `ADPCM_86B` | a successful `ADRAMCHK.ASM` transfer (the model reads back what it wrote, so `pcm_gs_flag` stays 0) and the PCM-part masking it changes |
+| `PPZ_86B` | a resident PPZ8: the 0410h/0409h handshake, 1901h protection, and the `mstart` init/stop sequence |
+| `PPZ_RESET_86B` | `/Z`: FIFO stop, one keyoff per channel, and 1900h removal permission |
+| `PPZ_PLAY_86B` | `PPZEXT.M` (from `test/mc/cases`) through PPZ8: keyon, volume, tone, loop/rate from the (empty) voice table, pan, and the directly called FM entry on each tick |
+
 The variant directories reuse those shapes: the install cases pin each build's
 probe and initialization sequence, the API cases pin its `drvchk` board value
 and no-module results, and the playback cases pin its timer and register
 writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
-and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's YMF288 timeout.
+and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's transfer.
 
 `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` come from the official 4.8s
-distribution; `DEFONKAI.M` is an MC output copied from `test/mc/cases`. They
-live in `cases/fixtures` and every playback case loads one from there.
+distribution; `DEFONKAI.M` and `PPZEXT.M` are MC outputs copied from
+`test/mc/cases`. They live in `cases/fixtures` and every playback case loads
+one from there.
 
 ## Limitations
 
-External drivers and the data-memory paths are follow-ups tracked in
-`PLAN.md`. The PPZ8, PPSDRV, and P86DRV vtables are NULL in the trace host, so
-none of these cases enters their call paths; those need mock drivers in both
-hosts. `Board: 86` (PC-88) is not modelled because no shipped binary targets
-it, and the ADPCM RAM check only reproduces the YMF288 timeout path, not a
-successful transfer. Pointer-valued API actions, long fade/FF/pause traces,
-and voice or effect fixtures are likewise still open.
+PPSDRV (INT 64h) and PPZ8 (INT 7Fh) are modelled as fake resident drivers on
+both hosts, and the cases above cover detection, the install/reset handshakes,
+PPSDRV effects, and a PPZ8 playback. Still open:
+
+- The PDR switch (`pps pdr`), which needs a module carrying the `p` command.
+- P86DRV (INT 65h): the PCM86 card it needs is not part of any board model,
+  so `Drivers: p86` is rejected.
+- Voice banks. `tondat` is only read when the module has no program area
+  (`prg_flg == 0`), and every MC fixture embeds one, so covering it needs a
+  hand-built legacy module. EFC, ADPCM/PCM data, and rhythm ROM contents need
+  fixtures the same way.
+- Long fade/FF/pause/part-mask traces and the reference `Board: 86` (PC-88,
+  which no shipped binary targets).
 
 To add a case: write `NAME.RUN` (plus any fixture) in the driver's directory,
 regenerate the goldens with `repro.py`, and run `zig build test-pmd-traces`.

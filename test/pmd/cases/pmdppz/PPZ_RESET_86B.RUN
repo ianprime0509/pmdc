@@ -1,0 +1,8 @@
+; Driver: pmdppz
+; Board: 86B
+; Chip: YM2608
+; Drivers: ppz8
+
+main /Z /C
+ppsdrv
+status

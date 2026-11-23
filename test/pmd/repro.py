@@ -33,7 +33,9 @@ from unicorn.x86_const import (
     UC_X86_REG_AX,
     UC_X86_REG_BX,
     UC_X86_REG_CS,
+    UC_X86_REG_CX,
     UC_X86_REG_DS,
+    UC_X86_REG_DI,
     UC_X86_REG_DX,
     UC_X86_REG_EFLAGS,
     UC_X86_REG_ES,
@@ -59,6 +61,22 @@ TRAP_ADDR = TRAP_SEG * 16 + TRAP_OFF
 CF = 1 << 0
 IF = 1 << 9
 
+# The fake resident drivers. Their entry points only need the residency
+# signature at +2; the INT 64h/7Fh hooks do the work. PPZ8's directly callable
+# FM entry (INT 7Fh AH=04h AL=09h) is a bare ret recorded by a code hook.
+DRIVER_SEG = 0xF200
+PPSDRV_ENTRY = 0x0100
+PPZ8_ENTRY = 0x0200
+PPZ8_FMINT = 0x0220
+PPZ8_FMINT_ADDR = DRIVER_SEG * 16 + PPZ8_FMINT
+# The fake PZI voice table: all-zero entries, which the trace host's mock
+# returns as the same zeroed struct. PMD skips past a 20h-byte PZI header and
+# indexes 12h-byte entries.
+PPZ8_VOICE = 0x0300
+# The fake board reports register 0Eh as 00h, which is IRQ 3 (PMD.ASM:10749),
+# so a resident PPZ8 on that IRQ answers 3 + 8 for the 0410h handshake.
+PPZ8_IRQ_LEVEL = 0x0B
+
 # Host ports the translated driver leaves to the host: the two PC-98 8259 PIC
 # banks and the 8254 PIT, and the 88VA's port 32h, where int_init clears the
 # OPN interrupt request. On the 88VA the PICs move to 184h-18Ah (PMD.ASM:265),
@@ -81,6 +99,12 @@ TIMER_A_STEP = 72
 TIMER_B_STEP = 1152
 
 
+# PMD.ASM's PCM table exists in every build, but the default and VA1 builds
+# have no PCM driver and never use it; the translation reports absence instead
+# (pmd_get_pcm_adr). `ret pcm` records the address only where it is used.
+NO_PCM_DRIVER = {"pmd", "pmdva1"}
+
+
 class EmulationError(Exception):
     pass
 
@@ -92,6 +116,7 @@ class Script:
     chip: str = "YM2203"
     pmdopt: str | None = None
     reads: bool = False
+    drivers: set[str] = field(default_factory=set)
     actions: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -119,6 +144,12 @@ def parse_script(path: Path) -> Script:
                 script.pmdopt = value
             elif key == "reads":
                 script.reads = value.lower() == "on"
+            elif key == "drivers":
+                script.drivers = set(value.lower().split())
+                unknown = script.drivers - {"pps", "ppz8"}
+                if unknown:
+                    raise EmulationError(
+                        f"{path}:{number}: unsupported driver {min(unknown)!r}")
             else:
                 raise EmulationError(f"{path}:{number}: unknown header {key!r}")
             continue
@@ -195,6 +226,15 @@ class Board:
         # check_86b switches the OPNA off, probes, then switches it on. Its
         # second-chip status port reads FFh while off and not busy while on.
         self.opna_on = False
+        # The second chip's ADPCM-B external memory bank: registers 00h-0Fh in
+        # the high register bank, 110h for the flag control. ADRAMCHK.ASM only
+        # needs BRDY (bit 3) set and does not check EOS.
+        self.adpcm_regs = [0] * 0x20
+        self.adpcm_mem = bytearray(0x10000)
+        self.adpcm_addr = 0
+        self.adpcm_dummy = 0
+        self.adpcm_external = False
+        self.adpcm_record = False
 
     def candidate_port(self, base: int, port: int) -> bool:
         if base == 0x044:
@@ -210,6 +250,43 @@ class Board:
 
     def present(self, base: int | None) -> bool:
         return base is not None and base == self.base
+
+    def adpcm_address(self) -> int:
+        # The address pair is shifted by the memory mode: the 8-bit and
+        # ROM/RAM modes address in 32-byte units (ymfm_adpcm.cpp:687).
+        shift = 5 if self.adpcm_regs[0x01] & 0x03 else 2
+        address = self.adpcm_regs[0x02] | (self.adpcm_regs[0x03] << 8)
+        return (address << shift) & 0xFFFF
+
+    def adpcm_write_register(self, register: int, value: int) -> None:
+        self.adpcm_regs[register] = value
+        if register == 0x00:
+            self.adpcm_external = bool(value & 0x20)
+            self.adpcm_record = bool(value & 0x40)
+            # A read transfer consumes two dummy reads before data; a record
+            # transfer clears them on its first write (ymfm_adpcm.cpp:575).
+            self.adpcm_dummy = 2 if self.adpcm_external and not self.adpcm_record else 0
+        elif register == 0x03:
+            self.adpcm_addr = self.adpcm_address()
+        elif register == 0x08 and self.adpcm_record and self.adpcm_external:
+            if self.adpcm_dummy:
+                self.adpcm_dummy = 0
+                self.adpcm_addr = self.adpcm_address()
+            self.adpcm_mem[self.adpcm_addr] = value
+            self.adpcm_addr = (self.adpcm_addr + 1) & 0xFFFF
+
+    def adpcm_read_data(self) -> int:
+        # The data port reads back the stored bytes in read mode; the two
+        # dummy reads do not advance. Other modes leave the write latched.
+        if not self.adpcm_external or self.adpcm_record:
+            return 0xFF
+        if self.adpcm_dummy:
+            self.adpcm_dummy -= 1
+            self.adpcm_addr = self.adpcm_address()
+            return 0
+        value = self.adpcm_mem[self.adpcm_addr]
+        self.adpcm_addr = (self.adpcm_addr + 1) & 0xFFFF
+        return value
 
     def timer_a_period(self) -> int:
         value = (self.timer_a & 0x3FF)
@@ -294,12 +371,16 @@ class Board:
                 return self.latch.get(port, 0xFF)
             # The second chip: FFh is the probe value check_86b looks for,
             # and the driver's rdychk needs BUSY clear once the OPNA is on.
-            # The 88VA has no OPNA gate, and its ADPCM BRDY stays clear so
-            # that adpcm_ram_check reports a YMF288 through its poll timeout.
+            # The 88VA has no OPNA gate. BRDY (bit 3) reports the ADPCM-B bank
+            # as ready, which is what ADRAMCHK.ASM polls.
             if port == self.fm2_addr:
+                if self.adpcm_external:
+                    return 0x08
                 if self.kind == "VA":
                     return 0x00
                 return 0x00 if self.opna_on else 0xFF
+            if port == self.fm2_data:
+                return self.adpcm_read_data()
             return 0xFF
         if port == 0xA460:
             return 0x00 if self.opna else 0xFF
@@ -320,6 +401,13 @@ class Board:
                     self.write_register(self.addr1, value, now)
             elif port == self.fm2_addr:
                 self.addr2 = value
+            elif port == self.fm2_data:
+                self.latch[port] = value
+                # Registers 00h-1Fh of the high bank are the ADPCM-B
+                # interface; the rest are the FM6/rhythm registers
+                # (ymfm_opn.cpp:1224).
+                if self.present(base) and self.addr2 < 0x20:
+                    self.adpcm_write_register(self.addr2, value)
             else:
                 self.latch[port] = value
             return
@@ -351,6 +439,8 @@ class Machine:
         self.replay: list[tuple[int, int]] | None = None
         self.replay_pos = 0
         self.reads = script.reads
+        # First-seen order aliases for pointers the two hosts cannot compare.
+        self.aliases: dict[int, str] = {}
         self.board = Board(script.board, script.chip)
         self.mu = Uc(UC_ARCH_X86, UC_MODE_16)
         self.mu.mem_map(0, MEM_SIZE)
@@ -358,6 +448,9 @@ class Machine:
         self.mu.hook_add(UC_HOOK_INSN, self._on_out, None, 1, 0, UC_X86_INS_OUT)
         self.mu.hook_add(UC_HOOK_INSN, self._on_in, None, 1, 0, UC_X86_INS_IN)
         self.mu.hook_add(UC_HOOK_CODE, self._on_trap, None, TRAP_ADDR, TRAP_ADDR + 1)
+        if "ppz8" in script.drivers:
+            self.mu.hook_add(UC_HOOK_CODE, self._on_fmint, None,
+                             PPZ8_FMINT_ADDR, PPZ8_FMINT_ADDR + 1)
         self.mu.mem_write(TRAP_ADDR, b"\xf4")
         self._load_com(image, name)
 
@@ -382,6 +475,7 @@ class Machine:
         self.mu.mem_write(psp + 0x2C, struct.pack("<H", ENV_SEG))
 
         self._build_virus_data(name)
+        self._install_drivers()
 
         self.mu.reg_write(UC_X86_REG_CS, PSP_SEG)
         self.mu.reg_write(UC_X86_REG_DS, PSP_SEG)
@@ -389,6 +483,22 @@ class Machine:
         self.mu.reg_write(UC_X86_REG_SS, PSP_SEG)
         self.mu.reg_write(UC_X86_REG_SP, 0xFFFE)
         self.mu.reg_write(UC_X86_REG_IP, LOAD_OFFSET)
+
+    def _install_drivers(self) -> None:
+        base = DRIVER_SEG * 16
+        if "pps" in self.script.drivers:
+            # The residency check reads "PMP" at the handler (PMD.ASM:9091);
+            # MASM packs the first character of a word constant high, so the
+            # source's "MP" and "P" appear as "PMP" in memory.
+            self.mu.mem_write(base + PPSDRV_ENTRY + 2, b"PMP")
+            self.mu.mem_write(0x64 * 4, struct.pack("<HH", PPSDRV_ENTRY, DRIVER_SEG))
+        if "ppz8" in self.script.drivers:
+            # "PPZ8" (PMD.ASM:9118, again MASM's high-first word packing); the
+            # FM entry obtained through 0409h is a far RET whose code hook
+            # records the call.
+            self.mu.mem_write(base + PPZ8_ENTRY + 2, b"PPZ8")
+            self.mu.mem_write(base + PPZ8_FMINT, b"\xcb")
+            self.mu.mem_write(0x7F * 4, struct.pack("<HH", PPZ8_ENTRY, DRIVER_SEG))
 
     def _build_virus_data(self, name: str) -> None:
         # DOS's list of lists points at the first FCB block at +4h. The block
@@ -486,10 +596,86 @@ class Machine:
             self._int2f()
         elif intno == 0x83:
             self._int83()
+        elif intno == 0x64 and "pps" in self.script.drivers:
+            self._call_pps()
+        elif intno == 0x7F and "ppz8" in self.script.drivers:
+            self._call_ppz8()
         elif intno == 0x60:
             raise EmulationError("PMD executed INT 60h internally")
         else:
             raise EmulationError(f"unexpected interrupt {intno:#04x}")
+
+    # -- Fake resident drivers -------------------------------------------
+
+    def _reg(self, register: int, shift: int = 0) -> int:
+        return (self.mu.reg_read(register) >> shift) & 0xFF
+
+    def _call_pps(self) -> None:
+        ah = self._reg(UC_X86_REG_AX, 8)
+        al = self._reg(UC_X86_REG_AX)
+        if ah == 0x00:
+            self.record.write(f"{self.now} pps keyoff\n")
+        elif ah == 0x01:
+            self.record.write(
+                f"{self.now} pps keyon {hex8(al & 0x7f)} {hex8(self._reg(UC_X86_REG_BX, 8))} "
+                f"{hex8(self._reg(UC_X86_REG_BX))}\n")
+        elif ah == 0x05:
+            self.record.write(
+                f"{self.now} pps pdr {hex8(al >> 1)} {hex8(self._reg(UC_X86_REG_DX) & 1)}\n")
+        else:
+            raise EmulationError(f"unimplemented PPSDRV call AH={ah:#04x}")
+
+    def _call_ppz8(self) -> None:
+        ah = self._reg(UC_X86_REG_AX, 8)
+        al = self._reg(UC_X86_REG_AX)
+        if ah == 0x00:
+            self.record.write(f"{self.now} ppz8 init\n")
+        elif ah == 0x01:
+            self.record.write(
+                f"{self.now} ppz8 keyon {hex8(al)} {self.mu.reg_read(UC_X86_REG_DX):04x}\n")
+        elif ah == 0x02:
+            self.record.write(f"{self.now} ppz8 keyoff {hex8(al)}\n")
+        elif ah == 0x04 and al == 0x09:
+            # The direct FM entry: a far pointer, which the translation models
+            # as pmd_drv_ppz8.fm_int, so it is not recorded here.
+            self.mu.reg_write(UC_X86_REG_ES, DRIVER_SEG)
+            self.mu.reg_write(UC_X86_REG_BX, PPZ8_FMINT)
+        elif ah == 0x04 and al in (0x0D, 0x0E):
+            # The voice table entry. Pointer-valued and zeroed on both hosts,
+            # so only the entries' contents (none here) affect the trace.
+            self.mu.reg_write(UC_X86_REG_ES, DRIVER_SEG)
+            self.mu.reg_write(UC_X86_REG_BX, PPZ8_VOICE)
+        elif ah == 0x04 and al == 0x10:
+            self.record.write(f"{self.now} ppz8 irq {hex8(PPZ8_IRQ_LEVEL)}\n")
+            self.mu.reg_write(UC_X86_REG_AX, (ah << 8) | PPZ8_IRQ_LEVEL)
+        elif ah == 0x06:
+            self.record.write(f"{self.now} ppz8 stop\n")
+        elif ah == 0x07:
+            self.record.write(f"{self.now} ppz8 volume {hex8(al)} {hex8(self._reg(UC_X86_REG_DX))}\n")
+        elif ah == 0x0B:
+            self.record.write(
+                f"{self.now} ppz8 tone {hex8(al)} {self.mu.reg_read(UC_X86_REG_DX):04x}\n")
+        elif ah == 0x0E:
+            start = (self.mu.reg_read(UC_X86_REG_CX) << 16) | self.mu.reg_read(UC_X86_REG_DX)
+            end = (self.mu.reg_read(UC_X86_REG_SI) << 16) | self.mu.reg_read(UC_X86_REG_DI)
+            self.record.write(f"{self.now} ppz8 loop {hex8(al)} {start:x} {end:x}\n")
+        elif ah == 0x12:
+            self.record.write(f"{self.now} ppz8 fifo\n")
+        elif ah == 0x13:
+            self.record.write(f"{self.now} ppz8 pan {hex8(al)} {hex8(self._reg(UC_X86_REG_DX))}\n")
+        elif ah == 0x15:
+            self.record.write(
+                f"{self.now} ppz8 rate {hex8(al)} {self.mu.reg_read(UC_X86_REG_DX):04x}\n")
+        elif ah == 0x18:
+            self.record.write(f"{self.now} ppz8 adpcm {hex8(al)}\n")
+        elif ah == 0x19:
+            self.record.write(f"{self.now} ppz8 protect {hex8(al)}\n")
+        else:
+            raise EmulationError(f"unimplemented PPZ8 call AH={ah:#04x} AL={al:#04x}")
+
+    def _on_fmint(self, mu, address, size, user_data) -> None:
+        if address == PPZ8_FMINT_ADDR:
+            self.record.write(f"{self.now} ppz8 fmint\n")
 
     def _int21(self) -> None:
         ax = self.mu.reg_read(UC_X86_REG_AX)
@@ -678,6 +864,28 @@ class Machine:
                 result = self.api(0x16)
                 self.record.write(
                     f"{self.now} ret joy {hex8(result['al'])} {hex8(result['ah'])}\n")
+            elif verb in ("musdat", "tondat", "efcdat"):
+                command = {"musdat": 0x06, "tondat": 0x07, "efcdat": 0x0B}[verb]
+                offset = self._data_offset(self._pointer(self.api(command)))
+                self.record.write(f"{self.now} ret {verb} {hexval(offset)}\n")
+            elif verb == "pcm":
+                result = self.api(0x0E)
+                if self.script.driver in NO_PCM_DRIVER:
+                    value = "none"
+                else:
+                    value = self._alias(self._pointer(result))
+                self.record.write(f"{self.now} ret pcm {value}\n")
+            elif verb == "workadr":
+                value = self._alias(self._pointer(self.api(0x10)))
+                self.record.write(f"{self.now} ret workadr {value}\n")
+            elif verb == "memo":
+                result = self.api(0x1D, al=int(rest, 0) & 0xFF)
+                pointer = self._pointer(result)
+                if pointer == 0:
+                    self.record.write(f"{self.now} ret memo none\n")
+                else:
+                    offset = self._data_offset(pointer)
+                    self.record.write(f"{self.now} ret memo {hexval(offset)}\n")
             elif verb in ("fout", "setfv", "partmask", "effon", "fmefon"):
                 command = {
                     "fout": 0x02, "setfv": 0x19, "partmask": 0x1E,
@@ -704,6 +912,18 @@ class Machine:
         # The original reports a deferred or rejected call as AH=FFh and
         # leaves the input AH otherwise; the trace compares the flag.
         return 0xFF if self.api(ah)["ah"] == 0xFF else 0x00
+
+    def _pointer(self, result: dict[str, int]) -> int:
+        return (result["ds"] << 4) + result["dx"]
+
+    def _data_offset(self, pointer: int) -> int:
+        # mmlbuf-1 is the data area base (PMD.ASM:6414). The layout inside the
+        # data area is the original's and is shared by both hosts; addresses
+        # inside the driver are not.
+        return pointer - self._pointer(self.api(0x06))
+
+    def _alias(self, pointer: int) -> str:
+        return self.aliases.setdefault(pointer, f"p{len(self.aliases) + 1}")
 
     def _load(self, path: str) -> None:
         source = self.cwd / path

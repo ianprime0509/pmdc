@@ -1,0 +1,13 @@
+; Driver: pmdppze
+; Board: 86B
+; Chip: YM2608
+; Drivers: ppz8
+
+main /C
+load ../fixtures/PPZEXT.M
+mstart
+status
+run b 16
+status
+mstop
+status
