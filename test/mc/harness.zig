@@ -30,7 +30,7 @@ pub fn main(init: std.process.Init) !u8 {
     var test_dir_iterator = test_dir.iterate();
     while (try test_dir_iterator.next(io)) |test_dir_entry| {
         if (std.mem.endsWith(u8, test_dir_entry.name, ".MML")) {
-            try runTest(gpa, io, test_dir_entry.name, test_dir, tmp_dir, mc_path_abs, &results);
+            try runTest(gpa, arena, io, test_dir_entry.name, test_dir, tmp_dir, mc_path_abs, &results);
         }
     }
     log.info("pass: {}, fail: {}", .{ results.n_pass, results.n_fail });
@@ -39,6 +39,7 @@ pub fn main(init: std.process.Init) !u8 {
 
 fn runTest(
     gpa: Allocator,
+    arena: Allocator,
     io: Io,
     mml_path: []const u8,
     test_dir: Io.Dir,
@@ -61,37 +62,42 @@ fn runTest(
 
     const mml = try test_dir.readFileAlloc(io, mml_path, gpa, data_limit);
     defer gpa.free(mml);
-    var m_path_option: ?[]const u8 = null;
-    var console_path_option: ?[]const u8 = null;
-    var mml_lines = std.mem.splitSequence(u8, mml, "\r\n");
-    while (mml_lines.next()) |line| {
-        if (!std.mem.startsWith(u8, line, ";")) break;
-        if (std.mem.startsWith(u8, line, "; Output: ")) {
-            m_path_option = line["; Output: ".len..];
-        } else if (std.mem.startsWith(u8, line, "; Console: ")) {
-            console_path_option = line["; Console: ".len..];
-        }
-    }
+    const headers = try parseHeaders(arena, mml);
 
     try run_dir.writeFile(io, .{
         .sub_path = mml_path,
         .data = mml,
     });
+    for (headers.extra_inputs) |input_path| {
+        const data = test_dir.readFileAlloc(io, input_path, gpa, data_limit) catch |err| switch (err) {
+            error.FileNotFound => return results.fail(mml_path, "extra input file '{s}' not found", .{input_path}),
+            else => |other_err| return other_err,
+        };
+        defer gpa.free(data);
+        try run_dir.writeFile(io, .{
+            .sub_path = std.fs.path.basename(input_path),
+            .data = data,
+        });
+    }
 
-    const m_path = m_path_option orelse
+    if (headers.outputs.len == 0) {
         return results.fail(mml_path, "missing output file comment", .{});
-    const console_path = console_path_option orelse
+    }
+    const console_path = headers.console orelse
         return results.fail(mml_path, "missing console output file comment", .{});
 
-    const m_data = try test_dir.readFileAlloc(io, m_path, gpa, data_limit);
-    defer gpa.free(m_data);
     const console_data = try test_dir.readFileAlloc(io, console_path, gpa, data_limit);
     defer gpa.free(console_data);
+
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.append(arena, mc_path);
+    var command_line_args = std.mem.tokenizeScalar(u8, headers.options orelse mml_path, ' ');
+    while (command_line_args.next()) |arg| try argv.append(arena, arg);
 
     var env: std.process.Environ.Map = .init(gpa);
     defer env.deinit();
     const process_output = try std.process.run(gpa, io, .{
-        .argv = &.{ mc_path, mml_path },
+        .argv = argv.items,
         .cwd = .{ .dir = run_dir },
         .environ_map = &env,
         .stdout_limit = .limited(4096),
@@ -105,18 +111,24 @@ fn runTest(
         else => |term| return results.fail(mml_path, "compiler exited abnormally: {}", .{term}),
     }
 
-    const actual_m_data = run_dir.readFileAlloc(io, m_path, gpa, data_limit) catch |err| switch (err) {
-        error.FileNotFound => return results.fail(mml_path, "expected output file '{s}' not produced", .{m_path}),
-        else => |other_err| return other_err,
-    };
-    defer gpa.free(actual_m_data);
-
-    if (!std.mem.eql(u8, m_data, actual_m_data)) {
-        std.debug.print("expected output:\n", .{});
-        hexDump(m_data);
-        std.debug.print("\nactual output:\n", .{});
-        hexDump(actual_m_data);
-        return results.fail(mml_path, "output file data does not match", .{});
+    for (headers.outputs) |output_path| {
+        const expected = test_dir.readFileAlloc(io, output_path, gpa, data_limit) catch |err| switch (err) {
+            error.FileNotFound => return results.fail(mml_path, "expected output file '{s}' has no golden", .{output_path}),
+            else => |other_err| return other_err,
+        };
+        defer gpa.free(expected);
+        const actual = run_dir.readFileAlloc(io, output_path, gpa, data_limit) catch |err| switch (err) {
+            error.FileNotFound => return results.fail(mml_path, "expected output file '{s}' not produced", .{output_path}),
+            else => |other_err| return other_err,
+        };
+        defer gpa.free(actual);
+        if (!std.mem.eql(u8, expected, actual)) {
+            std.debug.print("expected {s}:\n", .{output_path});
+            hexDump(expected);
+            std.debug.print("\nactual {s}:\n", .{output_path});
+            hexDump(actual);
+            return results.fail(mml_path, "output file '{s}' data does not match", .{output_path});
+        }
     }
     if (!std.mem.eql(u8, console_data, process_output.stdout)) {
         std.debug.print("expected output:\n", .{});
@@ -126,6 +138,53 @@ fn runTest(
         return results.fail(mml_path, "console output does not match", .{});
     }
     results.pass(mml_path);
+}
+
+/// The comment lines at the top of a test case's MML that tell the harness how
+/// to run it.
+const Headers = struct {
+    /// Files the compiler is expected to produce, in `; Output:` order.
+    outputs: []const []const u8 = &.{},
+    /// The file the console output is compared against.
+    console: ?[]const u8 = null,
+    /// Files copied from the test directory into the run directory. They keep
+    /// only their file name, so a test can keep a seed file whose name would
+    /// otherwise collide with one of its goldens.
+    extra_inputs: []const []const u8 = &.{},
+    /// The command line passed to the compiler, minus the executable itself.
+    options: ?[]const u8 = null,
+};
+
+fn parseHeaders(arena: Allocator, mml: []const u8) !Headers {
+    const output_prefix = "; Output: ";
+    const console_prefix = "; Console: ";
+    const extra_input_prefix = "; Extra input: ";
+    const options_prefix = "; Options: ";
+
+    var headers: Headers = .{};
+    var mml_lines = std.mem.splitSequence(u8, mml, "\r\n");
+    while (mml_lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, ";")) break;
+        if (std.mem.startsWith(u8, line, output_prefix)) {
+            headers.outputs = try splitList(arena, line[output_prefix.len..]);
+        } else if (std.mem.startsWith(u8, line, console_prefix)) {
+            headers.console = line[console_prefix.len..];
+        } else if (std.mem.startsWith(u8, line, extra_input_prefix)) {
+            headers.extra_inputs = try splitList(arena, line[extra_input_prefix.len..]);
+        } else if (std.mem.startsWith(u8, line, options_prefix)) {
+            headers.options = line[options_prefix.len..];
+        }
+    }
+    return headers;
+}
+
+fn splitList(arena: Allocator, text: []const u8) ![]const []const u8 {
+    var items: std.ArrayList([]const u8) = .empty;
+    var parts = std.mem.splitScalar(u8, text, ',');
+    while (parts.next()) |part| {
+        try items.append(arena, std.mem.trim(u8, part, " "));
+    }
+    return items.items;
 }
 
 fn hexDump(data: []const u8) void {

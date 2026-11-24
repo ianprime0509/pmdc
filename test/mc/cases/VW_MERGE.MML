@@ -1,0 +1,23 @@
+; Output: VW_MERGE.M, VW_MERGE.FF
+; Console: VW_MERGE.OUT
+; Extra input: ext/VW_MERGE.FF
+; Options: /VW VW_MERGE.MML VW_MERGE
+
+#Title VW_MERGE
+
+; /VW with an existing voice file rewrites it with the file's voices
+; updated by the ones defined in the MML.
+@1 =MergedVoice1
+  20  5 8 6 4 1 28 0  0  0  0  0  0  0  0  0  0  0
+  20  1 1 1 1 0 18 0  0  0  0  0  0  0  0  0  0  0
+  20  1 1 1 1 0 14 0  0  0  0  0  0  0  0  0  0  0
+  20  1 1 1 1 0 10 0  0  0  0  0  0  0  0  0  0  0
+@4 =MergedVoice4
+  15 12 9 4 2 0 22 0  0  0  0  0  0  0  0  0  0  0
+  15  6 5 3 2 0 20 0  0  0  0  0  0  0  0  0  0  0
+  15  4 4 2 1 0 16 0  0  0  0  0  0  0  0  0  0  0
+  15  2 3 1 1 0 12 0  0  0  0  0  0  0  0  0  0  0
+
+A @0 v12 l4 c d e
+A @1 v12 l4 e f g
+A @4 v12 l4 g a b

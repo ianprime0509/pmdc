@@ -1,0 +1,10 @@
+; Output: FF_MACRO.M
+; Console: FF_MACRO.OUT
+; Extra input: ext/EXT.FF
+
+#Title FF_MACRO
+#FFFile EXT.FF
+
+; #FFFile pulls in the voice file without naming it on the command line.
+A @0 v12 l4 c d e
+A @2 v12 l4 e f g

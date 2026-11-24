@@ -12,6 +12,7 @@ import io
 import struct
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
@@ -327,21 +328,62 @@ class DosMachine:
         return None
 
 
+@dataclass
+class Headers:
+    """The harness headers that precede a test case's MML."""
+
+    outputs: list[str] = field(default_factory=list)
+    console: str | None = None
+    extra_inputs: list[str] = field(default_factory=list)
+    options: str | None = None
+
+
+def split_list(text: str) -> list[str]:
+    return [item.strip() for item in text.split(",")]
+
+
+def parse_headers(mml: bytes) -> Headers:
+    headers = Headers()
+    for line in mml.split(b"\r\n"):
+        if not line.startswith(b";"):
+            break
+        text = line.decode("cp932", errors="surrogateescape")
+        if text.startswith("; Output: "):
+            headers.outputs = split_list(text[len("; Output: ") :])
+        elif text.startswith("; Console: "):
+            headers.console = text[len("; Console: ") :]
+        elif text.startswith("; Extra input: "):
+            headers.extra_inputs = split_list(
+                text[len("; Extra input: ") :]
+            )
+        elif text.startswith("; Options: "):
+            headers.options = text[len("; Options: ") :]
+    return headers
+
+
 def repro(mcdir: Path, casesdir: Path, inputfile: Path) -> None:
     exe = mcdir / "MC.EXE"
     if not exe.is_file():
         raise SystemExit(f"MC.EXE not found in {mcdir}")
     stem = inputfile.stem
 
+    mml = inputfile.read_bytes()
+    headers = parse_headers(mml)
+    console_name = headers.console or f"{stem}.OUT"
+    command_line = headers.options or inputfile.name
+
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         data = work / "data"
         data.mkdir()
-        (data / inputfile.name).write_bytes(inputfile.read_bytes())
+        (data / inputfile.name).write_bytes(mml)
+        for name in headers.extra_inputs:
+            # Extra inputs keep only their file name, like the harness does.
+            (data / Path(name).name).write_bytes((casesdir / name).read_bytes())
 
         console = io.BytesIO()
         machine = DosMachine(exe.read_bytes(), data, console)
-        if (status := machine.run(f"{stem}.MML")) != 0:
+        if (status := machine.run(command_line)) != 0:
             raise EmulationError(f"MC exited with status {status}")
 
         raw = console.getvalue().replace(b"\r", b"")
@@ -350,10 +392,9 @@ def repro(mcdir: Path, casesdir: Path, inputfile: Path) -> None:
         except UnicodeDecodeError as err:
             raise EmulationError(f"cannot decode console output: {err}") from err
 
-        for path in data.iterdir():
-            if path.is_file():
-                (casesdir / path.name).write_bytes(path.read_bytes())
-        (casesdir / f"{stem}.OUT").write_bytes(text.encode("utf-8"))
+        for name in headers.outputs:
+            (casesdir / name).write_bytes((data / name).read_bytes())
+        (casesdir / console_name).write_bytes(text.encode("utf-8"))
 
 
 def main(argv: list[str]) -> int:
