@@ -1,0 +1,7 @@
+ .MML file --> .M file Compiler ver 4.8s
+		Programmed by M.Kajihara(KAJA) 2023/09/23
+
+INC_MISS.MML(5) : Error 3: Command #
+---------- MMLファイルが読み込めません。
+#Include NOTHERE.MML
+                   ^^

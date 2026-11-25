@@ -2720,7 +2720,11 @@ static void include_set(struct mc *mc) {
     char oh_filename[128];
     oh_filename[0] = 0;
     void *file = opnhnd(mc, mc->mml_filename2, oh_filename);
-    if (!file) error(mc, '#', 3);
+    if (!file) {
+        // :2797
+        mc->si = cr_ptr;
+        error(mc, '#', 3);
+    }
     char *inc_filename = oh_filename[0] != 0 ? oh_filename : mc->mml_filename2;
     while ((*inc_mml++ = *inc_filename++) != 0) ;
     *inc_mml++ = '\n';
@@ -6488,7 +6492,7 @@ next_line:
             case 2:
                 // :7830
                 mc->line = line_stack[--inc_level];
-                mml_buf = filename_stack[inc_level];
+                mml_buf++;
                 goto next_line;
             }
         }

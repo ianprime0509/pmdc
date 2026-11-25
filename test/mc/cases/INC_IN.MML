@@ -1,0 +1,7 @@
+; Console: INC_IN.OUT
+; Exit status: 1
+; Extra input: ext/INC_BAD.MML
+
+#Title include test
+#Include INC_BAD.MML
+A cdef
