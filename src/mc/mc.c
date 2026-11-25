@@ -3980,7 +3980,8 @@ static void hf_set(struct mc *mc) {
 // :4553
 static void wf_set(struct mc *mc) {
     uint16_t wf;
-    if (lngset(mc, &wf) != 0) error(mc, '#', 2);
+    lngset(mc, &wf);
+    if (wf >= 4) error(mc, '#', 2);
     *mc->di++ = 0xd9;
     *mc->di++ = wf;
 }

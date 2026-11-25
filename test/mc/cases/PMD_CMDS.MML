@@ -110,7 +110,7 @@ A @1 c d @10 e f        ; FM Tone number
 G @1 c @7 d             ; SSG Software Envelope number (@0-@9)
 J @0 c d @10 e f        ; PCM Tone number (@0-@255)
 J @0,100,-50,-50 g1     ; PCM Tone with loop/release points (+start, -end)
-;a @@128 c d e          ; PPZ Tone number @@ variant (requires PMDPPZ) - uncomment if needed
+A @@128 c d e           ; PPZ Tone number @@ variant (requires PMDPPZ) - uncomment if needed
 ;R0 @1 c @2 d @128 e     ; Rhythm Tone number (SSG Drum / PPS) R part only
 ;K l8 R0                 ; Need K part to play R part
 
@@ -125,7 +125,7 @@ A FB5 c FB-2 d FB+1 e   ; FM Feedback set (value / +/-relative)
 
 ; §6-5 SSG / OPM Tone/Noise Output Selection (P)
 G P2 w15 c P3 d P1 e    ; SSG Tone/Noise select (1=tone, 2=noise, 3=mix)
-;H P2 w15 c P1 d         ; OPM Noise select (ch H only) (Requires PMD.X) - uncomment if needed
+H P2 w15 c P1 d         ; OPM Noise select (ch H only) (Requires PMD.X) - uncomment if needed
 
 ; §6-6 Noise Frequency Setting (w)
 G P2 w15 c w+5 d w-10 e ; Noise frequency set (0-31, higher=lower pitch)
@@ -212,8 +212,9 @@ A H6,2,l4 e             ; Hardware LFO PMS=6, AMS=2, Delay=l4 (OPNA/OPM)
 A H6,2 #1,5 c #0 d      ; Hardware LFO switch/depth (OPNA only)
 
 ; §9-12 Hardware LFO Frequency, Waveform, Depth Setting (## #f #w #p #a) (OPM only)
-;A ##100,0,20,10 c       ; Hardware LFO set all (OPM only) - uncomment if needed
-;A #f120 #w1 #p-10 #a5 d ; Hardware LFO individual set (OPM only) - uncomment if needed
+A ##100,0,20,10 c       ; Hardware LFO set all (OPM only) - uncomment if needed
+A #f120 #w1 #p-10 #a5 d ; Hardware LFO individual set (OPM only) - uncomment if needed
+A #w c #f120 #p-10 d    ; #w with no value (defaults to 1)
 
 ; §9-13 Hardware LFO Delay Setting (#D) (OPNA/OPM only)
 A H6,2 #1,5 #D24 c      ; Hardware LFO delay
@@ -268,7 +269,7 @@ J p1 c p2 d p3 e p0 f   ; Panning (PCM86: 0=Reverse Phase)
 
 ; §13-2 Pan Setting 2 (px)
 J px+64 c px-100 d px0,1 e ; Fine Panning / Reverse Phase (PCM86 only)
-;a px+3 c px-2 d         ; Fine Panning (PPZ) - uncomment if needed
+A px+3 c px-2 d         ; Fine Panning (PPZ) - uncomment if needed
 
 
 ; --- §14 MML Commands - Rhythm Sound Source Commands --- (Can be in any part, K used for convention)
@@ -294,7 +295,7 @@ K \lb \b \rs \s \mc \c \mh \h \mt \t \li \i ; Rhythm Panning (l=left, m=mid, r=r
 A y$a4,127 c y$28,0 d   ; Direct FM register write (reg, value) - Use with caution!
 
 ; §15-2 PDR Operation Mode Control (*) (K/R part only)
-;K *0 \b *1 \s          ; PDR Mode (0=Double, 1=Single etc. - Requires PDR) - uncomment if needed
+K *0 \b *1 \s           ; PDR Mode (0=Double, 1=Single etc. - Requires PDR) - uncomment if needed
 
 ; §15-3 Fadeout Specification (F)
 A c d e F16 f g a       ; Fadeout start (speed 1-127)
@@ -318,7 +319,7 @@ A Z96 c d Z72 e f       ; Measure length information (ticks per measure for driv
 A ~10 c ~+5 d ~-2 e     ; Status1 write (for driver communication)
 
 ; §15-10 PCM Specification Selection (A) (PMD86 only)
-;J A1 c A0 d            ; PCM Specification select (1=ADPCM match, 0=normal) - uncomment if needed
+J A1 c A0 d             ; PCM Specification select (1=ADPCM match, 0=normal) - uncomment if needed
 
 
 ; --- §16 MML Commands - Compilation Control ---
@@ -330,11 +331,11 @@ A !Foo !1 b             ; Use variables
 
 ; §16-2 MML Skip Control 1 (")
 A c " d e f " g         ; MML Skip inline ('" toggles skipping notes/rests)
-;"                       ; Skip start (block) - uncomment if needed
-;A d e                   ; Skipped
-;B f g                   ; Skipped
-;"                       ; Skip end (block) - uncomment if needed
-;A a b                   ; Not skipped
+"                       ; Skip start (block) - uncomment if needed
+A d e                   ; Skipped
+B f g                   ; Skipped
+"                       ; Skip end (block) - uncomment if needed
+A a b                   ; Not skipped
 
 ; §16-3 MML Skip Control 2 (')
 A c " d e f ' g a       ; Forcibly end skip started by "
@@ -344,17 +345,18 @@ AB @1 v10 |A c d |B e f | g a ; Part limited specification (|Parts MML)
 AB @1 v10 |!A c d |!B e f | g a; Inverted part limited specification
 
 ; §16-4 Compilation Abort (/)
-A c d e / f g a         ; Compile Abort for this part
+C c d e / f g a         ; Compile Abort for this part
 
 ; §16-5 Comment Specification (;) (Used throughout)
 A c d e ; This is a comment until end of line
 
 ; §16-6 Comment Specification 2 (`)
 A c d ` This is a comment ` e f ; Block/inline comment toggle
-;`                        ; Block comment start - uncomment if needed
-;This entire section
-;is commented out
-;`                        ; Block comment end - uncomment if needed
+`                       ; Block comment start
+A f4 g4 a4              ; Inside the block, not compiled
+B f g                   ; Inside the block, not compiled
+`                       ; Block comment end
+A a b                   ; Not skipped
 
 ; --- End of Test ---
 
