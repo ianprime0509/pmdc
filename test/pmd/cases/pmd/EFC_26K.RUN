@@ -1,0 +1,13 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+
+main /C
+loadeffect ../fixtures/EFC_EFCT.EFC
+fmefon 0
+fmefcnum
+status
+run b 16
+fmefoff
+fmefcnum
+status

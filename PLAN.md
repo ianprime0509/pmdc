@@ -1579,10 +1579,16 @@ The follow-up coverage then landed on the same harness:
   register bank and its external memory (address shift, two dummy reads,
   BRDY), so `pmdb2`/`pmdppz`/`pmdva` now report ADPCM RAM present.
   `ADPCM_86B` pins the transfer and the part masking it changes.
+- Voice-bank and effect data: `loadvoice`/`loadeffect` read a file into the
+  buffers returned by INT 60h AH=07h/0Bh. `VOICE_26K` loads `EXT.FF` into
+  `tondat` and plays a no-program module that selects a voice with `@1`, so
+  `toneadr_calc`'s `prg_flg == 0` path is traced. `EFC_26K` loads EFC effect
+  data into `efcdat` and plays `fmefon 0` through its `n`/`N` commands, and
+  `SSGEFC_26K` exercises the built-in SSG effect table without PPSDRV.
 
-Still open from the follow-up list: data-memory fixtures (legacy `tondat`
-modules, EFC/ADPCM/PCM data, rhythm ROM), the PDR switch, P86DRV, long
-fade/FF/pause traces, `Board: 86`, and sanitizer runs.
+Still open from the follow-up list: ADPCM/PCM and rhythm ROM data fixtures,
+the PDR switch, P86DRV, long fade/FF/pause traces, `Board: 86`, and
+sanitizer runs.
 
 #### References
 
@@ -1609,12 +1615,12 @@ items are valuable once the core harness is in place.
      unavailable-driver (NULL vtable / absent vector) paths. Still open: the
      PDR switch, P86DRV (which needs a modelled PCM86 card), and the EMS/FIFO
      calls that only a PCM86 board reaches.
-   - Add traces with voice banks, EFC data, ADPCM/PCM86 data reads, loop
-     offsets, and rhythm ROM contents. These need fixtures and a data-memory
-     model in the trace host, so keep them separate from the basic OPN trace.
-     A voice-bank case additionally needs a module without an embedded
-     program area, because MC modules always carry one and so never read
-     `tondat`.
+   - Voice banks and EFC data are traced: `loadvoice`/`loadeffect` fill the
+     INT 60h voice and effect buffers, `VOICE_26K` uses a hand-built module
+     without a program area to reach `tondat`, and `EFC_26K`/`SSGEFC_26K`
+     cover FM and built-in SSG effects. Still open: ADPCM/PCM86 data reads,
+     loop offsets, and rhythm ROM contents, which need another fixture and a
+     data-memory model.
    - Add long-run timing traces for coincident Timer A/B overflows, tempo and
      timer reprogramming, fade, fast-forward/skip, pause, part masks, and
      effect/music masking. These are the cases where trace comparison is most

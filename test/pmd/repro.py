@@ -826,6 +826,10 @@ class Machine:
                     return
             elif verb == "load":
                 self._load(rest)
+            elif verb == "loadvoice":
+                self._load_area(rest, 0x07, self.api(0x22)["ah"] * 1024)
+            elif verb == "loadeffect":
+                self._load_area(rest, 0x0B, (self.api(0x22)["dx"] & 0xFF) * 1024)
             elif verb == "mstart":
                 self.record.write(f"{self.now} ret mstart {hex8(self._result(0x00))}\n")
             elif verb == "mstop":
@@ -926,12 +930,14 @@ class Machine:
         return self.aliases.setdefault(pointer, f"p{len(self.aliases) + 1}")
 
     def _load(self, path: str) -> None:
+        self._load_area(path, 0x06, self.api(0x22)["al"] * 1024)
+
+    def _load_area(self, path: str, command: int, size: int) -> None:
         source = self.cwd / path
         if not source.is_file():
             raise EmulationError(f"fixture {path} not found")
         data = source.read_bytes()
-        size = self.api(0x22)["al"] * 1024
-        result = self.api(0x06)
+        result = self.api(command)
         address = (result["ds"] << 4) + result["dx"]
         if len(data) > size:
             raise EmulationError(f"{path}: {len(data)} bytes does not fit in {size} bytes")

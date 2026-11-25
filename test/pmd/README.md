@@ -78,6 +78,8 @@ Every other line is one action, in order.
 | --- | --- | --- |
 | `main OPTS` | run the COM until its TSR exit; the translation calls `pmd_resident_main` | console, `outb`s, `ret exit STATUS` |
 | `load NAME` | INT 60h AH=06h buffer; the file is read into it | none |
+| `loadvoice NAME` | AH=07h buffer; the voice file is read into it | none |
+| `loadeffect NAME` | AH=0Bh buffer; the EFC file is read into it | none |
 | `mstart` | AH=00h, `pmd_mstart_f` | `ret mstart 00` or `ff` |
 | `mstop` | AH=01h, `pmd_mstop_f` | `ret mstop 00` or `ff` |
 | `status` | AH=0Ah, `pmd_get_status` | `ret status AH AL` |
@@ -120,8 +122,11 @@ There is no `assert` verb: every action that returns something records a
 `ret` event, so the golden is the assertion.
 
 Note that `load` does not reproduce `PMP.COM`'s `MSTOP` before the read. The
-two hosts zero the music area and read the fixture into the address returned
-by the API; a fixture larger than the configured music buffer is an error.
+three load actions zero the target area (music, voice, or effect) and read the
+fixture into the address returned by the API; a fixture larger than the area
+the options configure is an error. `tondat` is only read when the module has
+no embedded program area (`prg_flg == 0`), so a voice-bank case needs a module
+whose first part starts at offset 24; `cases/fixtures/VOICE.M` is one.
 
 ## Trace format
 
@@ -275,7 +280,7 @@ install, the INT 60h probes, and a short playback.
 
 | Directory | Board | Cases |
 | --- | --- | --- |
-| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
 | `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
@@ -294,6 +299,9 @@ What the `pmd` cases cover:
 | `API_26K` | the INT 60h probes and controls that need no module, with a board |
 | `DATA_26K` | `PMDOPT` buffer sizes, the resulting `tondat`/`efcdat` offsets, the pointer aliases, and the memo table before and after `load` |
 | `PPS_26K` | a resident PPSDRV: detection, then the `pps keyon`/`keyoff` calls `effon`/`effoff` make |
+| `VOICE_26K` | external voice bank: `EXT.FF` (from `test/mc/cases`) loaded into `tondat`, then a no-program module that selects voice 1 with `@1` |
+| `EFC_26K` | FM effect data: `EFC_EFCT.EFC` (from `test/mc/cases`) loaded into `efcdat`, then `fmefon 0` through its `n`/`N` commands |
+| `SSGEFC_26K` | the built-in SSG effect table: `effon 0` and its pitch/noise writes each Timer A tick |
 | `PLAY_SAMPLE` | official `SAMPLE.M`, `mstart`, 16 ticks, status |
 | `PLAY_SAMPLE2` | official `SAMPLE2.M`, same shape |
 | `PLAY_SSGEG` | official `SSGEG_S.M`, same shape |
@@ -319,8 +327,11 @@ and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's transfer.
 
 `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` come from the official 4.8s
 distribution; `DEFONKAI.M` and `PPZEXT.M` are MC outputs copied from
-`test/mc/cases`. They live in `cases/fixtures` and every playback case loads
-one from there.
+`test/mc/cases`, as are `EXT.FF` (external voice bank) and `EFC_EFCT.EFC`
+(EFC effect data). They live in `cases/fixtures` and every playback case loads
+one from there. `VOICE.M` is hand-built because MC always embeds a program
+area: its first part starts at offset 24, which is how `play_init` detects
+`prg_flg == 0` and reads voices from `tondat`.
 
 ## Limitations
 
@@ -331,10 +342,8 @@ PPSDRV effects, and a PPZ8 playback. Still open:
 - The PDR switch (`pps pdr`), which needs a module carrying the `p` command.
 - P86DRV (INT 65h): the PCM86 card it needs is not part of any board model,
   so `Drivers: p86` is rejected.
-- Voice banks. `tondat` is only read when the module has no program area
-  (`prg_flg == 0`), and every MC fixture embeds one, so covering it needs a
-  hand-built legacy module. EFC, ADPCM/PCM data, and rhythm ROM contents need
-  fixtures the same way.
+- ADPCM/PCM data and rhythm ROM contents, which need data-memory fixtures the
+  same way `EXT.FF` and `EFC_EFCT.EFC` provide voice and effect data.
 - Long fade/FF/pause/part-mask traces and the reference `Board: 86` (PC-88,
   which no shipped binary targets).
 

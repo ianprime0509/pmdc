@@ -1,0 +1,12 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+
+main /C
+loadvoice ../fixtures/EXT.FF
+load ../fixtures/VOICE.M
+mstart
+status
+run b 16
+status
+mstop

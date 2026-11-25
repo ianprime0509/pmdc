@@ -1,0 +1,12 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+
+main /C
+effon 0
+psgefcnum
+status
+run b 16
+effoff
+psgefcnum
+status

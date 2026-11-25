@@ -767,9 +767,9 @@ static uint8_t result_flag(bool ok) {
     return ok ? 0x00 : 0xFF;
 }
 
-static void do_load(const char *name) {
-    size_t size = (size_t)trace.pmd->mmldat_lng * 1024;
-    uint8_t *address = pmd_get_musdat_adr(trace.pmd);
+// `load` writes into the music buffer; `loadvoice` and `loadeffect` write
+// into the voice and effect buffers the driver returns through INT 60h.
+static void load_area(uint8_t *address, size_t size, const char *name) {
     char path[1024];
     snprintf(path, sizeof(path), "%s/%s", trace.cases_dir, name);
     FILE *file = fopen(path, "rb");
@@ -778,8 +778,23 @@ static void do_load(const char *name) {
     size_t read = fread(address, 1, size, file);
     bool ok = ferror(file) == 0 && fgetc(file) == EOF;
     fclose(file);
-    if (!ok) fail("%s does not fit in the %zu-byte data area", name, size);
+    if (!ok) fail("%s does not fit in the %zu-byte buffer", name, size);
     (void)read;
+}
+
+static void do_load(const char *name) {
+    load_area(pmd_get_musdat_adr(trace.pmd), (size_t)trace.pmd->mmldat_lng * 1024,
+              name);
+}
+
+static void do_loadvoice(const char *name) {
+    load_area(pmd_get_tondat_adr(trace.pmd), (size_t)trace.pmd->voicedat_lng * 1024,
+              name);
+}
+
+static void do_loadeffect(const char *name) {
+    load_area(pmd_get_efcdat_adr(trace.pmd), (size_t)trace.pmd->effecdat_lng * 1024,
+              name);
 }
 
 static unsigned long parse_number(const char *text) {
@@ -874,6 +889,10 @@ static void run_actions(void) {
             }
         } else if (strcmp(verb, "load") == 0) {
             do_load(rest);
+        } else if (strcmp(verb, "loadvoice") == 0) {
+            do_loadvoice(rest);
+        } else if (strcmp(verb, "loadeffect") == 0) {
+            do_loadeffect(rest);
         } else if (strcmp(verb, "mstart") == 0) {
             event_ret("mstart", result_flag(pmd_mstart_f(trace.pmd)), 0, false);
         } else if (strcmp(verb, "mstop") == 0) {
