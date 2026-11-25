@@ -338,6 +338,7 @@ class Headers:
     extra_inputs: list[str] = field(default_factory=list)
     options: str | None = None
     command: str = "mc"
+    exit_status: int = 0
 
 
 def split_list(text: str) -> list[str]:
@@ -362,6 +363,8 @@ def parse_headers(mml: bytes) -> Headers:
             headers.options = text[len("; Options: ") :]
         elif text.startswith("; Command: "):
             headers.command = text[len("; Command: ") :]
+        elif text.startswith("; Exit status: "):
+            headers.exit_status = int(text[len("; Exit status: ") :].strip())
     return headers
 
 
@@ -386,8 +389,11 @@ def repro(mcdir: Path, casesdir: Path, inputfile: Path) -> None:
 
         console = io.BytesIO()
         machine = DosMachine(exe.read_bytes(), data, console)
-        if (status := machine.run(command_line)) != 0:
-            raise EmulationError(f"{exe.name} exited with status {status}")
+        if (status := machine.run(command_line)) != headers.exit_status:
+            raise EmulationError(
+                f"{exe.name} exited with status {status}, "
+                f"expected {headers.exit_status}"
+            )
 
         raw = console.getvalue().replace(b"\r", b"")
         try:

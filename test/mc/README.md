@@ -11,9 +11,13 @@ EFC), and the file must begin with comment lines:
   defaulting to just the MML file name
 - `; Command: efc` - the command the case is for, for the cases that do not
   test `mc` itself
+- `; Exit status: 1` - the status the compiler is expected to exit with,
+  defaulting to 0 and usually omitted
 
 Every file named by `; Output:` must be produced in the run directory and must
-match the file of the same name in the cases directory. Files listed by
+match the file of the same name in the cases directory. A case that expects a
+nonzero exit status may omit `; Output:` if the compiler fails before writing
+any file. Files listed by
 `; Extra input:` are read from the case's directory and copied into the run
 directory under their file name, so seeds for tests can be kept in a
 subdirectory (`ext/` holds the external voice files) and cannot be mistaken for

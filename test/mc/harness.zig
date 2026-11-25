@@ -159,7 +159,8 @@ const Runner = struct {
         }
 
         // mch only compiles and plays, so it cannot write a file to compare.
-        if (headers.outputs.len == 0 and command != .mch) {
+        // Cases that expect the compiler to fail produce no output file.
+        if (headers.exit_status == 0 and headers.outputs.len == 0 and command != .mch) {
             return results.fail(display_path, "missing output file comment", .{});
         }
         const console_path = headers.console orelse
@@ -186,7 +187,11 @@ const Runner = struct {
         defer gpa.free(process_output.stderr);
 
         switch (process_output.term) {
-            .exited => |status| if (status != 0) return results.fail(display_path, "compiler exited with status {}", .{status}),
+            .exited => |status| if (status != headers.exit_status) return results.fail(
+                display_path,
+                "compiler exited with status {}, expected {}",
+                .{ status, headers.exit_status },
+            ),
             else => |term| return results.fail(display_path, "compiler exited abnormally: {}", .{term}),
         }
 
@@ -209,7 +214,7 @@ const Runner = struct {
                 return results.fail(display_path, "output file '{s}' data does not match", .{output_path});
             }
         }
-        if (!std.mem.eql(u8, console_data, process_output.stdout)) {
+        if (!std.mem.eql(u8, console_data, stripCarriageReturns(process_output.stdout))) {
             std.debug.print("expected output:\n", .{});
             hexDump(console_data);
             std.debug.print("\nactual output:\n", .{});
@@ -236,6 +241,9 @@ const Headers = struct {
     /// The command the case is for, from `; Command:`. Only cases for commands
     /// other than mc need it, and they must name the directory they are in.
     command: ?[]const u8 = null,
+    /// The status the compiler is expected to exit with. Cases for successful
+    /// compilations leave it at zero and need not name it.
+    exit_status: u8 = 0,
 };
 
 /// Checks that a case is in the directory for the command it names, with the
@@ -283,6 +291,7 @@ fn parseHeaders(arena: Allocator, mml: []const u8) !Headers {
     const extra_input_prefix = "; Extra input: ";
     const options_prefix = "; Options: ";
     const command_prefix = "; Command: ";
+    const exit_status_prefix = "; Exit status: ";
 
     var headers: Headers = .{};
     var mml_lines = std.mem.splitSequence(u8, mml, "\r\n");
@@ -298,6 +307,9 @@ fn parseHeaders(arena: Allocator, mml: []const u8) !Headers {
             headers.options = line[options_prefix.len..];
         } else if (std.mem.startsWith(u8, line, command_prefix)) {
             headers.command = line[command_prefix.len..];
+        } else if (std.mem.startsWith(u8, line, exit_status_prefix)) {
+            const text = std.mem.trim(u8, line[exit_status_prefix.len..], " ");
+            headers.exit_status = try std.fmt.parseInt(u8, text, 10);
         }
     }
     return headers;
@@ -310,6 +322,21 @@ fn splitList(arena: Allocator, text: []const u8) ![]const []const u8 {
         try items.append(arena, std.mem.trim(u8, part, " "));
     }
     return items.items;
+}
+
+/// The original runs on DOS, where line endings are CRLF, while repro.py
+/// removes CR from the console output it uses to make the goldens. Source
+/// lines echoed for errors keep their CRLF, so remove CR from the actual
+/// output as well.
+fn stripCarriageReturns(bytes: []u8) []u8 {
+    var end: usize = 0;
+    for (bytes) |byte| {
+        if (byte != '\r') {
+            bytes[end] = byte;
+            end += 1;
+        }
+    }
+    return bytes[0..end];
 }
 
 fn hexDump(data: []const u8) void {

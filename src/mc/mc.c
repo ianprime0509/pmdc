@@ -6407,6 +6407,9 @@ PMDC_NORETURN static void error(struct mc *mc, char cmd, uint8_t n) {
         *errline_end = 0;
         print_line(mc, mc->linehead);
         // :7720
+        // The original stores the word 0x245e at si, i.e. '^' followed by the
+        // '$' terminator. The NUL below stands in for the '$', so the caret at
+        // si remains visible alongside the one moved back to si-1.
         mc->si[1] = 0;
         mc->si[0] = '^';
         if (!is_cntrl(mc->si[-1])) *--mc->si = '^';
