@@ -2734,7 +2734,12 @@ static void include_set(struct mc *mc) {
     uint16_t inc_read_len = rest_ptr - inc_mml + 1;
     int read_status = redhnd(mc, file, inc_mml, inc_read_len, &inc_len);
     int close_status = clohnd(mc, file);
-    if (read_status != 0 || close_status != 0 || inc_len == inc_read_len) {
+    if (read_status != 0 || close_status != 0) {
+        // :2797
+        mc->si = cr_ptr;
+        error(mc, '#', 3);
+    }
+    if (inc_len == inc_read_len) {
         // :2797
         mc->si = cr_ptr;
         error(mc, '#', 18);
