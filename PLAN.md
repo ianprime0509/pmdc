@@ -1209,8 +1209,7 @@ Work items:
 - Run `zig build test-pmd` for every variant flag set, plus the YMFM integration
   tests and sanitizer-enabled native tests where supported.
 - Verify all variants with `zig build` and `zig build -Dlang=en`.
-- Update `README.md`: it currently says only MC is translated. Add PMD status
-  and usage notes.
+- Update `README.md` with PMD status and usage notes.
 - Review the port for any remaining `TODO`/omission comments and make sure each
   one points at the original line and explains the reason.
 - Remove the `PMDC_UNUSED` macro from `pmd.h`, as all items marked as unused
@@ -1358,9 +1357,9 @@ mstop
   way so a hang is a failure and not a timeout.
 - `pause`, `resume`: `pmd_pause_on`, `pmd_pause_off`.
 
-`ff`, `partmask`, `fv`, `fout`, `effon`/`effoff`, and `musname` follow when
-their tests land; each is about ten lines per host. `env` should not be
-needed while `PMDOPT` is a header.
+`ff`, `partmask`, `fv`, `fout`, `effon`/`effoff`, and `musname` are the same
+shape: each is about ten lines per host. `env` should not be needed while
+`PMDOPT` is a header.
 
 There is no `assert` verb. Every action that returns something records it as
 a `ret` event, so the golden is the assertion; that also covers the
@@ -1543,53 +1542,6 @@ needs no Python or Unicorn.
 5. INT 60h API actions and their `ret` values.
 6. Effects, external drivers, and the variant matrix as their actions appear.
 
-#### Implementation status
-
-The Phase 9 trace landed with `test/pmd/repro.py` (fake DOS, board, and
-virtual timer under Unicorn), `test/pmd/trace.c` (the same models against the
-translated driver), `test/pmd/harness.zig`, and the `test-pmd-traces` step in
-`zig build test`. Cases are grouped by driver; every shipped variant has a
-no-board install, a board install, an INT 60h API case, and a short playback.
-The `pmd` directory additionally covers the 26K and 86B installs, the
-timer-only interleaving, three official modules, an 86B playback, a module
-played to its end, the usage text, and `PMDOPT` overrides. The board model
-covers `26K`, `86B`, `VA` (both chips), and `none`. `--replay` is available on
-both hosts and in the build (`-Dreplay=true`). The script grammar, event
-format, board and timer models, normalization list, and reproduction steps are
-documented in `test/pmd/README.md`. Writing these cases exposed and fixed two
-translation mismatches: the VA initial register writes use a leaked PIC port
-word rather than the intended timer values, and `silence` skipped too little
-when ADPCM was unavailable.
-
-The follow-up coverage then landed on the same harness:
-
-- Pointer-valued actions: `musdat`/`tondat`/`efcdat`/`memo` as data-area
-  offsets, `pcm`/`workadr` as first-seen aliases, plus `DATA_26K` for the
-  buffer layout and the memo table.
-- External drivers: `repro.py` installs fake PPSDRV (INT 64h) and PPZ8
-  (INT 7Fh) resident drivers with the original's signature checks, and
-  `trace.c` passes the matching mock vtables. `PPS_26K` pins detection and
-  the effect keyon/keyoff calls; `PPZ_86B`, `PPZ_RESET_86B`, and
-  `PPZ_PLAY_86B` (pmdppz and pmdppze) pin the 0410h/0409h handshake, the
-  removal-protection, FIFO and keyoff sequences, and PPZ8 playback through
-  `PPZEXT.M`, including the directly called FM entry. This also exposed a
-  third translation mismatch: `command00` was missing the `_ppz` call at
-  `PMD.ASM:1734`, so PPZ8's FM entry was not reached from command dispatch.
-- A successful `ADRAMCHK.ASM` transfer: both hosts model the ADPCM-B high
-  register bank and its external memory (address shift, two dummy reads,
-  BRDY), so `pmdb2`/`pmdppz`/`pmdva` now report ADPCM RAM present.
-  `ADPCM_86B` pins the transfer and the part masking it changes.
-- Voice-bank and effect data: `loadvoice`/`loadeffect` read a file into the
-  buffers returned by INT 60h AH=07h/0Bh. `VOICE_26K` loads `EXT.FF` into
-  `tondat` and plays a no-program module that selects a voice with `@1`, so
-  `toneadr_calc`'s `prg_flg == 0` path is traced. `EFC_26K` loads EFC effect
-  data into `efcdat` and plays `fmefon 0` through its `n`/`N` commands, and
-  `SSGEFC_26K` exercises the built-in SSG effect table without PPSDRV.
-
-Still open from the follow-up list: ADPCM/PCM and rhythm ROM data fixtures,
-the PDR switch, P86DRV, long fade/FF/pause traces, `Board: 86`, and
-sanitizer runs.
-
 #### References
 
 - Official PMD 4.8s distribution and reference binaries:
@@ -1604,33 +1556,35 @@ sanitizer runs.
 
 #### Follow-up items to consider
 
-The script harness, the action set, the install/console cases, the INT 60h
-API cases, and the variant/board matrix have landed. The following later
-items are valuable once the core harness is in place.
+These items extend the harness beyond the coverage defined above.
 
-4. **External drivers, PCM/data paths, and long-run timer cases.**
-   - PPSDRV and PPZ8 are traced: fake resident drivers answer the original's
+1. **External drivers, PCM/data paths, and long-run timer cases.**
+   - Driver coverage: fake resident PPSDRV and PPZ8 answer the original's
      residency checks on both hosts, and the cases cover detection, the
      install/reset handshakes, effect keyon/keyoff, a PPZ8 playback, and the
-     unavailable-driver (NULL vtable / absent vector) paths. Still open: the
-     PDR switch, P86DRV (which needs a modelled PCM86 card), and the EMS/FIFO
-     calls that only a PCM86 board reaches.
-   - Voice banks and EFC data are traced: `loadvoice`/`loadeffect` fill the
-     INT 60h voice and effect buffers, `VOICE_26K` uses a hand-built module
-     without a program area to reach `tondat`, and `EFC_26K`/`SSGEFC_26K`
-     cover FM and built-in SSG effects. Still open: ADPCM/PCM86 data reads,
-     loop offsets, and rhythm ROM contents, which need another fixture and a
-     data-memory model.
+     unavailable-driver (NULL vtable / absent vector) paths. Extend it with
+     the PDR switch, P86DRV (which needs a modelled PCM86 card), and the
+     EMS/FIFO calls that only a PCM86 board reaches.
+   - Data coverage: `loadvoice`/`loadeffect` fill the INT 60h voice and effect
+     buffers, and a hand-built module without a program area reaches
+     `tondat`, so FM and built-in SSG effects are compared. Extend it with
+     ADPCM/PCM86 data reads, loop offsets, and rhythm ROM contents, which need
+     another fixture and a data-memory model.
    - Add long-run timing traces for coincident Timer A/B overflows, tempo and
      timer reprogramming, fade, fast-forward/skip, pause, part masks, and
      effect/music masking. These are the cases where trace comparison is most
      valuable over single-tick assertions, but they also need the most
      normalization.
+   - Drive `pmd_change_main` from the harness too, so the status text and the
+     `/R` shutdown handshake are compared against the original rather than
+     against expectations written by hand.
+   - Add the reference `Board: 86` (PC-88) model if a case needs it; no
+     shipped binary targets that board.
 
-5. **Sanitizers, coverage, and fuzzing.**
+2. **Sanitizers, coverage, and fuzzing.**
    - Run the trace and unit tests under ASan/UBSan, and add a coverage build
-     (clang/LLVM or Zig equivalent) to find command paths the current tests do
-     not reach.
+     (clang/LLVM or Zig equivalent) to find command paths the tests do not
+     reach.
    - Generate structurally valid `.M` streams from the command length tables
      and run a sampled differential corpus against the reference. Keep the
      fuzz target bounded (tick limits, no unbounded loops) and treat found
@@ -1647,8 +1601,7 @@ items are valuable once the core harness is in place.
 - The goldens include a `Board: none` install case, a board-present install
   case, a timer-only case that pins the Timer A/B periods, and a
   `load`/`mstart` playback trace plus its `status` results for every shipped
-  variant. The follow-up items above are tracked separately if not yet
-  complete.
+  variant. The follow-up items above are tracked in `TODO.md`.
 - The script grammar, the trace format, the timer rules, the normalization
   list, and the reproduction procedure are documented in `test/pmd/README.md`
   and `PLAN.md`.
