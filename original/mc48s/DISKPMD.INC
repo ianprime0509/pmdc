@@ -123,7 +123,7 @@ opnhnd	proc
 	ret
 
 ;------------------------------------------------------------------------------
-;	ファイル名中に"¥"/":"があったらそこの後ろまで飛ばす
+;	ファイル名中に"\"/":"があったらそこの後ろまで飛ばす
 ;------------------------------------------------------------------------------
 oh_search:
 	push	ds
@@ -144,7 +144,7 @@ oh_ys_notsjis:
 	jz	oh_ys_exit
 	cmp	al,":"
 	jz	oh_ys_jump
-	cmp	al,"¥"
+	cmp	al,"\"
 	jnz	oh_ys_loop
 oh_ys_jump:
 	mov	dx,bx
@@ -198,14 +198,14 @@ non_sjis:
 	jmp	osp_loop2
 oh_set_filename:
 	or	ah,ah		;最後に転送したのがS-JIS漢字なら
-	jnz	oh_set_yen	;¥記号を無条件に設定
+	jnz	oh_set_yen	;\記号を無条件に設定
 	mov	al,cs:-1[di]
-	cmp	al,"¥"
+	cmp	al,"\"
 	jz	oh_not_set_yen
-	cmp	al,":"		; "A:"等の場合は¥記号は付加しない
+	cmp	al,":"		; "A:"等の場合は\記号は付加しない
 	jz	oh_not_set_yen
 oh_set_yen:
-	mov	byte ptr cs:[di],"¥"	; "¥"が無かったら書く
+	mov	byte ptr cs:[di],"\"	; "\"が無かったら書く
 	inc	di
 oh_not_set_yen:
 	push	bx

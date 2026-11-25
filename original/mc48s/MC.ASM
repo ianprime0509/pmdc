@@ -222,7 +222,7 @@ g_mfn_notsjis:
 	jz	g_mfn_next
 	cmp	al,13
 	jz	g_mfn_next
-	cmp	al,"¥"
+	cmp	al,"\"
 	jnz	g_mfn_notyen
 	xor	ah,ah
 g_mfn_notyen:
@@ -1169,7 +1169,7 @@ rem_set:
 	mov	ds,ax
 	mov	si,offset max_all
 	mov	cx,4
-rep	movsw			;TC/LC書き込み (4.8a〜)
+rep	movsw			;TC/LC書き込み (4.8a～)
 	pop	ds
 
 tclc_towns_chk:
@@ -1604,7 +1604,7 @@ sft_loop:
 sft_no_sjis:
 	test	al,al
 	jz	sft_write
-	cmp	al,"¥"
+	cmp	al,"\"
 	jnz	sft_loop
 	mov	bp,si
 	jmp	sft_loop
@@ -1825,7 +1825,7 @@ g_vfn_notsjis:
 	jz	g_vfn_next
 	cmp	al,13
 	jz	g_vfn_next
-	cmp	al,"¥"
+	cmp	al,"\"
 	jnz	g_vfn_notyen
 	xor	ah,ah
 g_vfn_notyen:
@@ -3574,7 +3574,7 @@ od00	db	"<"
 	dw	pitchset
 	db	"p"
 	dw	panset
-	db	"¥"
+	db	"\"
 	dw	rhycom
 
 	db	"X"
@@ -3597,7 +3597,7 @@ od00	db	"<"
 	db	"W"
 	dw	giji_echo_set
 
-	db	7eh	;	"‾"
+	db	7eh	;	"~"
 	dw	status_write
 
 	db	"{"
@@ -4064,7 +4064,7 @@ bunsan_main:
 	xchg	ax,cx			;AX = 全体の長さ / CX = 1ループの長さ
 	cmp	cx,ax
 	jnc	bunsan_last		;1ループに満たない場合
-	div	cl			;AL = 全体の長さ ¥ 1ループの長さ = ループ回数
+	div	cl			;AL = 全体の長さ \ 1ループの長さ = ループ回数
 	cmp	[bunsan_tieflag],0
 	jz	bunsan_setloop
 	test	ah,ah			;タイありで割り切れた場合は
@@ -4204,8 +4204,8 @@ bskip_end:
 	jmp	olc03
 
 ;==============================================================================
-;	"‾" Command [ＳＴＡＴＵＳの書き込み]
-;	‾[+,-]n
+;	"~" Command [ＳＴＡＴＵＳの書き込み]
+;	~[+,-]n
 ;==============================================================================
 status_write:
 	cmp	byte ptr [si],"-"
@@ -4717,7 +4717,7 @@ lng_skip_ret:
 	jmp	olc03
 
 ;==============================================================================
-;	c 〜 b の時
+;	c ～ b の時
 ;==============================================================================
 otoc:	mov	al,0
 	mov	ah,[def_c]
@@ -5572,7 +5572,7 @@ futen_skip:
 	ret
 
 ;==============================================================================
-;	0 〜 9 の数値を得る
+;	0 ～ 9 の数値を得る
 ;		inputs	-- ds:si to mml pointer
 ;		outputs	-- al
 ;			-- cy [1=error]
@@ -5751,7 +5751,7 @@ else
 	call	lngset
 
 tset:
-	cmp	al,251		;251〜255はエラー
+	cmp	al,251		;251～255はエラー
 	mov	dx,"t"*256+2
 	jnc	error
 	mov	dh,0fch
@@ -6815,7 +6815,7 @@ delay_only2:
 	jmp	olc0
 
 ;==============================================================================
-;	COMMAND "MX" LFO Speed Extended Mode Set Ver.4.0m〜
+;	COMMAND "MX" LFO Speed Extended Mode Set Ver.4.0m～
 ;==============================================================================
 extlfo_set:
 	lodsb
@@ -6875,7 +6875,7 @@ dps_nextparam:
 	jnz	olc0
 	inc	si
 
-;	値３	(counter)	4.7a〜
+;	値３	(counter)	4.7a～
 	mov	al,0b7h
 	stosb
 	push	ax
@@ -6945,7 +6945,7 @@ bset:
 	jmp	parset
 
 ;==============================================================================
-;	COMMAND "MW" [WAVE SET] for PMD V4.0j〜
+;	COMMAND "MW" [WAVE SET] for PMD V4.0j～
 ;==============================================================================
 waveset:
 	lodsb
@@ -6964,7 +6964,7 @@ waveset_main:
 	jmp	parset
 
 ;==============================================================================
-;	COMMAND "MM"	LFO Mask for PMD v4.2〜
+;	COMMAND "MM"	LFO Mask for PMD v4.2～
 ;==============================================================================
 lfomask_set:
 	lodsb
@@ -7241,13 +7241,13 @@ panset_extend:
 	jmp	olc0
 
 ;==============================================================================
-;	COMMAND "¥"	リズム音源コントロール
+;	COMMAND "\"	リズム音源コントロール
 ;==============================================================================
 rhycom:	
 	lodsb
 	mov	bx,offset rcomtbl
 rc00:	cmp	byte ptr cs:[bx],0
-	mov	dx,"¥"*256+1
+	mov	dx,"\"*256+1
 	jz	error
 	cmp	al,cs:[bx]
 	jz	rc01
@@ -7290,7 +7290,7 @@ mstvol:
 	inc	di
 	call	lngset
 
-	mov	dx,"¥"*256+6
+	mov	dx,"\"*256+6
 	jc	error
 	mov	dl,2
 	cmp	bl,64
@@ -7316,7 +7316,7 @@ rthvol:
 	call	lngset
 	pop	ax
 
-	mov	dx,"¥"*256+6
+	mov	dx,"\"*256+6
 	jc	error
 	mov	dl,2
 	cmp	bl,32
@@ -7377,7 +7377,7 @@ rhysel:
 	inc	bh
 	cmp	al,"i"
 	jz	rsel
-	mov	dx,"¥"*256+1
+	mov	dx,"\"*256+1
 	jmp	error
 rsel:
 	mov	al,bh
