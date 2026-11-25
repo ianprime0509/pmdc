@@ -6355,7 +6355,8 @@ static int search_hs3(struct mc *mc, struct mc_hs3 **found, struct mc_hs3 **pref
             // :7544
             if (*mc->si++ != *check_name++) goto hscom3_next;
         }
-        while (!is_graph(*mc->si)) mc->si++;
+        // :7548 hscom3_loop3
+        while (is_graph(*mc->si)) mc->si++;
         return 0;
     hscom3_next:
         // :7566
