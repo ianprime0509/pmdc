@@ -57,7 +57,7 @@ static const char err35[] = "Incorrect specification of arpeggio command.\n";
 static const char warning_mes[] = "Warning: ";
 static const char not_ff_mes[] = "Instrument file name not specified.\n";
 static const char ff_readerr_mes[] = "Instrument file cannot be read.\n";
-static const char not_pmd_mes[] = "PMD is not resident.n";
+static const char not_pmd_mes[] = "PMD is not resident.\n";
 static const char loop_err_mes[] = "Insufficient loop end symbols ].\n";
 static const char mcopt_err_mes[] = "Error in description of MCOPT EnvVar.";
 
