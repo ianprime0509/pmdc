@@ -1,0 +1,12 @@
+; Console: MCH_LEN.OUT
+; Command: mch
+; Options: /C MCH_LEN.MML
+
+#Title MCH_LEN
+
+; mch compiles and plays instead of saving, so the part lengths it prints are
+; the only thing to compare against.
+A l4 cdefgab
+B l8 o4 cde
+C t120 l16 c
+D l2 [cde]2

@@ -1542,7 +1542,14 @@ void mc_main(struct mc *mc, char *cmdline) {
     print_mes(mc, finmes);
 
     // :1496
-    // TODO: PMD resident functionality not implemented
+#if !efc
+    // Playing needs a resident PMD, which is not implemented, so this can only
+    // report that the driver is missing (:1519).
+    if (mc->play_flg != 0) {
+        print_mes(mc, warning_mes);
+        print_mes(mc, not_pmd_mes);
+    }
+#endif
 
     // :1560
     msdos_exit(mc);
@@ -1778,7 +1785,10 @@ static void cmloop2(struct mc *mc) {
             line_skip(mc);
             continue;
         }
-        compile_part = n;
+        // :862
+        // The MML numbers parts from 0, so the line's number is one less than
+        // the part being compiled.
+        compile_part = n + 1;
 #else
         // :864
         compile_part = c - 'A' + 1;

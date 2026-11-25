@@ -1,0 +1,10 @@
+; Output: EFC_NOTE.EFC
+; Console: EFC_NOTE.OUT
+; Command: efc
+; Options: /V EFC_NOTE.EML
+
+; EFC numbers its parts from 0 instead of lettering them, and lines for the
+; same part may be interleaved.
+0 cdefgab
+1 o4 cde
+0 o5 c

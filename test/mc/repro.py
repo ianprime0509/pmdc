@@ -1,8 +1,9 @@
 #!/usr/bin/env -S uv run
 """Creates/updates MC expected output files using Unicorn.
 
-Runs the original MC.EXE under an emulated DOS environment. Only the DOS
-services MC uses are implemented: console output, handle-based file I/O, and
+Runs the original MC.EXE (or the MCH.EXE/EFC.EXE named by the case's
+`; Command:` header) under an emulated DOS environment. Only the DOS services
+these commands use are implemented: console output, handle-based file I/O, and
 process termination.
 
 Usage: uv run repro.py ../../original/mc48s cases cases/INPUT.MML
@@ -336,6 +337,7 @@ class Headers:
     console: str | None = None
     extra_inputs: list[str] = field(default_factory=list)
     options: str | None = None
+    command: str = "mc"
 
 
 def split_list(text: str) -> list[str]:
@@ -358,17 +360,18 @@ def parse_headers(mml: bytes) -> Headers:
             )
         elif text.startswith("; Options: "):
             headers.options = text[len("; Options: ") :]
+        elif text.startswith("; Command: "):
+            headers.command = text[len("; Command: ") :]
     return headers
 
 
 def repro(mcdir: Path, casesdir: Path, inputfile: Path) -> None:
-    exe = mcdir / "MC.EXE"
-    if not exe.is_file():
-        raise SystemExit(f"MC.EXE not found in {mcdir}")
-    stem = inputfile.stem
-
     mml = inputfile.read_bytes()
     headers = parse_headers(mml)
+    exe = mcdir / f"{headers.command.upper()}.EXE"
+    if not exe.is_file():
+        raise SystemExit(f"{exe.name} not found in {mcdir}")
+    stem = inputfile.stem
     console_name = headers.console or f"{stem}.OUT"
     command_line = headers.options or inputfile.name
 
@@ -384,7 +387,7 @@ def repro(mcdir: Path, casesdir: Path, inputfile: Path) -> None:
         console = io.BytesIO()
         machine = DosMachine(exe.read_bytes(), data, console)
         if (status := machine.run(command_line)) != 0:
-            raise EmulationError(f"MC exited with status {status}")
+            raise EmulationError(f"{exe.name} exited with status {status}")
 
         raw = console.getvalue().replace(b"\r", b"")
         try:
