@@ -1169,7 +1169,7 @@ rem_set:
 	mov	ds,ax
 	mov	si,offset max_all
 	mov	cx,4
-rep	movsw			;TC/LC書き込み (4.8a～)
+rep	movsw			;TC/LC書き込み (4.8a〜)
 	pop	ds
 
 tclc_towns_chk:
@@ -4717,7 +4717,7 @@ lng_skip_ret:
 	jmp	olc03
 
 ;==============================================================================
-;	c ～ b の時
+;	c 〜 b の時
 ;==============================================================================
 otoc:	mov	al,0
 	mov	ah,[def_c]
@@ -5572,7 +5572,7 @@ futen_skip:
 	ret
 
 ;==============================================================================
-;	0 ～ 9 の数値を得る
+;	0 〜 9 の数値を得る
 ;		inputs	-- ds:si to mml pointer
 ;		outputs	-- al
 ;			-- cy [1=error]
@@ -5751,7 +5751,7 @@ else
 	call	lngset
 
 tset:
-	cmp	al,251		;251～255はエラー
+	cmp	al,251		;251〜255はエラー
 	mov	dx,"t"*256+2
 	jnc	error
 	mov	dh,0fch
@@ -6815,7 +6815,7 @@ delay_only2:
 	jmp	olc0
 
 ;==============================================================================
-;	COMMAND "MX" LFO Speed Extended Mode Set Ver.4.0m～
+;	COMMAND "MX" LFO Speed Extended Mode Set Ver.4.0m〜
 ;==============================================================================
 extlfo_set:
 	lodsb
@@ -6875,7 +6875,7 @@ dps_nextparam:
 	jnz	olc0
 	inc	si
 
-;	値３	(counter)	4.7a～
+;	値３	(counter)	4.7a〜
 	mov	al,0b7h
 	stosb
 	push	ax
@@ -6945,7 +6945,7 @@ bset:
 	jmp	parset
 
 ;==============================================================================
-;	COMMAND "MW" [WAVE SET] for PMD V4.0j～
+;	COMMAND "MW" [WAVE SET] for PMD V4.0j〜
 ;==============================================================================
 waveset:
 	lodsb
@@ -6964,7 +6964,7 @@ waveset_main:
 	jmp	parset
 
 ;==============================================================================
-;	COMMAND "MM"	LFO Mask for PMD v4.2～
+;	COMMAND "MM"	LFO Mask for PMD v4.2〜
 ;==============================================================================
 lfomask_set:
 	lodsb

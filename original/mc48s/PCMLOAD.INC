@@ -235,8 +235,8 @@ no_ppz:	stc
 ;		WORK/DATAのみ		128bytes	FILENAME
 ;		DATAのみ		32bytes		予備
 ;
-;		PCMRAM_Work		=00000H～00025H
-;		PCMRAM_Main_data	=00026H～01FFFH
+;		PCMRAM_Work		=00000H〜00025H
+;		PCMRAM_Main_data	=00026H〜01FFFH
 ;
 ;	.P86 format:
 ;		"PCM86 DATA",0ah,0	12 byte
@@ -492,7 +492,7 @@ ppc_load_main:
 ;-----------------------------------------------------------------------------
 	lds	si,dword ptr cs:[pcmdata_ofs]
 	les	di,dword ptr cs:[pcmwork_ofs]
-	add	si,30		;"ADPCM～"ヘッダを飛ばす
+	add	si,30		;"ADPCM〜"ヘッダを飛ばす
 	mov	cx,+(4*256+128+2)/2
 rep	cmpsw
 	jz	allload_exit4_close	;一致した
@@ -505,7 +505,7 @@ write_pcm_main:
 	mov	ds,ax
 	mov	si,offset adpcm_header
 	les	di,dword ptr cs:[pcmdata_ofs]
-	mov	cx,30/2		;"ADPCM～"ヘッダを書き込み
+	mov	cx,30/2		;"ADPCM〜"ヘッダを書き込み
 rep	movsw
 	lds	si,dword ptr cs:[pcmwork_ofs]
 	mov	cx,+(4*256+128+2)/2
@@ -1660,7 +1660,7 @@ _eenv_arc	db	?	; 1		/ARのカウンタ	/旧patb
 _eenv_drc	db	?	; 1		/DRのカウンタ
 _eenv_src	db	?	; 1		/SRのカウンタ	/旧pr1b
 _eenv_rrc	db	?	; 1		/RRのカウンタ	/旧pr2b
-_eenv_volume	db	?	; 1		/Volume値(0～15)/旧penv
+_eenv_volume	db	?	; 1		/Volume値(0〜15)/旧penv
 _extendmode	db	?	; 1 B1/Detune B2/LFO B3/Env Normal/Extend
 _fmpan		db	? 	; 1 FM Panning + AMD + PMD
 _psgpat		db	?       ; 1 PSG PATTERN [TONE/NOISE/MIX]
