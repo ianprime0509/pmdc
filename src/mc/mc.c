@@ -6472,17 +6472,18 @@ static void calc_line(struct mc *mc) {
     // nested includes and manage our own stacks here.
     uint16_t line_stack[16];
     char *filename_stack[16];
-    char *mml_buf = mc->mml_buf;
+    char *error_pos = mc->si;
+    mc->si = mc->mml_buf;
     mc->line = 1;
 
     // :7795
     for (;;) {
-next_line:
-        mc->linehead = mml_buf;
-        if (mml_buf == mc->si) goto found_error;
+cl_loop0:
+        mc->linehead = mc->si;
+        if (mc->si == error_pos) goto cl_exit;
         for (;;) {
-            char c = *mml_buf++;
-            if (mml_buf == mc->si) goto found_error;
+            char c = *mc->si++;
+            if (mc->si == error_pos) goto cl_exit;
             switch (c) {
             case 0x1a:
                 // :7803 -> :7851
@@ -6491,32 +6492,32 @@ next_line:
                 mc->si = NULL;
                 return;
             case '\r':
-                // :7813
-                mml_buf++;
+                // :7807 -> :7813
+                mc->si++;
                 mc->line++;
-                goto next_line;
+                goto cl_loop0;
             case 1:
-                // :7818
+                // :7809 -> :7818
                 line_stack[inc_level] = mc->line;
-                filename_stack[inc_level++] = mml_buf;
+                filename_stack[inc_level++] = mc->si;
                 mc->line = 1;
-                while (*mml_buf++ != 0) ;
-                goto next_line;
+                while (*mc->si++ != '\n') ;
+                goto cl_loop0;
             case 2:
-                // :7830
+                // :7811 -> :7830
                 mc->line = line_stack[--inc_level];
-                mml_buf++;
-                goto next_line;
+                mc->si++;
+                goto cl_loop0;
             }
         }
     }
-found_error:
-
     // :7837
+cl_exit:
     if (inc_level > 0) {
-        mml_buf = filename_stack[--inc_level];
-        strcpy(mc->mml_filename, mml_buf);
+        mc->si = filename_stack[--inc_level];
+        strcpy(mc->mml_filename, mc->si);
     }
+    mc->si = error_pos;
 }
 
 // :7864
