@@ -4439,7 +4439,7 @@ static void ge_set_vol(struct mc *mc) {
         int8_t new_depth = mc->ge_depth + mc->ge_depth2;
         if (mc->ge_dep_flag != 1) {
             // :5121
-            if (new_depth >= 16) new_depth = 15;
+            if ((uint8_t)new_depth >= 16) new_depth = 15;
             mc->ge_depth = new_depth;
         } else {
             // :5127
@@ -4460,7 +4460,7 @@ static void ge_set_vol(struct mc *mc) {
         int8_t new_depth = mc->ge_depth + mc->ge_depth2;
         if (mc->ge_dep_flag != 1) {
             // :5154
-            if (new_depth < -15) new_depth = -15;
+            if ((uint8_t)new_depth < (uint8_t)-15) new_depth = -15;
             mc->ge_depth = new_depth;
         } else {
             // :5160
