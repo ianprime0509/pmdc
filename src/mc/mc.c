@@ -1280,19 +1280,27 @@ void mc_main(struct mc *mc, char *cmdline) {
     if (read_status != 0 || close_status != 0) mc->si = NULL, error(mc, 0, 3);
 
     // :288
-    // This logic works a bit differently due to the differences between real
-    // DOS EOF handling and the mc_sys functions in this version.
+    // The MML content is terminated by a 1Ah end-of-file marker. Trailing NUL
+    // bytes are discarded first, as in the original. If the file does not
+    // already end with a marker, one is appended, preceded by a CRLF if the
+    // content does not already end with CRLF.
     char *mml_end = mc->mml_buf + input_len;
-    *mml_end = 0;
-    if (mml_end[-2] != '\r' || mml_end[-1] != '\n') {
-        *mml_end++ = '\r';
-        *mml_end++ = '\n';
-        *mml_end++ = 0;
-    }
-    mc->mml_endadr = mml_end;
+    while (mml_end > mc->mml_buf && mml_end[-1] == 0) mml_end--;
 
-    // :314
-    if (mml_end >= mc->mml_buf + sizeof(mc->mml_buf)) mc->si = NULL, error(mc, 0, 18);
+    char *eof = mml_end > mc->mml_buf && mml_end[-1] == 0x1a ? mml_end - 1 : mml_end;
+    bool has_crlf = eof - mc->mml_buf >= 2 && eof[-2] == '\r' && eof[-1] == '\n';
+    size_t end_offset = (eof - mc->mml_buf) + (has_crlf ? 1 : 3);
+    // The original performs this check after writing the terminator, but the
+    // resulting end position is the same and checking first avoids an out of
+    // bounds write when the buffer is (nearly) full.
+    if (end_offset > sizeof(mc->mml_buf) - 1) mc->si = NULL, error(mc, 0, 18);
+
+    if (!has_crlf) {
+        *eof++ = '\r';
+        *eof++ = '\n';
+    }
+    *eof = 0x1a;
+    mc->mml_endadr = eof + 1;
 
     // :319
     if (oh_filename[0] != 0) strcpy(mc->mml_filename, oh_filename);
@@ -1565,7 +1573,7 @@ static void p1cloop(struct mc *mc) {
             mc->si++;
             goto p1c_next;
         }
-        if (c == 0) break;
+        if (c == 0x1a) break;
         if (!is_graph(c) || c == ';') continue;
         if (c == '`') {
             mc->skip_flag ^= 2;
@@ -1747,7 +1755,7 @@ static void cmloop2(struct mc *mc) {
         if (sjis_check(c)) {
             mc->si++;
             continue;
-        } else if (c == 0) {
+        } else if (c == 0x1a) {
             break;
         } else if (!is_graph(c) || c == ';') {
             // :871
@@ -1896,7 +1904,7 @@ static void rt(struct mc *mc) {
             // :1064, :1067 -> :1103
             line_skip(mc);
             // :1051
-            if (*mc->si == 0) break;
+            if (*mc->si == 0x1a) break;
         } else if (c == '`') {
             // :1071
             mc->skip_flag ^= 2;
@@ -1905,12 +1913,12 @@ static void rt(struct mc *mc) {
             // :2969 -> :1103
             line_skip(mc);
             // :1051
-            if (*mc->si == 0) break;
+            if (*mc->si == 0x1a) break;
         } else if (mc->kpart_maxprg == 0) {
             // :1082 -> :1103
             line_skip(mc);
             // :1051
-            if (*mc->si == 0) break;
+            if (*mc->si == 0x1a) break;
         } else if (c == 'R') {
             // :1087
             uint8_t *old_di = mc->di;
@@ -1927,7 +1935,7 @@ static void rt(struct mc *mc) {
             // :1042
             if (mc->kpart_maxprg != 0) stosw(mc, data - m_buf(mc));
             // :1051
-            if (*mc->si == 0) break;
+            if (*mc->si == 0x1a) break;
         }
     }
 
@@ -2747,12 +2755,11 @@ static void include_set(struct mc *mc) {
     inc_mml += inc_len;
 
     // :2746
-    // As far as I can tell, the inc_eof_chk_loop in the original source code
-    // does not behave as intended, because bx is never set to anything useful
-    // before it executes. It may have been copied from eof_chk_loop (:290),
-    // and should probably be checking di instead of bx.
-    // Regardless, it doesn't matter for this version, since the mc_sys
-    // functions don't require this logic.
+    // The original's inc_eof_chk_loop, which is meant to discard trailing NUL
+    // bytes, is dead code: it reads [bx] because bx is never set to anything
+    // useful before it executes (it probably should be checking di). It is
+    // intentionally not replicated.
+    if (inc_mml[-1] == 0x1a) inc_mml--;
     if (inc_mml[-2] != '\r' || inc_mml[-1] != '\n') {
         *inc_mml++ = '\r';
         *inc_mml++ = '\n';
@@ -2983,7 +2990,7 @@ static uint8_t get_param(struct mc *mc) {
         } else if (is_cntrl(c) || c == ';') {
             // :3271
             line_skip(mc);
-            if (*mc->si == 0) error(mc, '@', 6);
+            if (*mc->si == 0x1a) error(mc, '@', 6);
         } else if (c == '`') {
             // :3249
             mc->skip_flag ^= 2;
@@ -3000,7 +3007,7 @@ static uint8_t get_param(struct mc *mc) {
             *prg_name = 0;
             // :3271
             line_skip(mc);
-            if (*mc->si == 0) error(mc, '@', 6);
+            if (*mc->si == 0x1a) error(mc, '@', 6);
         } else {
             // :3258
             mc->si--;
@@ -6411,7 +6418,7 @@ PMDC_NORETURN static void error(struct mc *mc, char cmd, uint8_t n) {
         // This logic has been reworked to avoid possible out of bounds reads
         // (fine in assembly, not in C) and double scanning.
         char *errline_end = mc->linehead;
-        while (*errline_end != '\r' && *errline_end != 0) errline_end++;
+        while (*errline_end != '\r' && *errline_end != 0x1a) errline_end++;
         if (*errline_end == '\r') errline_end += 2;
         // :7714
         *errline_end = 0;
@@ -6477,8 +6484,8 @@ next_line:
             char c = *mml_buf++;
             if (mml_buf == mc->si) goto found_error;
             switch (c) {
-            case 0:
-                // :7851
+            case 0x1a:
+                // :7803 -> :7851
                 mc->line = 0;
                 mc->linehead = NULL;
                 mc->si = NULL;

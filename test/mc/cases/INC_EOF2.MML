@@ -1,0 +1,7 @@
+; Console: INC_EOF2.OUT
+; Exit status: 1
+; Extra input: ext/INC_2A.MML
+
+#Include INC_2A.MML
+A cde
+A o9

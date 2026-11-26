@@ -303,7 +303,8 @@ struct mc {
     uint8_t *pcm_ofsadr;
 
     // :8422
-    // Points to the end of the MML content in mml_buf.
+    // Points just past the 1Ah end-of-file marker that terminates the MML
+    // content in mml_buf.
     // Used when processing #Include headers (§2.21).
     char *mml_endadr;
 
@@ -359,6 +360,9 @@ struct mc {
     // [01h] [null-terminated filename] [LF]
     // [included file contents, followed by CRLF if necessary]
     // [02h] [LF]
+    //
+    // The MML content as a whole is terminated by CRLF and a 1Ah end-of-file
+    // marker; the compilation loops treat the 1Ah as the end of the input.
     char mml_buf[61 * 1024];
 
     // :8472
