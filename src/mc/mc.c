@@ -6944,14 +6944,14 @@ static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static
     if (file) return file;
 
     // DISKPMD.INC:128
-    const char *search = filename;
-    for (;; search++) {
+    const char *name = filename;
+    for (const char *search = filename;; search++) {
         if (sjis_check(*search)) {
             search++;
             continue;
         }
         if (*search == 0) break;
-        if (*search == ':' || *search == '\\') filename = search;
+        if (*search == ':' || *search == '\\') name = search + 1;
     }
 
     // DISKPMD.INC:157
@@ -6959,27 +6959,33 @@ static void *opnhnd(struct mc *mc, const char *filename, char oh_filename[static
     if (!pmd_path) return NULL;
 
     // DISKPMD.INC:179
-    char *ohf_write = oh_filename;
-    bool is_sjis = false;
-    while (*pmd_path != 0) {
-        if (sjis_check(*pmd_path)) {
-            is_sjis = true;
+    for (;;) {
+        char *ohf_write = oh_filename;
+        bool is_sjis = false;
+        while (*pmd_path != 0 && *pmd_path != ';') {
+            is_sjis = sjis_check(*pmd_path);
             *ohf_write++ = *pmd_path++;
+            if (is_sjis) *ohf_write++ = *pmd_path++;
         }
-        *ohf_write++ = *pmd_path++;
-    }
-    // DISKPMD.INC:199
-    if (is_sjis || (ohf_write[-1] != '\\' && ohf_write[-1] == ':')) {
-        *ohf_write++ = '\\';
-    }
-    // DISKPMD.INC:212
-    while (*filename != 0) {
-        *ohf_write++ = *filename++;
-    }
-    *ohf_write++ = 0;
+        // DISKPMD.INC:199
+        // The original reads the byte before the buffer when the path is
+        // empty, which is never `\` or `:` in practice, so a separator is
+        // always added in that case.
+        if (is_sjis || ohf_write == oh_filename || (ohf_write[-1] != '\\' && ohf_write[-1] != ':')) {
+            *ohf_write++ = '\\';
+        }
+        // DISKPMD.INC:212
+        const char *src = name;
+        while ((*ohf_write++ = *src++) != 0) ;
 
-    // DISKPMD.INC:221
-    return mc->sys->open(oh_filename, mc->user_data);
+        // DISKPMD.INC:234
+        file = mc->sys->open(oh_filename, mc->user_data);
+        if (file) return file;
+        if (*pmd_path == 0) return NULL;
+        // The ';' is consumed before the end-of-list check, so a trailing
+        // separator does not add an empty path to the search.
+        if (*++pmd_path == 0) return NULL;
+    }
 }
 
 // DISKPMD.INC:250
