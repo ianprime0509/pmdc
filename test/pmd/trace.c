@@ -176,11 +176,11 @@ static bool replay_mode;
 static struct trace trace;
 static struct script script;
 
-// pmd_resident_main reports fatal errors through pmd_sys.exit, which the
-// original turns into a DOS exit. The host records it like the COM's AH=31h
-// or AH=4Ch exit and stops the script.
+// The driver reports fatal errors through pmd_sys.exit, which the original
+// turns into a DOS exit. The host records it like the COM's AH=31h or AH=4Ch
+// exit; a `main` that exits ends the script, while a `change` that exits
+// leaves the resident running.
 static jmp_buf exit_jmp;
-static bool exit_requested;
 static int exit_status;
 
 static void fail(const char *format, ...) __attribute__((noreturn, format(printf, 1, 2)));
@@ -566,7 +566,6 @@ static void sys_print(const char *mes, void *user_data) {
 static PMDC_NORETURN void sys_exit(int status, void *user_data) {
     (void)user_data;
     exit_status = status;
-    exit_requested = true;
     longjmp(exit_jmp, 1);
 }
 
@@ -1066,13 +1065,22 @@ static void run_actions(void) {
         const char *verb = script.actions[i].verb;
         const char *rest = script.actions[i].rest;
         if (strcmp(verb, "main") == 0) {
-            exit_requested = false;
             if (setjmp(exit_jmp) == 0) {
                 pmd_resident_main(trace.pmd, (char *)rest);
                 fprintf(trace.log, "%" PRIu64 " ret exit 00\n", trace.now);
             } else {
                 fprintf(trace.log, "%" PRIu64 " ret exit %02x\n", trace.now, exit_status);
                 return;
+            }
+        } else if (strcmp(verb, "change") == 0) {
+            if (setjmp(exit_jmp) == 0) {
+                enum pmd_change_result result = pmd_change_main(trace.pmd, (char *)rest);
+                fprintf(trace.log, "%" PRIu64 " ret change %02x\n", trace.now,
+                        (unsigned)result);
+            } else {
+                // A rejected option ends only this change; the resident keeps
+                // running, so the script continues.
+                fprintf(trace.log, "%" PRIu64 " ret exit %02x\n", trace.now, exit_status);
             }
         } else if (strcmp(verb, "load") == 0) {
             do_load(rest);

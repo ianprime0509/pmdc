@@ -46,7 +46,10 @@ from unicorn.x86_const import (
 )
 
 MEM_SIZE = 0x110000
+# The resident process. `main` loads here; the change path's own instance loads
+# at CHANGE_SEG so it does not overwrite the resident it is talking to.
 PSP_SEG = 0x1000
+CHANGE_SEG = 0x2000
 LOAD_OFFSET = 0x100
 ENV_SEG = 0x0F00
 # The tail of the fake DOS structures: the list of lists the virus check walks.
@@ -460,13 +463,20 @@ class Machine:
         self.script = script
         self.cwd = cwd
         self.console = console
+        self.image = image
+        self.name = name
+        self.psp_seg = PSP_SEG
         self.exit_code: int | None = None
         self.now = 0
         self.record: io.StringIO = io.StringIO()
         # Instructions between PIT ticks in the WAIT.INC calibration, and the
-        # total budget before `main` is declared hung.
+        # total budget before a process instance is declared hung.
         self.chunk = 100_000
-        self.budget = 100_000_000
+        self.run_budget = 100_000_000
+        self.budget = self.run_budget
+        # Set when a process instance executes INT 60h, which the hook has to
+        # perform itself (see `_call_resident`).
+        self.int60_pending = False
         # --replay: the golden's timer lines drive delivery instead of the
         # model's schedule, so a wrong timer write does not cascade.
         self.replay: list[tuple[int, int]] | None = None
@@ -487,21 +497,21 @@ class Machine:
             self.mu.hook_add(UC_HOOK_CODE, self._on_fmint, None,
                              PPZ8_FMINT_ADDR, PPZ8_FMINT_ADDR + 1)
         self.mu.mem_write(TRAP_ADDR, b"\xf4")
-        self._load_com(image, name)
+        self._load_com()
 
     # -- Loading ---------------------------------------------------------
 
-    def _load_com(self, image: bytes, name: str) -> None:
-        if len(image) + LOAD_OFFSET > 0x10000:
+    def _load_com(self) -> None:
+        if len(self.image) + LOAD_OFFSET > 0x10000:
             raise EmulationError("COM image does not fit in one segment")
-        self.image_size = len(image)
-        self.mu.mem_write(PSP_SEG * 16 + LOAD_OFFSET, image)
+        self.image_size = len(self.image)
+        psp = self.psp_seg * 16
+        self.mu.mem_write(psp + LOAD_OFFSET, self.image)
 
-        psp = PSP_SEG * 16
         self.mu.mem_write(psp, b"\xcd\x20")
         # The MCB before the PSP carries the largest available block, which
         # memchk_init reads at +3.
-        mcb = (PSP_SEG - 1) * 16
+        mcb = (self.psp_seg - 1) * 16
         self.mu.mem_write(mcb, b"\x4d\x00\x00\xf0\xff")
         self.mu.mem_write(psp + 0x02, struct.pack("<H", 0x9FFF))
         env = "PMDOPT=" + self.script.pmdopt if self.script.pmdopt else ""
@@ -509,13 +519,13 @@ class Machine:
         self.mu.mem_write(ENV_SEG * 16, env_bytes)
         self.mu.mem_write(psp + 0x2C, struct.pack("<H", ENV_SEG))
 
-        self._build_virus_data(name)
+        self._build_virus_data(self.name)
         self._install_drivers()
 
-        self.mu.reg_write(UC_X86_REG_CS, PSP_SEG)
-        self.mu.reg_write(UC_X86_REG_DS, PSP_SEG)
-        self.mu.reg_write(UC_X86_REG_ES, PSP_SEG)
-        self.mu.reg_write(UC_X86_REG_SS, PSP_SEG)
+        self.mu.reg_write(UC_X86_REG_CS, self.psp_seg)
+        self.mu.reg_write(UC_X86_REG_DS, self.psp_seg)
+        self.mu.reg_write(UC_X86_REG_ES, self.psp_seg)
+        self.mu.reg_write(UC_X86_REG_SS, self.psp_seg)
         self.mu.reg_write(UC_X86_REG_SP, 0xFFFE)
         self.mu.reg_write(UC_X86_REG_IP, LOAD_OFFSET)
 
@@ -558,17 +568,29 @@ class Machine:
         self.mu.mem_write(DOS_DATA_SEG * 16, bytes(data))
 
     def _build_command_tail(self, args: str) -> None:
-        tail = (" " + args).encode("cp932")[:255]
-        psp = PSP_SEG * 16
+        # DOS's tail is the length byte plus, when there are arguments, a
+        # leading space. PMD tests the length byte, so an empty tail must stay
+        # empty.
+        tail = (" " + args).encode("cp932")[:255] if args else b""
+        psp = self.psp_seg * 16
         self.mu.mem_write(psp + 0x80, bytes([len(tail)]) + tail + b"\r")
 
     # -- Execution -------------------------------------------------------
 
+    def start(self, seg: int, args: str) -> int:
+        """Runs a fresh instance of the COM at `seg` with command tail `args`."""
+        self.psp_seg = seg
+        self.exit_code = None
+        self.budget = self.run_budget
+        self._load_com()
+        self._build_command_tail(args)
+        return self.run()
+
     def run(self) -> int:
         self.mu.reg_write(UC_X86_REG_EFLAGS,
                           self.mu.reg_read(UC_X86_REG_EFLAGS) | IF)
-        start = PSP_SEG * 16 + LOAD_OFFSET
-        self.mu.reg_write(UC_X86_REG_CS, PSP_SEG)
+        start = self.psp_seg * 16 + LOAD_OFFSET
+        self.mu.reg_write(UC_X86_REG_CS, self.psp_seg)
         self.mu.reg_write(UC_X86_REG_IP, LOAD_OFFSET)
         pc = start
         while self.exit_code is None:
@@ -583,6 +605,9 @@ class Machine:
                 raise EmulationError(f"{err} at {cs:04x}:{ip:04x}") from err
             if self.exit_code is not None:
                 break
+            if self.int60_pending:
+                self.int60_pending = False
+                self._call_resident()
             pc = self._pc()
             # WAIT.INC calibrates its loop against the PIT while its own INT 8
             # vector is installed. The virtual clock cannot measure it, so the
@@ -598,7 +623,7 @@ class Machine:
 
     def _pit_installed(self) -> bool:
         offset, segment = struct.unpack("<HH", self.mu.mem_read(8 * 4, 4))
-        return segment == PSP_SEG and offset != 0
+        return segment == self.psp_seg and offset != 0
 
     def _inject_vector(self, vector: int) -> None:
         offset, segment = struct.unpack("<HH", self.mu.mem_read(vector * 4, 4))
@@ -618,6 +643,8 @@ class Machine:
             self.mu.emu_start((cs << 4) + ip, 0, timeout=60 * 10**6)
         except UcError as err:
             raise EmulationError(f"{err} at {cs:04x}:{ip:04x}") from err
+        if self.int60_pending:
+            raise EmulationError("unexpected INT 60h inside a resident call")
         if self.mu.reg_read(UC_X86_REG_CS) << 4 | self.mu.reg_read(UC_X86_REG_IP) != TRAP_ADDR:
             raise EmulationError("emulation stopped away from the trap")
 
@@ -643,7 +670,11 @@ class Machine:
         elif intno == 0x65 and "p86" in self.script.drivers:
             self._call_p86()
         elif intno == 0x60:
-            raise EmulationError("PMD executed INT 60h internally")
+            # PMD calls itself through the vector: the change path asks for the
+            # work address, and rescut_main drives the shutdown with nested
+            # calls. The hook has to perform them.
+            self.int60_pending = True
+            mu.emu_stop()
         else:
             raise EmulationError(f"unexpected interrupt {intno:#04x}")
 
@@ -840,6 +871,26 @@ class Machine:
         self.mu.reg_write(UC_X86_REG_SP, saved_sp)
         return result
 
+    def _call_resident(self) -> None:
+        """Performs an INT 60h call a process instance made itself.
+
+        DOS would push the caller's frame and jump through the vector; the hook
+        sees the instruction instead, so the call is made here and the caller
+        resumes at the instruction after it."""
+        saved_cs = self.mu.reg_read(UC_X86_REG_CS)
+        saved_ip = self.mu.reg_read(UC_X86_REG_IP)
+        saved_ss = self.mu.reg_read(UC_X86_REG_SS)
+        saved_sp = self.mu.reg_read(UC_X86_REG_SP)
+        handler = struct.unpack("<HH", self.mu.mem_read(0x60 * 4, 4))
+        self._push_frame(TRAP_SEG, TRAP_OFF)
+        self.mu.reg_write(UC_X86_REG_CS, handler[1])
+        self.mu.reg_write(UC_X86_REG_IP, handler[0])
+        self._run_to_trap()
+        self.mu.reg_write(UC_X86_REG_CS, saved_cs)
+        self.mu.reg_write(UC_X86_REG_IP, saved_ip)
+        self.mu.reg_write(UC_X86_REG_SS, saved_ss)
+        self.mu.reg_write(UC_X86_REG_SP, saved_sp)
+
     def _push_frame(self, cs: int, ip: int) -> None:
         sp = self.mu.reg_read(UC_X86_REG_SP)
         ss = self.mu.reg_read(UC_X86_REG_SS)
@@ -892,12 +943,22 @@ class Machine:
     def do_actions(self) -> None:
         for verb, rest in self.script.actions:
             if verb == "main":
-                self._build_command_tail(rest)
-                code = self.run()
+                code = self.start(PSP_SEG, rest)
                 self.record.write(f"{self.now} ret exit {hex8(code)}\n")
                 if code != 0:
-                    # The original process is gone; the script cannot continue.
+                    # The original process is gone and left no resident driver,
+                    # so the script cannot continue.
                     return
+            elif verb == "change":
+                vector = bytes(self.mu.mem_read(0x60 * 4, 4))
+                code = self.start(CHANGE_SEG, rest)
+                if code != 0:
+                    # Only this instance is gone; the resident is untouched.
+                    self.record.write(f"{self.now} ret exit {hex8(code)}\n")
+                else:
+                    # /R restores the INT 60h vector; a status change leaves it.
+                    removed = 1 if bytes(self.mu.mem_read(0x60 * 4, 4)) != vector else 0
+                    self.record.write(f"{self.now} ret change {hex8(removed)}\n")
             elif verb == "load":
                 self._load(rest)
             elif verb == "loadvoice":

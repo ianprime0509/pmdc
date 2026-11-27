@@ -6,13 +6,6 @@ below are what remains.
 
 ## Trace coverage
 
-- [ ] **`pmd_change_main` in the trace harness.** There is no `change` action
-  on either host, so the status text and the `/R` shutdown handshake are
-  covered only by hand-written expectations in `test/pmd/test_pmd.c`
-  (`test_pmd.c:1451`, `:1465`, `:4037`). Add the action to `repro.py` (call the
-  resident COM through the change path) and to `trace.c`, then compare the
-  console text and the shutdown writes against the original.
-
 - [ ] **Reference-driven option/probe matrix.** The checked-in cases exercise
   only `/C`, `/Z`, `/K-`, `/H`, `/M16`, and a `PMDOPT` of `/M /V /E`
   (`test/pmd/cases/pmd/DATA_26K.RUN`, `OPTIONS_26K.RUN`). Add cases for `/M`,

@@ -1,0 +1,10 @@
+; Driver: pmdva
+; Board: VA
+; Chip: YM2608
+
+main /C
+load ../fixtures/SAMPLE.M
+mstart
+run b 8
+status
+change /R

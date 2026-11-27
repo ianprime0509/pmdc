@@ -1,0 +1,12 @@
+; Driver: pmdb2
+; Board: none
+; Chip: YM2608
+
+main
+change /K-/DF20/DS4/W20/G100/KE16/KG2/KR4/A1
+change /I-/N-/F-/S-/P-/Z-
+change
+change /M16
+change /H
+status
+change /R

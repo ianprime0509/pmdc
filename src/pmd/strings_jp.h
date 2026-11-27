@@ -205,7 +205,9 @@ static const char mes_usage[] =
     "\t(* の付いたoptionは常駐後に再設定可能, - は括弧内に設定)";
 
 // :10692
-static const char changemes_0[] = "設定を変更しました．\n";
+// The original's `crlf` follows this string without its own terminator
+// (:10692), so the banner carries the blank line before the status.
+static const char changemes_0[] = "設定を変更しました．\n\n";
 static const char crlf[] = "\n";
 static const char changemes_01[] =
     "　----- 現在の設定 -----\n"

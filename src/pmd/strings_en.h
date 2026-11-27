@@ -204,7 +204,9 @@ static const char mes_usage[] =
     "\t(* options can be changed after residency, - is the value in parentheses)";
 
 // :10692
-static const char changemes_0[] = "Settings changed.\n";
+// The original's `crlf` follows this string without its own terminator
+// (:10692), so the banner carries the blank line before the status.
+static const char changemes_0[] = "Settings changed.\n\n";
 static const char crlf[] = "\n";
 static const char changemes_01[] =
     "  ----- Current settings -----\n"
