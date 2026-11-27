@@ -8145,8 +8145,8 @@ static void silence(struct pmd *pmd) {
 }
 
 // The original brackets every register write with pushf/cli/sti and restores
-// the interrupt flag afterwards. The host owns that exclusion (see the
-// interrupt/timer section of the plan), so these helpers perform the I/O only.
+// the interrupt flag afterwards. The host owns that exclusion, so these
+// helpers perform the I/O only.
 //
 // :6173
 static void opnset44(struct pmd *pmd, uint16_t dx) {
@@ -9305,7 +9305,7 @@ static bool ppz8_check(struct pmd *pmd) { return pmd->ppz8 != NULL; }
 
 // :9136
 // Enables the OPN interrupt and resets the part work for playback. The
-// original's intset/PIC/vector work is host-owned and omitted.
+// original's intset and PIC unmask (:9155-9160) are host-owned; see below.
 static void opnint_start(struct pmd *pmd) {
     if (pmd->board == 0) return;
 
@@ -9330,8 +9330,8 @@ static void opnint_start(struct pmd *pmd) {
 // :9174
 // OPN out for the 088/188/288/388 initialization: address to DX, data to DX+2.
 static void opnset_fmc(struct pmd *pmd, uint16_t dx, uint16_t ax) {
-    // The original delays 256 `loop $` iterations before each write (:9179,
-    // :9184); the host backend owns the chip timing.
+    // The original delays 256 `loop $` iterations before each write
+    // (:9177-9178, :9181-9182); the host backend owns the chip timing.
     outb(pmd, dx, (uint8_t)(ax >> 8));
     outb(pmd, dx + 2, (uint8_t)ax);
 }
@@ -9455,7 +9455,7 @@ static bool check_86b(struct pmd *pmd) {
 // board was found.
 static bool check_spb(struct pmd *pmd) {
     pmd->ongen = 1;
-    // The EPSON ROM reads are omitted as in check_86b (:9412). Unlike
+    // The EPSON ROM reads are omitted as in check_86b (:9318-9323). Unlike
     // check_86b, an EPSON machine only skips the OPNA off write here.
     uint8_t al = inb(pmd, 0xa460);
     if (al != 0xff) {
@@ -10339,7 +10339,7 @@ void pmd_resident_main(struct pmd *pmd, char *cmdline) {
         if (pmd->key_check != 0) print_mes(pmd, mes_key);
     }
 
-    // :8830 Releasing the DOS environment block is host-owned.
+    // :8825-8833 Releasing the DOS environment block is host-owned.
 
     // :8385
     resident_exit_end(pmd);

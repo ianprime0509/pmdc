@@ -2309,7 +2309,7 @@ static void fire_fm_timer_busy(struct pmd *pmd, uint8_t pending, uint8_t status)
 }
 
 // Runs the variant's board-present resident setup, which installs the FM timer
-// handler, and seeds the timer state that phase 5's data_init will own.
+// handler, and seeds the timer state that data_init owns.
 static struct pmd *new_timer_pmd(void) {
     struct pmd *pmd = alloc_pmd();
     pmd_init(pmd);
@@ -2559,7 +2559,7 @@ static void test_timer_vsync_restore(void) {
 }
 #endif
 
-// Phase 5: a minimal module image. Every part points at the end marker, so the
+// A minimal module image. Every part points at the end marker, so the
 // sequencer only runs the parts a test loads explicitly.
 static void load_empty_module(struct pmd *pmd) {
     uint8_t *m = pmd->mmlbuf;
@@ -4145,7 +4145,7 @@ static void test_playback_no_board(void) {
     free_pmd(pmd);
 }
 
-// Phase 7: the YMFM backend. The pmd_hw vtable delivers the FM timer handler
+// The YMFM backend. The pmd_hw vtable delivers the FM timer handler
 // through pmd->user_data, which therefore has to be the backend itself, so
 // these pmd_sys wrappers ignore user_data and use the global test context.
 static void ymfm_sys_putc(char c, void *user_data) {
@@ -4697,7 +4697,7 @@ static void test_ymfm_rom(void) {
 }
 
 
-// Phase 8: the SSG effect driver (EFCDRV.ASM). pmd_eff_on loads the first frame
+// The SSG effect driver (EFCDRV.ASM). pmd_eff_on loads the first frame
 // of the effect, pmd_effoff silences it, and Timer A advances the frames.
 static void test_int60_ssg_effect(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -4770,7 +4770,7 @@ static void test_int60_ssg_effect(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: the PPSDRV path of eff_main. A negative effect number is handed to
+// The PPSDRV path of eff_main. A negative effect number is handed to
 // PPSDRV with the inverted volume, and the same voice is keyed off first.
 static void test_int60_ssg_effect_pps(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -4802,7 +4802,7 @@ static void test_int60_ssg_effect_pps(void) {
 }
 
 #if ppz
-// Phase 8: the PPZ8 driver calls mstart (:461-486) and opn_init (:848) make.
+// The PPZ8 driver calls mstart (:461-486) and opn_init (:848) make.
 static void test_ppz8_start(void) {
     struct pmd *pmd = new_timer_pmd();
     pmd->ppz8 = &mock_ppz8;
@@ -4829,7 +4829,7 @@ static void test_ppz8_start(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: a PPZ8 part's note, volume, tone, and pan through the vtable. The
+// A PPZ8 part's note, volume, tone, and pan through the vtable. The
 // part addresses come from the PCM part's 0b4h command, as in a real module.
 static void test_ppz8_part(void) {
     // The PPZ8 interrupt level matched, so the directly callable FM entry is
@@ -4909,7 +4909,7 @@ static void test_ppz8_part(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: ppz_mml_part_mask (0c0h) masks and revives a PPZ8 part.
+// ppz_mml_part_mask (0c0h) masks and revives a PPZ8 part.
 static void test_ppz8_mml_mask(void) {
     struct pmd *pmd = new_timer_pmd();
     pmd->ppz8 = &mock_ppz8;
@@ -4939,7 +4939,7 @@ static void test_ppz8_mml_mask(void) {
 #endif
 
 #if board2 && pcm
-// Phase 8: the PCM86 path. A note loads its voice, starts the FIFO transfer,
+// The PCM86 path. A note loads its voice, starts the FIFO transfer,
 // and advances through fifo_main.
 static void test_pcm86_part(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -4994,7 +4994,7 @@ static void test_pcm86_part(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: /HZ rewrites the table fnumsetm reads, which the PCM86 pitch then
+// /HZ rewrites the table fnumsetm reads, which the PCM86 pitch then
 // follows.
 static void test_pcm86_freq_table(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -5034,7 +5034,7 @@ static void test_pcm86_freq_table(void) {
 #endif
 
 #if board2 && adpcm && !ademu
-// Phase 8: the YM2608 ADPCM effect path (PCMDRV.ASM:821).
+// The YM2608 ADPCM effect path (PCMDRV.ASM:821).
 static void test_adpcm_effect(void) {
     struct pmd *pmd = new_timer_pmd();
     pmd->pcm_gs_flag = 0; // ADPCM available
@@ -5095,7 +5095,7 @@ static void test_adpcm_effect(void) {
 #endif
 
 #if board2 && !pcm
-// Phase 8: the PCM part's note path for the YM2608 ADPCM variants. The PCM86
+// The PCM part's note path for the YM2608 ADPCM variants. The PCM86
 // variant takes it in test_pcm86_part.
 static void test_pcm_part(void) {
 #if ademu
@@ -5149,7 +5149,7 @@ static void test_pcm_part(void) {
 #endif
 
 #if board2 && adpcm && !ademu
-// Phase 8: a 0ceh whose third value is 8000h disables the release, and the
+// A 0ceh whose third value is 8000h disables the release, and the
 // original stores that value rather than leaving the previous one
 // (PCMDRV.ASM:371).
 static void test_pcmrepeat_release(void) {
@@ -5182,7 +5182,7 @@ static void test_pcmrepeat_release(void) {
 #endif
 
 #if board2 && adpcm
-// Phase 8: the PCM pitch adds the detune with saturation. A negative detune
+// The PCM pitch adds the detune with saturation. A negative detune
 // subtracts from the tone instead of clearing it (PCMDRV.ASM:745,
 // PCMDRVE.ASM:684).
 static void test_pcm_detune(void) {
@@ -5221,7 +5221,7 @@ static void test_pcm_detune(void) {
 #endif
 
 #if board2 && !pcm
-// Phase 8: the extended envelope divides the product by 16 and rounds up on the
+// The extended envelope divides the product by 16 and rounds up on the
 // bit the fourth shift drops (PCMDRV.ASM:551). Volume 1 against (volume + 1) 8
 // leaves 8/16, which rounds to 1; the bit above would leave 0.
 static void test_pcm_extended_envelope(void) {
@@ -5261,7 +5261,7 @@ static void test_pcm_extended_envelope(void) {
 #endif
 
 #if board2 && !pcm
-// Phase 8: the YM2608 ADPCM volume squares the fadeout before applying it
+// The YM2608 ADPCM volume squares the fadeout before applying it
 // (PCMDRV.ASM:514, PCMDRVE.ASM:604). A fadeout of 2 leaves 126 from volume
 // 128, where the unsquared fade would leave 127.
 static void test_pcm_fadeout_square(void) {
@@ -5301,7 +5301,7 @@ static void test_pcm_fadeout_square(void) {
 #endif
 
 #if board2 && pcm
-// Phase 8: the PCM86 command table replaces the extended lfo commands with
+// The PCM86 command table replaces the extended lfo commands with
 // parameter skips (PCMDRV86.ASM:263-274). 0bbh discards its byte, where the
 // YM2608 tables run _lfo_extend and set the part's extend mode.
 static void test_pcm86_command_table(void) {
@@ -5324,7 +5324,7 @@ static void test_pcm86_command_table(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: 0dah has no portamento in the PCM86 driver; its command table entry
+// 0dah has no portamento in the PCM86 driver; its command table entry
 // is jump1 (PCMDRV86.ASM:246), so the parameter byte is the only thing it
 // consumes. Reading it as portam would swallow the note behind it.
 static void test_pcm86_portamento_skip(void) {
@@ -5348,7 +5348,7 @@ static void test_pcm86_portamento_skip(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: /S (pcm86_vol == 1) plays every note from 65h up one octave lower
+// /S (pcm86_vol == 1) plays every note from 65h up one octave lower
 // (PCMDRV86.ASM:823-830); the note below the threshold is untouched.
 static void test_pcm86_s_octave(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -5376,7 +5376,7 @@ static void test_pcm86_s_octave(void) {
 #endif
 
 #if board2
-// Phase 8: the volume LFO clamps at zero. A swing below the current volume
+// The volume LFO clamps at zero. A swing below the current volume
 // silences the part instead of wrapping (PCMDRV.ASM:628, PCMDRV86.ASM:657).
 static void test_pcm_volume_lfo(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -5427,7 +5427,7 @@ static void test_pcm_volume_lfo(void) {
 #endif
 
 #if ppz
-// Phase 8: a negative 0ceh offset is relative to the end of the data, and the
+// A negative 0ceh offset is relative to the end of the data, and the
 // sign-extended value is added to the size (PPZDRV.ASM:379).
 static void test_ppz8_loop_offsets(void) {
     static const struct pmd_ppz8_voice voice = {
@@ -5493,7 +5493,7 @@ static void test_ppz8_loop_offsets(void) {
     free_pmd(pmd);
 }
 
-// Phase 8: 0b4h is a plain parameter skip in the PPZ8 command table
+// 0b4h is a plain parameter skip in the PPZ8 command table
 // (PPZDRV.ASM:284); only the PCM tables route it to ppz_extpartset.
 static void test_ppz8_extpart_skip(void) {
     struct pmd *pmd = new_timer_pmd();
@@ -5537,7 +5537,7 @@ static void test_ppz8_extpart_skip(void) {
 #endif
 
 #if board2 && adpcm && ademu
-// Phase 8: the ADPCM emulation's 0ceh offsets are 1/64ths of the voice size
+// The ADPCM emulation's 0ceh offsets are 1/64ths of the voice size
 // and are scaled by 32 for PPZ8, in 16-bit arithmetic (PCMDRVE.ASM:305).
 static void test_pcm_loop_offsets(void) {
     static const struct pmd_ppz8_voice voice = {

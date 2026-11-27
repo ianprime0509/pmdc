@@ -477,12 +477,13 @@ enum pmd_change_result {
 // not be moved or copied after `pmd_init`.
 //
 // The fields follow the original data area order (:7975 onwards) as closely as
-// practical. The INT 60h register save area (ds_push/dx_push/ah_push/al_push),
-// the PIC mask/EOI addresses (eoi_*/mask_*), the private interrupt stack
-// (ss_push/sp_push), int60_result, and the PPZ8 call address (ppz_call_ofs,
-// replaced by pmd_drv_ppz8.fm_int) are omitted: the typed
-// interface replaces the register dispatcher, reports rejections through typed
-// returns instead of int60_result, and leaves interrupt masking to the host.
+// practical. The INT 60h register save area (:7977-7980: ds_push/dx_push/
+// ah_push/al_push), the PIC mask/EOI addresses (:8002-8006: eoi_*/mask_*), the
+// private interrupt stack (:8007-8008: ss_push/sp_push), int60_result (:8091),
+// and the PPZ8 call address (:8143: ppz_call_ofs, replaced by
+// pmd_drv_ppz8.fm_int) are omitted: the typed interface replaces the register
+// dispatcher, reports rejections through typed returns instead of
+// int60_result, and leaves interrupt masking to the host.
 struct pmd {
     // :293
     // Interrupt level read from FM register 0Eh.
