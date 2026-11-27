@@ -1,0 +1,7 @@
+ .MML file --> .M file Compiler ver 4.8s
+		Programmed by M.Kajihara(KAJA) 2023/09/23
+
+ERROR_SPACE_COMMA.MML(6) : Error 1: Part A
+---------- MML中に理解不能な文字があります。
+A MB 12 , 1 , 8 , 2
+        ^^

@@ -12,7 +12,8 @@
 #Memo Line2
 #Tempo 150
 #Timer 200
-#JumpFlag 1
+; §2-24: #Jump only affects playback, not the generated .M
+#Jump 16
 
 ; Backtick block comment test
 A ` this is skipped ` c d e f g

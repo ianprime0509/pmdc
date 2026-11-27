@@ -1,6 +1,6 @@
 ; Output: LFO.M
 ; Console: LFO.OUT
-; PMDMML.MAN §9-1-1, §9-1-2, §9-1-3, §9-1-4, §9-2, §9-3, §9-4, §9-5, §9-6, §9-7
+; PMDMML.MAN §9-1-1, §9-1-2, §9-1-3, §9-1-4, §9-1-5, §9-1-6, §9-1-7, §9-2, §9-3, §9-4, §9-5, §9-6, §9-7
 
 #Title LFO
 #Option /v/c
@@ -153,3 +153,8 @@ A MB12,2,4,1 *B1 c d
 
 ; LFO B delay-only form
 A MB12 c d
+
+; §9-1-5 to §9-1-7: the remaining software LFO waveforms
+A MW4 M24,1,8,2 *1 c d   ; Triangle 2: 0..depthA*depthB, fixed depthB
+A MW5 M24,1,8,2 *1 c d   ; Triangle 3: depthA*|depthA|*depthB per step
+A MW6 M24,1,8,2 *1 c d   ; One-shot: holds the final value

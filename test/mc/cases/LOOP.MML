@@ -1,14 +1,18 @@
 ; Output: LOOP.M
 ; Console: LOOP.OUT
-; PMDMML.MAN §10-1, §10-2
+; PMDMML.MAN §2-13, §10-1, §10-2
 
 #Title LOOP
 #Option /v/c
+#LoopDefault 2
 
 ; --- §10 MML Commands - Loop Control Section ---
 
 ; §10-1 Local Loop Setting ([ : ])
 A [ c d e ]2 f          ; Basic loop 2 times
+; §2-13: a bare ] uses the #LoopDefault value (2)
+A [c8 d8] e f           ; Bare ] repeats 2 times
+A [c8 : d8] e f         ; Bare ] with : uses the same default
 A [ c : d e ]3 f        ; Loop 3 times, skip d e on last iteration
 A [ [c d]2 e ]2 f      ; Nested loop
 

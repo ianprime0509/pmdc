@@ -1,0 +1,25 @@
+; Output: DT2_FLAG.M
+; Console: DT2_FLAG.OUT
+; PMDMML.MAN §2-14, §3-1
+
+#Title DT2_FLAG
+#Option /v/c
+
+; §2-14: with #DT2Flag off, each FM slot has 10 parameters and no DT2 field.
+#DT2Flag off
+@1 004 004
+ 031 021 012 015 001 000 000 002 000 000
+ 031 021 012 015 001 000 000 002 000 000
+ 031 021 012 015 001 000 000 002 000 000
+ 031 021 012 015 001 000 000 002 000 000
+
+; §2-14: with #DT2Flag on, each slot gains the DT2 parameter (11 total).
+#DT2Flag on
+@2 004 004
+ 031 021 012 015 001 000 000 002 000 001 000
+ 031 021 012 015 001 000 000 002 000 002 000
+ 031 021 012 015 001 000 000 002 000 003 000
+ 031 021 012 015 001 000 000 002 000 000 000
+
+A @1 v12 l4 c d e
+A @2 v12 l4 f g a

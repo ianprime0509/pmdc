@@ -31,3 +31,8 @@ A c d ` skipped stuff here ` e f
 
 ; Backtick block comment test
 A ` this is skipped ` c d e f g
+
+; §1-4: a line whose first character is SPACE or TAB is a comment
+   A c d e
+	A f g a
+B c d

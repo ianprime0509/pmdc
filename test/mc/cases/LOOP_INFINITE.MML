@@ -1,0 +1,12 @@
+; Output: LOOP_INFINITE.M
+; Console: LOOP_INFINITE.OUT
+; PMDMML.MAN §2-13, §10-1
+
+#Title LOOP_INFINITE
+#Option /v/c
+
+; No #LoopDefault: a bare ] defaults to 0 (infinite)
+A [c8 d8] e f
+
+; Explicit 0 is also infinite
+B [c8 d8]0 e f

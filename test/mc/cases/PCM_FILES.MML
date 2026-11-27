@@ -6,6 +6,8 @@
 #Option /v/c/o/a
 #PPSFile test.pps
 #PCMFile test.ppc
+; §2-3: #PPCFile is an alias for #PCMFile and replaces the same field
+#PPCFile alias.ppc
 #PPZFile test.ppz
 
 ; Simple notes to make a valid file

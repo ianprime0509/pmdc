@@ -1,0 +1,11 @@
+; Output: FILENAME_EXT.M2
+; Console: FILENAME_EXT.OUT
+; PMDMML.MAN §2-1, §2-6
+
+#Title FILENAME_EXT
+#Option /v/c
+
+; §2-1 format 2: an extension-only #Filename changes only the extension.
+#Filename .M2
+
+A @1 v12 l4 c d e f g a b
