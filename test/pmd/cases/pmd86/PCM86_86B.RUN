@@ -1,0 +1,14 @@
+; Driver: pmd86
+; Board: 86B
+; Chip: YM2608
+; Drivers: p86
+
+main /C
+loadpcm ../fixtures/PCM86.P86
+load ../fixtures/PCM86.M
+mstart
+status
+run b 3
+status
+mstop
+status

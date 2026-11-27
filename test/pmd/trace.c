@@ -114,6 +114,12 @@ struct board {
     uint8_t adpcm_dummy;
     bool adpcm_external;
     bool adpcm_record;
+    // The PCM86 card's FIFO register. Bit 4 is the interrupt flag the driver
+    // polls at 0A468h; bits 5 and 7 are the interrupt enable and playback
+    // start it sets. The card raises the flag once per timer delivery while
+    // playback runs, and any write that clears bit 4 clears it.
+    uint8_t fifo_control;
+    bool fifo_pending;
 };
 
 struct action {
@@ -130,6 +136,7 @@ struct script {
     bool reads;
     bool pps;
     bool ppz8;
+    bool p86;
     struct action actions[max_actions];
     size_t action_count;
 };
@@ -253,6 +260,8 @@ static void script_header(const char *key, char *value) {
                 script.pps = true;
             } else if (strcmp(token, "ppz8") == 0) {
                 script.ppz8 = true;
+            } else if (strcmp(token, "p86") == 0) {
+                script.p86 = true;
             } else {
                 fail("unsupported driver '%s'", token);
             }
@@ -458,9 +467,12 @@ static uint8_t board_inb(uint16_t port) {
     switch (port) {
     case 0xA460:
         return board->opna ? 0x00 : 0xFF;
-    case 0xA66E:
-        return 0x00;
     case 0xA468:
+        // The PCM86 FIFO register reads back its control bits; bit 4 is the
+        // interrupt flag rather than the value last written there.
+        return (uint8_t)((board->fifo_control & (uint8_t)~0x10) |
+                         (board->fifo_pending ? 0x10 : 0x00));
+    case 0xA66E:
         return 0x00;
     default:
         fail("unmodelled port read %#06x", port);
@@ -494,7 +506,13 @@ static void board_outb(uint16_t port, uint8_t value, uint64_t now) {
         board->opna_on = (value & 1) != 0;
         return;
     }
-    if (port == 0x5F || port == 0xA66E || port == 0xA468) return;
+    if (port == 0xA468) {
+        board->fifo_control = value;
+        if ((value & 0x10) == 0) board->fifo_pending = false;
+        return;
+    }
+    if (port == 0x5F || port == 0xA466 || port == 0xA46A || port == 0xA46C ||
+        port == 0xA66E) return;
     fail("unmodelled port write %#06x = %#04x", port, value);
 }
 
@@ -727,6 +745,46 @@ static const struct pmd_drv_ppz8 trace_ppz8 = {
 };
 #endif
 
+#if board2 && pcm
+// repro.py's fake resident P86DRV (INT 65h). It holds the loaded .P86 sample
+// data in one 64 KiB area and resolves the driver's 24-bit offsets into it.
+enum { pcm86_area_size = 0x10000 };
+
+static uint8_t pcm86_area[pcm86_area_size];
+
+static uint8_t p86_get_version(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " p86 version 10\n", t->now);
+    return 0x10;
+}
+
+static void p86_push_ems(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " p86 push\n", t->now);
+}
+
+static void p86_pop_ems(void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " p86 pop\n", t->now);
+}
+
+// The translated driver treats NULL as the end of the data; the original has
+// no such check, so a case must keep its offsets inside the area.
+static const uint8_t *p86_get_data_offset(uint32_t offset, void *user_data) {
+    struct trace *t = user_data;
+    fprintf(t->log, "%" PRIu64 " p86 data %" PRIx32 "\n", t->now, offset);
+    if (offset >= pcm86_area_size) return NULL;
+    return pcm86_area + offset;
+}
+
+static const struct pmd_drv_p86 trace_p86 = {
+    .get_version = p86_get_version,
+    .push_ems = p86_push_ems,
+    .pop_ems = p86_pop_ems,
+    .get_data_offset = p86_get_data_offset,
+};
+#endif
+
 // -- Actions --------------------------------------------------------------
 
 static void event_ret(const char *name, uint8_t first, uint8_t second, bool two) {
@@ -797,6 +855,49 @@ static void do_loadeffect(const char *name) {
               name);
 }
 
+// `loadpcm` fills the PCM86 voice table the way P86DRV does after reading a
+// .P86 file: the fixture holds the file header, the 256 six-byte entries, and
+// the sample data that get_data_offset maps.
+static void do_loadpcm(const char *name) {
+#if board2 && pcm
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", trace.cases_dir, name);
+    char *data;
+    size_t len;
+    if (!read_file(path, &data, &len)) fail("cannot open fixture %s", path);
+
+    enum { pcm86_header = 16, pcm86_voices = 256, pcm86_entry = 6 };
+    const size_t table_len = (size_t)pcm86_voices * pcm86_entry;
+    if (len < pcm86_header + table_len) fail("%s: truncated PCM86 data file", name);
+    if (memcmp(data, "PCM86 DATA\n", 11) != 0) fail("%s: not a PCM86 data file", name);
+    uint32_t total = (uint32_t)(uint8_t)data[13] | ((uint32_t)(uint8_t)data[14] << 8) |
+                     ((uint32_t)(uint8_t)data[15] << 16);
+    size_t sample_len = len - (pcm86_header + table_len);
+    if (total != sample_len) {
+        fail("%s: header size %" PRIu32 " does not match the %zu data bytes", name,
+             total, sample_len);
+    }
+
+    union pmd_pcm_table *table = pmd_get_pcm_adr(trace.pmd);
+    if (table == NULL) fail("%s: this variant has no PCM86 voice table", name);
+    memset(&table->pcm86, 0, sizeof(table->pcm86));
+    for (size_t i = 0; i < pcm86_voices; i++) {
+        const uint8_t *entry = (const uint8_t *)data + pcm86_header + i * pcm86_entry;
+        table->pcm86.pcmadrs[i].offset =
+            (uint32_t)entry[0] | ((uint32_t)entry[1] << 8) | ((uint32_t)entry[2] << 16);
+        table->pcm86.pcmadrs[i].size =
+            (uint32_t)entry[3] | ((uint32_t)entry[4] << 8) | ((uint32_t)entry[5] << 16);
+    }
+    memset(pcm86_area, 0, sizeof(pcm86_area));
+    memcpy(pcm86_area, data + pcm86_header + table_len, sample_len);
+    table->pcm86.base = pcm86_area;
+    free(data);
+#else
+    (void)name;
+    fail("this variant has no PCM86 driver");
+#endif
+}
+
 static unsigned long parse_number(const char *text) {
     char *end = NULL;
     unsigned long value = strtoul(text, &end, 0);
@@ -823,6 +924,10 @@ static unsigned deliver_one(void) {
     if (latched == 0) return 0;
     const char *name = latched == 3 ? "ab" : latched == 2 ? "b" : "a";
     fprintf(trace.log, "%" PRIu64 " %s\n", trace.now, name);
+    // The card raises its FIFO interrupt on the sample clock. One delivery per
+    // timer interrupt is the model: the driver polls the flag from inside the
+    // FM handler.
+    if ((trace.board.fifo_control & 0xA0) == 0xA0) trace.board.fifo_pending = true;
     if (trace.handler != NULL) trace.handler(trace.pmd);
     return latched;
 }
@@ -893,6 +998,8 @@ static void run_actions(void) {
             do_loadvoice(rest);
         } else if (strcmp(verb, "loadeffect") == 0) {
             do_loadeffect(rest);
+        } else if (strcmp(verb, "loadpcm") == 0) {
+            do_loadpcm(rest);
         } else if (strcmp(verb, "mstart") == 0) {
             event_ret("mstart", result_flag(pmd_mstart_f(trace.pmd)), 0, false);
         } else if (strcmp(verb, "mstop") == 0) {
@@ -1093,7 +1200,11 @@ int main(int argc, char **argv) {
 #else
     pmd.ppz8 = NULL;
 #endif
+#if board2 && pcm
+    pmd.p86 = script.p86 ? &trace_p86 : NULL;
+#else
     pmd.p86 = NULL;
+#endif
     pmd.user_data = &trace;
     trace.pmd = &pmd;
     trace.now = 0;

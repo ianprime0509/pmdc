@@ -1,0 +1,15 @@
+; Output: PCM86.M
+; Console: PCM86.OUT
+; PMDMML.MAN §13-2, §5-2, §4-4
+
+#Title PCM86
+#Option /v/c
+
+; The PCM86 part. The voice table and the sample data are not part of the
+; module: they come from the .P86 file the PMD trace tests load, the way
+; P86DRV does. The notes select the two voices, and move the pan and volume
+; registers the PCM86 driver writes; o7 makes the /S octave shift visible.
+; The 96th-note lengths keep each note to one Timer B tick.
+J @0 V255 px+64 o4 c96
+J @1 V0 px-100 o7 e96
+J @0 V128 px0,1 o5 d96

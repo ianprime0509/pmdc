@@ -69,6 +69,13 @@ PPSDRV_ENTRY = 0x0100
 PPZ8_ENTRY = 0x0200
 PPZ8_FMINT = 0x0220
 PPZ8_FMINT_ADDR = DRIVER_SEG * 16 + PPZ8_FMINT
+# The fake P86DRV: an INT 65h handler with the "P86" residency signature, and
+# the 64 KiB PCM86 sample area its get_data_offset resolves. A full segment of
+# zeroed memory backs the area so a transfer that reads past the fixture data
+# sees the same zeros as the trace host.
+P86_ENTRY = 0x0400
+PCM_DATA_SEG = 0xC000
+PCM_DATA_SIZE = 0x10000
 # The fake PZI voice table: all-zero entries, which the trace host's mock
 # returns as the same zeroed struct. PMD skips past a 20h-byte PZI header and
 # indexes 12h-byte entries.
@@ -146,7 +153,7 @@ def parse_script(path: Path) -> Script:
                 script.reads = value.lower() == "on"
             elif key == "drivers":
                 script.drivers = set(value.lower().split())
-                unknown = script.drivers - {"pps", "ppz8"}
+                unknown = script.drivers - {"pps", "ppz8", "p86"}
                 if unknown:
                     raise EmulationError(
                         f"{path}:{number}: unsupported driver {min(unknown)!r}")
@@ -235,6 +242,12 @@ class Board:
         self.adpcm_dummy = 0
         self.adpcm_external = False
         self.adpcm_record = False
+        # The PCM86 FIFO register: bit 4 is the interrupt flag, bits 5 and 7
+        # the interrupt enable and playback start. The card raises the flag
+        # once per timer delivery while playback runs, and a write that clears
+        # bit 4 clears it.
+        self.fifo_control = 0
+        self.fifo_pending = False
 
     def candidate_port(self, base: int, port: int) -> bool:
         if base == 0x044:
@@ -384,9 +397,11 @@ class Board:
             return 0xFF
         if port == 0xA460:
             return 0x00 if self.opna else 0xFF
-        if port == 0xA66E:
-            return 0x00
         if port == 0xA468:
+            # The PCM86 FIFO register reads back its control bits; bit 4 is
+            # the interrupt flag rather than the value last written there.
+            return (self.fifo_control & ~0x10) | (0x10 if self.fifo_pending else 0)
+        if port == 0xA66E:
             return 0x00
         raise EmulationError(f"unmodelled port read {port:#06x}")
 
@@ -414,7 +429,12 @@ class Board:
         if port == 0xA460:
             self.opna_on = (value & 1) != 0
             return
-        if port in (0x5F, 0xA66E, 0xA468):
+        if port == 0xA468:
+            self.fifo_control = value
+            if not value & 0x10:
+                self.fifo_pending = False
+            return
+        if port in (0x5F, 0xA466, 0xA46A, 0xA46C, 0xA66E):
             return
         raise EmulationError(f"unmodelled port write {port:#06x} = {value:#04x}")
 
@@ -441,6 +461,8 @@ class Machine:
         self.reads = script.reads
         # First-seen order aliases for pointers the two hosts cannot compare.
         self.aliases: dict[int, str] = {}
+        # The PCM86 sample area the fake P86DRV's get_data_offset resolves.
+        self.pcm_data = bytes(PCM_DATA_SIZE)
         self.board = Board(script.board, script.chip)
         self.mu = Uc(UC_ARCH_X86, UC_MODE_16)
         self.mu.mem_map(0, MEM_SIZE)
@@ -499,6 +521,11 @@ class Machine:
             self.mu.mem_write(base + PPZ8_ENTRY + 2, b"PPZ8")
             self.mu.mem_write(base + PPZ8_FMINT, b"\xcb")
             self.mu.mem_write(0x7F * 4, struct.pack("<HH", PPZ8_ENTRY, DRIVER_SEG))
+        if "p86" in self.script.drivers:
+            # The driver checks the vector's target for "P86" at +2
+            # (PCMDRV86.ASM:922-924), which MASM's "8P"/"6" constants spell.
+            self.mu.mem_write(base + P86_ENTRY + 2, b"P86")
+            self.mu.mem_write(0x65 * 4, struct.pack("<HH", P86_ENTRY, DRIVER_SEG))
 
     def _build_virus_data(self, name: str) -> None:
         # DOS's list of lists points at the first FCB block at +4h. The block
@@ -600,6 +627,8 @@ class Machine:
             self._call_pps()
         elif intno == 0x7F and "ppz8" in self.script.drivers:
             self._call_ppz8()
+        elif intno == 0x65 and "p86" in self.script.drivers:
+            self._call_p86()
         elif intno == 0x60:
             raise EmulationError("PMD executed INT 60h internally")
         else:
@@ -674,6 +703,31 @@ class Machine:
             self.record.write(f"{self.now} ppz8 protect {hex8(al)}\n")
         else:
             raise EmulationError(f"unimplemented PPZ8 call AH={ah:#04x} AL={al:#04x}")
+
+    def _call_p86(self) -> None:
+        ah = self._reg(UC_X86_REG_AX, 8)
+        al = self._reg(UC_X86_REG_AX)
+        if ah == 0xFF:
+            self.record.write(f"{self.now} p86 version 10\n")
+            self.mu.reg_write(UC_X86_REG_AX, (ah << 8) | 0x10)
+        elif ah == 0xFB:
+            self.record.write(f"{self.now} p86 push\n")
+        elif ah == 0xFC:
+            self.record.write(f"{self.now} p86 pop\n")
+        elif ah == 0xFD:
+            # DX:AL is the 24-bit sample offset (PCMDRV86.ASM:1144-1148).
+            # The card maps the window at PCM_DATA_SEG, so the exact address is
+            # returned instead of a page-relative one; within one fixture the
+            # driver never crosses the 16 KiB window.
+            offset = (al << 16) | self.mu.reg_read(UC_X86_REG_DX)
+            self.record.write(f"{self.now} p86 data {offset:x}\n")
+            if offset >= len(self.pcm_data):
+                raise EmulationError(f"P86DRV offset {offset:#x} is outside the sample data")
+            address = PCM_DATA_SEG * 16 + offset
+            self.mu.reg_write(UC_X86_REG_DS, address >> 4)
+            self.mu.reg_write(UC_X86_REG_DX, address & 0xF)
+        else:
+            raise EmulationError(f"unimplemented P86DRV call AH={ah:#04x} AL={al:#04x}")
 
     def _on_fmint(self, mu, address, size, user_data) -> None:
         if address == PPZ8_FMINT_ADDR:
@@ -804,6 +858,11 @@ class Machine:
             return 0
         name = {1: "a", 2: "b", 3: "ab"}[latched]
         self.record.write(f"{self.now} {name}\n")
+        # The card raises its FIFO interrupt on the sample clock. One delivery
+        # per timer interrupt is the model: the driver polls the flag from
+        # inside the FM handler.
+        if (self.board.fifo_control & 0xA0) == 0xA0:
+            self.board.fifo_pending = True
         handler = struct.unpack("<HH", self.mu.mem_read(IRQ_VECTOR * 4, 4))
         saved_cs = self.mu.reg_read(UC_X86_REG_CS)
         saved_ip = self.mu.reg_read(UC_X86_REG_IP)
@@ -832,6 +891,8 @@ class Machine:
                 self._load_area(rest, 0x07, self.api(0x22)["ah"] * 1024)
             elif verb == "loadeffect":
                 self._load_area(rest, 0x0B, (self.api(0x22)["dx"] & 0xFF) * 1024)
+            elif verb == "loadpcm":
+                self._loadpcm(rest)
             elif verb == "mstart":
                 self.record.write(f"{self.now} ret mstart {hex8(self._result(0x00))}\n")
             elif verb == "mstop":
@@ -945,6 +1006,33 @@ class Machine:
             raise EmulationError(f"{path}: {len(data)} bytes does not fit in {size} bytes")
         self.mu.mem_write(address, bytes(size))
         self.mu.mem_write(address, data)
+
+    def _loadpcm(self, path: str) -> None:
+        """Loads a .P86 file the way P86DRV does: voice table and sample data."""
+        source = self.cwd / path
+        if not source.is_file():
+            raise EmulationError(f"fixture {path} not found")
+        data = source.read_bytes()
+        header, voices, entry = 16, 256, 6
+        if len(data) < header + voices * entry:
+            raise EmulationError(f"{path}: truncated PCM86 data file")
+        if data[:11] != b"PCM86 DATA\n":
+            raise EmulationError(f"{path}: not a PCM86 data file")
+        total = int.from_bytes(data[13:16], "little")
+        samples = data[header + voices * entry:]
+        if total != len(samples):
+            raise EmulationError(
+                f"{path}: header size {total} does not match the {len(samples)} data bytes")
+        if len(samples) > PCM_DATA_SIZE:
+            raise EmulationError(f"{path}: sample data is too large")
+        self.pcm_data = samples + bytes(PCM_DATA_SIZE - len(samples))
+        self.mu.mem_write(PCM_DATA_SEG * 16, self.pcm_data)
+        # The table starts after pcmst_ofs/pcmst_seg (PMD.ASM:8363-8365), and
+        # each entry is a 24-bit start and size.
+        result = self.api(0x0E)
+        address = (result["ds"] << 4) + result["dx"]
+        table = bytearray(4) + bytearray(data[header:header + voices * entry])
+        self.mu.mem_write(address, bytes(table))
 
     def _run(self, rest: str) -> None:
         parts = rest.split()

@@ -6,21 +6,12 @@ below are what remains.
 
 ## External drivers and data paths
 
-- [ ] **P86DRV (INT 65h) and the PCM86 card.** Neither host implements a
-  PCM86 board or the `pmd_drv_p86` mock; both reject `Drivers: p86`
-  (`test/pmd/trace.c:257`, `test/pmd/repro.py:149`). Requires:
-  - a PCM86 card model in the fake board (FIFO, EMS handle push/pop, sample
-    data offsets) on both hosts;
-  - a mock `pmd_drv_p86` vtable in `trace.c` and the matching INT 65h handler
-    in `repro.py`;
-  - cases for `PCMDRV86.ASM` transfers, the `/S` PCM86 volume, `/HZ` frequency
-    table selection, and the EMS/FIFO calls only that board reaches.
-
-- [ ] **ADPCM/PCM data and rhythm ROM fixtures.** The board models serve
-  registers and the ADPCM-B external RAM check, but no sample-data memory, so
-  `pcm_read`, loop offsets, and rhythm ROM contents are never compared. Add a
-  data-memory model to both hosts plus fixtures, following how `EXT.FF` and
-  `EFC_EFCT.EFC` supply voice and effect data.
+- [ ] **ADPCM sample data and rhythm ROM fixtures.** The board models serve
+  registers, the ADPCM-B external RAM check, and the PCM86 card (including
+  sample data through the fake P86DRV), but the ADPCM-B RAM is never filled
+  with a sample fixture, and rhythm ROM contents are never compared. Add a
+  data-memory model to both hosts plus fixtures, following how `EXT.FF`,
+  `EFC_EFCT.EFC`, and `PCM86.P86` supply voice, effect, and PCM86 data.
 
 ## Trace coverage
 

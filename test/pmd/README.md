@@ -68,9 +68,11 @@ A `;` starts a comment. Comment lines at the top of the file are headers:
 - `Reads: on` records `inb` events on both hosts for diagnosis. No checked-in
   case uses it; reads are otherwise not part of a golden.
 - `Drivers` lists the fake resident drivers to install, space separated:
-  `pps` (INT 64h) and `ppz8` (INT 7Fh). The original checks the vectors'
-  residency signature; the translation receives the matching mock vtables.
-  `p86` (INT 65h) is not modelled because no board here has a PCM86 card.
+  `pps` (INT 64h), `ppz8` (INT 7Fh), and `p86` (INT 65h, the PCM86 driver).
+  The original checks the vectors' residency signature; the translation
+  receives the matching mock vtables. `p86` needs a board and a case with a
+  PCM86 part; the fake card's FIFO and sample area are described under
+  "Board model".
 
 Every other line is one action, in order.
 
@@ -80,6 +82,7 @@ Every other line is one action, in order.
 | `load NAME` | INT 60h AH=06h buffer; the file is read into it | none |
 | `loadvoice NAME` | AH=07h buffer; the voice file is read into it | none |
 | `loadeffect NAME` | AH=0Bh buffer; the EFC file is read into it | none |
+| `loadpcm NAME` | the PCM86 voice table and the fake P86DRV's sample area; a .P86 file | none |
 | `mstart` | AH=00h, `pmd_mstart_f` | `ret mstart 00` or `ff` |
 | `mstop` | AH=01h, `pmd_mstop_f` | `ret mstop 00` or `ff` |
 | `status` | AH=0Ah, `pmd_get_status` | `ret status AH AL` |
@@ -122,11 +125,16 @@ There is no `assert` verb: every action that returns something records a
 `ret` event, so the golden is the assertion.
 
 Note that `load` does not reproduce `PMP.COM`'s `MSTOP` before the read. The
-three load actions zero the target area (music, voice, or effect) and read the
-fixture into the address returned by the API; a fixture larger than the area
-the options configure is an error. `tondat` is only read when the module has
-no embedded program area (`prg_flg == 0`), so a voice-bank case needs a module
-whose first part starts at offset 24; `cases/fixtures/VOICE.M` is one.
+music, voice, and effect loads zero the target area and read the fixture into
+the address returned by the API; a fixture larger than the area the options
+configure is an error. `tondat` is only read when the module has no embedded
+program area (`prg_flg == 0`), so a voice-bank case needs a module whose first
+part starts at offset 24; `cases/fixtures/VOICE.M` is one.
+
+`loadpcm` stands in for P86DRV's `.P86` reader: it parses the file's 16-byte
+header and 256 six-byte start/size entries into the PCM voice table (through
+`pmd_get_pcm_adr` / INT 60h AH=0Eh) and copies the sample data into the fake
+driver's 64 KiB area, which `get_data_offset` then maps. It records nothing.
 
 ## Trace format
 
@@ -144,14 +152,16 @@ of OPN master clocks; ports, registers, and values are lowercase hex.
   and B overflow is one delivery, `ab`, never two.
 - `ret NAME VALUES`: a scripted action's result, including `ret exit STATUS`
   at the end of `main`.
-- `pps OP ARGS`, `ppz8 OP ARGS`: a call into a fake resident driver, named
-  for the interface operation rather than the interrupt register contract
-  (`pps keyon NUM DETUNE VOLUME`, `pps pdr NUMBER MODE`, `ppz8 protect BOOL`,
-  ...). The PDR line records what the driver receives: `PMD.ASM:2483-2484`
-  split the module's `*` operand into AL = `n >> 1` and DL = `n & 1`. The
-  PPZ8 entry obtained through 0409h is recorded as `ppz8 fmint`, and the
-  voice-table query is not recorded because only its contents affect the
-  driver.
+- `pps OP ARGS`, `ppz8 OP ARGS`, `p86 OP ARGS`: a call into a fake resident
+  driver, named for the interface operation rather than the interrupt register
+  contract (`pps keyon NUM DETUNE VOLUME`, `pps pdr NUMBER MODE`, `ppz8
+  protect BOOL`, `p86 push`, ...). The PDR line records what the driver
+  receives: `PMD.ASM:2483-2484` split the module's `*` operand into AL =
+  `n >> 1` and DL = `n & 1`. The PPZ8 entry obtained through 0409h is recorded
+  as `ppz8 fmint`, and the voice-table query is not recorded because only its
+  contents affect the driver. The P86DRV lines are `p86 version 10`, `p86
+  push`, `p86 pop`, and `p86 data OFFSET`, where OFFSET is the 24-bit sample
+  offset the driver asks the card to map.
 
 Not recorded:
 
@@ -185,8 +195,17 @@ The fake board is deliberately small and must stay identical in both hosts:
   BRDY (bit 3) while the bank is in external mode, which is all the check
   polls; EOS is not modelled because the driver never tests it.
 - The OPNA ID port 0A460h: FFh when no OPNA is declared, 00h otherwise, and
-  writes to it track the driver's OPNA on/off sequence. The mute ports 0A66Eh
-  and 0A468h read 00h.
+  writes to it track the driver's OPNA on/off sequence. The mute port 0A66Eh
+  reads 00h.
+- The PCM86 card at 0A466h-0A46Ch. The FIFO register 0A468h reads back its
+  control bits, with bit 4 replaced by the interrupt flag. The card raises
+  that flag on every timer delivery while the interrupt enable (bit 5) and
+  playback start (bit 7) bits are set, and any write that clears bit 4 clears
+  it; that is what the driver polls from `opnint`, and it is what drives the
+  transfers. The volume register 0A466h, the pan/rate register 0A46Ah, and the
+  sample data port 0A46Ch are write-only in the model. The fake P86DRV answers
+  INT 65h (version 10h, EMS push/pop, and the sample offset lookup) and owns
+  the sample area `loadpcm` fills.
 - `Board: VA` uses four adjacent byte ports instead of word pairs: the same
   rules apply at 044h/045h and 046h/047h, and the second chip's status port
   reads 00h until its ADPCM bank is in external mode (the 88VA has no OPNA
@@ -284,7 +303,7 @@ install, the INT 60h probes, and a short playback.
 | Directory | Board | Cases |
 | --- | --- | --- |
 | `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
-| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B` |
 | `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
@@ -322,6 +341,9 @@ The board2 variants add their own driver-specific cases:
 | `PPZ_86B` | a resident PPZ8: the 0410h/0409h handshake, 1901h protection, and the `mstart` init/stop sequence |
 | `PPZ_RESET_86B` | `/Z`: FIFO stop, one keyoff per channel, and 1900h removal permission |
 | `PPZ_PLAY_86B` | `PPZEXT.M` (from `test/mc/cases`) through PPZ8: keyon, volume, tone, loop/rate from the (empty) voice table, pan, and the directly called FM entry on each tick |
+| `PCM86_86B` | a resident P86DRV and `PCM86.M` with a PCM86 part: the INT 65h version/push/pop/data calls, the FIFO transfers each tick, the volume register, and both pan directions |
+| `PCM86_S_86B` | `/S`: the SPB volume curve and the one-octave-lower playback of notes from 65h up |
+| `PCM86_HZ_86B` | `/HZ0`: the downloaded frequency table changes the rate bits each note writes to the PCM86 register |
 
 The variant directories reuse those shapes: the install cases pin each build's
 probe and initialization sequence, the API cases pin its `drvchk` board value
@@ -330,23 +352,27 @@ writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
 and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's transfer.
 
 `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` come from the official 4.8s
-distribution; `DEFONKAI.M`, `PPZEXT.M`, and `PDR.M` are MC outputs copied from
-`test/mc/cases`, as are `EXT.FF` (external voice bank) and `EFC_EFCT.EFC`
-(EFC effect data). They live in `cases/fixtures` and every playback case loads
-one from there. `VOICE.M` is hand-built because MC always embeds a program
-area: its first part starts at offset 24, which is how `play_init` detects
-`prg_flg == 0` and reads voices from `tondat`.
+distribution; `DEFONKAI.M`, `PPZEXT.M`, `PDR.M`, and `PCM86.M` are MC outputs
+copied from `test/mc/cases`, as are `EXT.FF` (external voice bank) and
+`EFC_EFCT.EFC` (EFC effect data). They live in `cases/fixtures` and every
+playback case loads one from there. `VOICE.M` is hand-built because MC always
+embeds a program area: its first part starts at offset 24, which is how
+`play_init` detects `prg_flg == 0` and reads voices from `tondat`.
+`PCM86.P86` is hand-built to the `.P86` format `PCMLOAD.INC` documents: a
+16-byte header, 256 six-byte start/size entries (voice 0 is a long sine and
+voice 1 a short ramp), and 4 KiB of sample data. `loadpcm` uses it to fill the
+voice table and the fake P86DRV's area on both hosts.
 
 ## Limitations
 
-PPSDRV (INT 64h) and PPZ8 (INT 7Fh) are modelled as fake resident drivers on
-both hosts, and the cases above cover detection, the install/reset handshakes,
-PPSDRV effects (including the PDR switch), and a PPZ8 playback. Still open:
+PPSDRV (INT 64h), PPZ8 (INT 7Fh), and P86DRV (INT 65h) are modelled as fake
+resident drivers on both hosts, and the cases above cover detection, the
+install/reset handshakes, PPSDRV effects (including the PDR switch), a PPZ8
+playback, and the PCM86 FIFO, EMS, and transfer calls. Still open:
 
-- P86DRV (INT 65h): the PCM86 card it needs is not part of any board model,
-  so `Drivers: p86` is rejected.
-- ADPCM/PCM data and rhythm ROM contents, which need data-memory fixtures the
-  same way `EXT.FF` and `EFC_EFCT.EFC` provide voice and effect data.
+- ADPCM sample data and rhythm ROM contents, which need data-memory fixtures
+  the same way `EXT.FF`, `EFC_EFCT.EFC`, and `PCM86.P86` provide voice, effect,
+  and PCM86 data.
 - Long fade/FF/pause/part-mask traces and the reference `Board: 86` (PC-88,
   which no shipped binary targets).
 
