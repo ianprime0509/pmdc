@@ -43,11 +43,12 @@ enum pmd_ymfm_board {
 
 struct pmd_ymfm;
 
-// The SSG mix level PMD-style players use. The chip's own SSG output level is
-// much higher relative to FM than a PMD mix wants: PMDWin mixes it at
-// SetVolumePSG(-18), and its gain formula (65536 * 10^(db / 40)) works out to
-// 0.3548 of the chip's output.
-#define PMD_YMFM_SSG_GAIN_DEFAULT 0.355
+// PMDWin's SSG mix level
+// (SetVolumePSG(-18) -> 65536 * 10^(db / 40) / 65536 max FM level)
+#define PMD_YMFM_SSG_GAIN_PMDWIN     0.355
+// 98fmplayer's SSG mix level
+#define PMD_YMFM_SSG_GAIN_98FMPLAYER 0.1875
+#define PMD_YMFM_SSG_GAIN_DEFAULT    PMD_YMFM_SSG_GAIN_PMDWIN
 
 struct pmd_ymfm_config {
     enum pmd_ymfm_chip chip;
@@ -62,7 +63,10 @@ struct pmd_ymfm_config {
     uint32_t input_clock;
     // Mix level of the board's AC-coupled SSG output, before it joins the FM
     // outputs. 1.0 is the chip's own level, 0 silences the SSG, and
-    // PMD_YMFM_SSG_GAIN_DEFAULT is what a PMD player mixes it at.
+    // the PMD_YMFM_SSG_GAIN constants give values for popular PMD players.
+    // In reality, this value depends heavily on the actual PC-98 sound board
+    // used and the mixer configuration, if available:
+    // http://www.retropc.net/yui/np2help/sndboard.html
     double ssg_gain;
     // The driver whose FM timer handler the backend calls.
     struct pmd *pmd;
