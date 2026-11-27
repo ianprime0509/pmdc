@@ -1,0 +1,8 @@
+; Output: INCLUDE_OK.M
+; Console: INCLUDE_OK.OUT
+; Extra input: ext/INCLUDE_SUB.MML, ext/INCLUDE_LEAF.MML
+; PMDMML.MAN §2-21
+
+#Title INCLUDE_OK
+#Include INCLUDE_SUB.MML
+A cdefg

@@ -1,0 +1,15 @@
+; Output: TONE_FILE_COMMAND_LINE.M
+; Console: TONE_FILE_COMMAND_LINE.OUT
+; Extra input: ext/EXT.FF
+; Options: TONE_FILE_COMMAND_LINE.MML EXT
+; PMDMML.MAN §2-4, §2-5
+
+#Title TONE_FILE_COMMAND_LINE
+
+; Every voice comes from EXT.FF: naming a voice file on the command line
+; implies /V. EXT.FF only defines @0-@2.
+A @0 v12 l4 c d e
+A @1 v12 l4 e f g
+A @2 v12 l4 g a b
+; EXT.FF is shorter than the 8KB voice buffer: @5 is not in it.
+B @5 v10 l8 c d e f

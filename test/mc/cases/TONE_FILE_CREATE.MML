@@ -1,0 +1,22 @@
+; Output: TONE_FILE_CREATE.M, TONE_FILE_CREATE.FF
+; Console: TONE_FILE_CREATE.OUT
+; Options: /VW TONE_FILE_CREATE.MML TONE_FILE_CREATE
+; PMDMML.MAN §2-4, §2-5
+
+#Title TONE_FILE_CREATE
+
+; /VW with a voice file that does not exist yet creates it from the voices
+; defined in the MML. The song data itself gets no voice data.
+@0 =NewVoice0
+  31  7 7 7 7 0 38 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 33 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 30 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 24 0  0  0  0  0  0  0  0  0  0  0
+@4 =NewVoice4
+  20  5 8 6 4 1 28 0  0  0  0  0  0  0  0  0  0  0
+  20  1 1 1 1 0 18 0  0  0  0  0  0  0  0  0  0  0
+  20  1 1 1 1 0 14 0  0  0  0  0  0  0  0  0  0  0
+  20  1 1 1 1 0 10 0  0  0  0  0  0  0  0  0  0  0
+
+A @0 v12 l4 c d e
+A @4 v12 l4 e f g

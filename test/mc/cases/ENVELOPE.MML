@@ -1,0 +1,31 @@
+; Output: ENVELOPE.M
+; Console: ENVELOPE.OUT
+; PMDMML.MAN §8-1-1, §8-1-2, §8-2
+
+#Title ENVELOPE
+#Option /v/c
+
+; --- §8 MML Commands - Envelope Section ---
+
+; §8-1 SSG/PCM Software Envelope Specification (E)
+G E2,-1,24,1 c          ; SSG/PCM Envelope Format 1 (AL, DD, SR, RR)
+G E31,18,4,15,2 d       ; SSG/PCM Envelope Format 2 (AR, DR, SR, RR, SL, [AL=0])
+J E2,-2,4,1 e           ; PCM Envelope
+
+; §8-2 Software Envelope Speed Setting (EX)
+G EX1 E2,-1,24,1 c EX0 d ; Envelope speed mode (1=independent, 0=tempo dependent)
+
+; SSG envelope with format 1 and format 2
+G E2,-1,24,1 c E31,18,4,15,2 d
+; EX (envelope speed mode)
+G EX1 E2,-1,24,1 c EX0 d
+
+; --- SSG Envelope with 5th/6th params (psgenvset) ---
+G E31,18,4,15,2 c d
+
+; --- SSG Envelope with 6th param (comma after 5th) ---
+G E31,18,4,15,2,3 e f
+
+; --- Part G: SSG with envelope, noise, and volume ---
+; Multiple SSG envelope formats
+G @1 E2,-1,24,1 c d E31,18,4,15,2 e f

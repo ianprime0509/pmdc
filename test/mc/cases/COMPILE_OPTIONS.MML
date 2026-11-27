@@ -1,0 +1,19 @@
+; Output: COMPILE_OPTIONS.M
+; Console: COMPILE_OPTIONS.OUT
+; PMDMML.MAN §2-5, §3-1
+
+#Title COMPILE_OPTIONS
+#Option /v/c/n
+
+; /N resets to NEC PC-88 mode (default)
+; These should not change output format
+
+; Inline instrument definition with = name (get_param '=' path)
+@1 =TestPrg
+  31  7 7 7 7 0 38 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 33 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 30 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 24 0  0  0  0  0  0  0  0  0  0  0
+
+; Part A: use the defined instrument
+A @1 v12 l4 c d e f g a b >c

@@ -1,0 +1,61 @@
+; Output: TIE_SLUR.M
+; Console: TIE_SLUR.OUT
+; PMDMML.MAN §4-10
+
+#Title TIE_SLUR
+#Option /v/c
+
+; §4-10 Tie/Slur Specification (& &&)
+A c4&c4                 ; Tie (notes joined)
+A d8&&d8                ; Slur (notes re-articulated smoothly)
+A e4&8                  ; Tie with length addition (e4 + e8)
+A f8&&4                 ; Slur with length specification (f8 then f4 slur)
+
+; --- Part B: Tie/slur combinations ---
+; Tie (single &)
+B @1 c4&c4 d8&d8 e2&e4
+; Slur (double &&)
+B d8&&d8 e4&&e4
+; Tie with length only (no second note)
+B f4&8 g8&4
+; Mixed tie and slur
+B c4&c4&&c4 d
+
+; Tie extends note
+D @1 c4&8 d2&4 e8&16
+
+; --- sular: tied note after slur ---
+; The & (tie) followed by a note exercises the sular path
+; which needs bp8 call for correct length compression
+D @1 c4&c4 d8&d8 e2&e4 f16&f16
+
+; --- Tie & without preceding note (tie_norm prsok&1==0) ---
+A @1 c&d e
+
+; --- Slur && with explicit length (sular path) ---
+A c4&&4 d
+
+; More tie patterns for tieset_2 coverage
+; Tie with explicit length that doesn't overflow
+A c4&8 d8&4
+; Slur with explicit length
+A e4&&8 f8&&4
+
+; Tied rest (rest after note with &)
+A c4&r4 d
+
+; Note compression: same note repeated for press (prsok & 4 path)
+A c4&4 c4
+
+; More press paths: consecutive same notes with ties
+A c8 c8 c8 c8
+
+; Tie with explicit length causing overflow (needs len >= 256 total)
+; c%200 = 200 ticks, &%100 tries to add 100 -> 300 > 256
+A c%200&%100
+
+; Tie with length addition that overflows 256 (c%200 + %200 = 400 > 256)
+A c%200&%200
+
+; Tie/repeat and gate envelope helpers
+A c&c         ; basic tie

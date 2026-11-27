@@ -1,7 +1,0 @@
-; Console: INC_ERR1.OUT
-; Exit status: 1
-; Extra input: ext/INC_FIRST.MML
-
-#Title include test
-#Include INC_FIRST.MML
-A cdef

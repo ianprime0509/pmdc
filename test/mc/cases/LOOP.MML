@@ -1,0 +1,53 @@
+; Output: LOOP.M
+; Console: LOOP.OUT
+; PMDMML.MAN §10-1, §10-2
+
+#Title LOOP
+#Option /v/c
+
+; --- §10 MML Commands - Loop Control Section ---
+
+; §10-1 Local Loop Setting ([ : ])
+A [ c d e ]2 f          ; Basic loop 2 times
+A [ c : d e ]3 f        ; Loop 3 times, skip d e on last iteration
+A [ [c d]2 e ]2 f      ; Nested loop
+
+; §10-2 Overall Loop Setting (L)
+A c d e L f g a         ; Overall loop point (repeats from L)
+
+; Exercise repeats, alternate endings, ties, slurs
+
+; Part A: simple nested repeat and tie
+A t120 o4 l8 [cdef]2 a4
+A c8d8e8f8 c2&c2
+
+; Part B: simple ties and dotted lengths
+B l4 c c&c d d&d e2 f.
+
+; Part C: long repeat
+C l16 [cdefgabc]2
+
+; Part D: note length modifiers and dotted notes
+D l8 c. d.. e1... f2&f4
+
+; Part E: change default length mid-stream
+E l4 c d l8 e f l16 g a l8 b>c<
+
+; Rhythm hint via rests and spacing
+R0 l8 r r r r
+R1 l8 r r r r
+K R0 R1
+
+; --- Part H: Nested loops ---
+H @1 [c d e]2 f
+H [c : d e]3 f
+H [[c d]2 e]2 f
+H c d e L f g a
+
+A l8 [c d]2   ; repeat_count=2 loop
+
+; Loop with break for lc coverage of 0xf9/0xf8/0xf7
+A [c d : e f]2 g
+
+; Simple loop for lc coverage
+A [c d e]2

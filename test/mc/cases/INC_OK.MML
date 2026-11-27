@@ -1,7 +1,0 @@
-; Output: INC_OK.M
-; Console: INC_OK.OUT
-; Extra input: ext/INC_SUB.MML, ext/INC_LEAF.MML
-
-#Title include test
-#Include INC_SUB.MML
-A cdefg

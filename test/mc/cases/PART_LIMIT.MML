@@ -1,0 +1,22 @@
+; Output: PART_LIMIT.M
+; Console: PART_LIMIT.OUT
+; PMDMML.MAN §16-3
+
+#Title PART_LIMIT
+#Option /v/c
+
+; §16-3 Part Limited Specification (| |!)
+AB @1 v10 |A c d |B e f | g a ; Part limited specification (|Parts MML)
+AB @1 v10 |!A c d |!B e f | g a; Inverted part limited specification
+
+; --- Part limited |! inverted spec edge cases ---
+AB @1 v10 |!A c d e |!B f g a | b
+
+; | part limited
+AB @1 v10 |A c d |B e f | g a
+; |! inverted part limited
+AB @1 v10 |!A c d |!B e f | g a
+
+; Part with | pipe for multi-part lines (one_line_compile | path, skip_mml)
+AB| @1 v10 l4 c d e f
+AB|!B g a b >c

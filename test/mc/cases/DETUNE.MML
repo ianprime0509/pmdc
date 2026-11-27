@@ -1,0 +1,23 @@
+; Output: DETUNE.M
+; Console: DETUNE.OUT
+; PMDMML.MAN §7-1, §7-2, §7-3, §7-6
+
+#Title DETUNE
+#Option /v/c
+
+; --- §7 MML Commands - Detune Section ---
+
+; §7-1 Detune Setting (D DD)
+A D10 c DD-5 d D0 e     ; Detune set (absolute, relative)
+
+; §7-2 Detune Specification for Each Slot of FM Sound Source 3rd Channel Part (sd sdd)
+C sd1,5 c sdd2,-3 d sd12,0 e ; FM3ch Slot detune (slot, value / +/-relative)
+
+; §7-3 SSG Sound Source Pitch Correction Specification (DX)
+G DX1 D10 c DX0 D10 d   ; SSG Pitch correction mode (1=extended, 0=normal)
+
+; §7-6 Master Detune Setting (DM)
+A DM10 D0 c DM0 D10 d   ; Master detune set
+
+; sd (slot detune)
+C sd1,5 c sdd2,-3 d sd12,0 e

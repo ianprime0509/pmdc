@@ -1,0 +1,8 @@
+; Console: INCLUDE_ERROR.OUT
+; Exit status: 1
+; Extra input: ext/INCLUDE_BAD.MML
+; PMDMML.MAN §2-21
+
+#Title INCLUDE_ERROR
+#Include INCLUDE_BAD.MML
+A cdef

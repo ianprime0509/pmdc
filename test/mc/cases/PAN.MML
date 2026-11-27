@@ -1,6 +1,18 @@
 ; Output: PAN.M
 ; Console: PAN.OUT
+; PMDMML.MAN §13-1, §13-2
 
-#Title Pan
+#Title PAN
 
 A c p1c p2c p3c px-3c px-1c px0c px+2c px+4c px0,1c
+
+; §13-1 Pan Setting 1 (p)
+A p1 c p2 d p3 e        ; Panning (1=R/L, 2=L/R, 3=Center - depends on chip)
+J p1 c p2 d p3 e p0 f   ; Panning (PCM86: 0=Reverse Phase)
+
+; §13-2 Pan Setting 2 (px)
+J px+64 c px-100 d px0,1 e ; Fine Panning / Reverse Phase (PCM86 only)
+A px+3 c px-2 d         ; Fine Panning (PPZ) - uncomment if needed
+
+; PCM with fine pan
+J px+64 c px-100 d px0,1 e

@@ -1,0 +1,9 @@
+; Console: INCLUDE_NESTED_ERROR.OUT
+; Exit status: 1
+; Extra input: ext/INCLUDE_SUB.MML, ext/INCLUDE_LEAF.MML
+; PMDMML.MAN §2-21
+
+#Title INCLUDE_NESTED_ERROR
+#Include INCLUDE_SUB.MML
+A cdef
+A o9

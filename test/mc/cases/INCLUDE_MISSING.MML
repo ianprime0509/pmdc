@@ -1,0 +1,7 @@
+; Console: INCLUDE_MISSING.OUT
+; Exit status: 1
+; PMDMML.MAN §2-21
+
+#Title INCLUDE_MISSING
+#Include NOTHERE.MML
+A cdef

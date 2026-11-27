@@ -1,0 +1,52 @@
+; Output: NOTE_LENGTH.M
+; Console: NOTE_LENGTH.OUT
+; PMDMML.MAN §4-8, §4-9, §4-11
+
+#Title NOTE_LENGTH
+#Option /v/c
+
+; §4-8 Default Note Length Specification (l)
+A l8 c d e l4 f g l%24 a b ; Default length setting
+
+; §4-9 Processing of Note Length Specified Immediately Before (l= l+ l- l^)
+A c4 =8 d4 l=16 e4 +8 f2 l-8 g8 ^2 a16 l^4 b4. =8.. ; Modify previous length (+ needs space if after note)
+A c4 +8                 ; Needs space for '+'
+A c4 -8                 ; Needs space for '-'
+A c4 =8                 ; Needs space for '='
+A a8 =. b8 =..          ; Add dots using l=
+
+; §4-11 Whole Note Length Setting (C)
+A C192 l64 c d C96 l4 e   ; Whole note length setting (affects tempo interpretation)
+
+; --- Part F: Note length edge cases ---
+; Dotted notes (futen)
+F @1 c4. d8.. e1... f16. g2.
+; Length modification commands
+F c4 =8 d4 +8 e2 -8 f4
+; l= l+ l- l^ (default length modification)
+F l4 l=8 c l+8 d l^8 e
+; Whole note length change
+F C192 l64 c d C96 l4 e
+
+; --- Part A: futen overflow (dotted note > 255 ticks) ---
+; C192 makes whole note 192 ticks
+; c1. = 192 + 96 = 288 > 255, triggers overflow path in futen
+A @1 C192 c1. d
+
+; --- Part H: Long dotted note on rhythm ---
+; Rhythm part futen overflow path uses 0x0f instead of 0xfb
+H @1 C192 c1. d
+
+; l= (replace length)
+D c4 =8 d4 =16 e4
+; Note with dots (futen normal path)
+D c4. d8.. e2. f16.
+
+; Length rewrite with dots (lngrew/futen paths)
+A c4 =8 d4 =. e8 =..
+
+; Length multiply overflow: c%128 * 3 = 384 > 256, triggers lm_over
+A c%128^3
+
+; More length rewrite paths
+A c4 =. d8 =.. e2 +4

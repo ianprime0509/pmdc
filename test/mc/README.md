@@ -14,6 +14,9 @@ EFC), and the file must begin with comment lines:
 - `; Exit status: 1` - the status the compiler is expected to exit with,
   defaulting to 0 and usually omitted
 
+Cases also carry a `; PMDMML.MAN §...` comment naming the manual section(s)
+they cover; like the other comment headers, it is ignored by the harness.
+
 Every file named by `; Output:` must be produced in the run directory and must
 match the file of the same name in the cases directory. A case that expects a
 nonzero exit status may omit `; Output:` if the compiler fails before writing
@@ -52,8 +55,8 @@ header comments on them. `.gitattributes` declares `*.MML` and `*.EML` as
 `eol=crlf`; make sure the working tree matches that before regenerating
 goldens.
 
-Case file names follow the DOS 8.3 convention, so a case directory can be
-copied onto a real machine and used as-is.
+Case file names are not limited to DOS 8.3; use descriptive names that group
+related functionality. A case's output files are normally named after its stem.
 
 ## EFC cases
 

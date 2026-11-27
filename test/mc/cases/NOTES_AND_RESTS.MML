@@ -1,0 +1,21 @@
+; Output: NOTES_AND_RESTS.M
+; Console: NOTES_AND_RESTS.OUT
+; PMDMML.MAN §4-1, §4-2
+
+#Title NOTES_AND_RESTS
+#Option /v/c
+
+; §4-1 Pitch/Length Specification (c/d/e/f/g/a/b/x)
+A c d e f g a b         ; Basic notes
+A c4 d8 e16 f32 g12     ; Different lengths
+A c. d8.. e1...         ; Dotted notes
+A c%24 d%12 e%6         ; Tick lengths
+A c+ d- e++ f-- g+-    ; Sharps and Flats
+A c4 x8 x16             ; Repeat last note (x)
+A _{+f} f4 =f4           ; Transposition override with '='
+
+; §4-2 Rest/Length Specification (r)
+A r r4 r8. r1.. r%24   ; Rests with lengths/dots/ticks
+
+; Rest compression: r r consecutive
+A r4 r4 r8 r8

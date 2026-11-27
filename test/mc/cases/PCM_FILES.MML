@@ -1,0 +1,12 @@
+; Output: PCM_FILES.M
+; Console: PCM_FILES.OUT
+; PMDMML.MAN §2-2, §2-3, §2-26
+
+#Title PCM_FILES
+#Option /v/c/o/a
+#PPSFile test.pps
+#PCMFile test.ppc
+#PPZFile test.ppz
+
+; Simple notes to make a valid file
+A @1 v12 l4 c d e f g a b

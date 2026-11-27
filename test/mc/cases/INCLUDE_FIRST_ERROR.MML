@@ -1,0 +1,8 @@
+; Console: INCLUDE_FIRST_ERROR.OUT
+; Exit status: 1
+; Extra input: ext/INCLUDE_FIRST.MML
+; PMDMML.MAN §2-21
+
+#Title INCLUDE_FIRST_ERROR
+#Include INCLUDE_FIRST.MML
+A cdef

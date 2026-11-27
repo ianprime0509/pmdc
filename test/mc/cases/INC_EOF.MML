@@ -1,7 +1,0 @@
-; Console: INC_EOF.OUT
-; Exit status: 1
-; Extra input: ext/INC_1A.MML
-
-#Include INC_1A.MML
-A cde
-A o9

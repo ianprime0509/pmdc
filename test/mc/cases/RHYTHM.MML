@@ -1,8 +1,8 @@
 ; Output: RHYTHM.M
 ; Console: RHYTHM.OUT
+; PMDMML.MAN §1-1-2, §1-2-1, §1-2-2, §6-1-3, §6-7, §14-1, §14-2, §14-3, §14-4
 
 #Title RHYTHM
-#Filename RHYTHM.M
 #Option /v/c
 
 ; Define simple SSG drum patterns in R part and play via K part
@@ -46,3 +46,37 @@ R18 l8  \hr\vh-10 \hr\vh+10 \tr ; hat swells and tom
 ; Basic melody line for reference
 A t120 o4 v12 c d e f g a b>c<
 
+; --- §14 MML Commands - Rhythm Sound Source Commands --- (Can be in any part, K used for convention)
+
+; §14-1 Rhythm Sound Source Shot/Dump Control (\b \s \c \h \t \i, \bp etc.)
+K \b \s \h l4 \c \t \i  ; Rhythm Source Trigger (BD, SN, HH, then CY, TOM, RIM)
+K \b\s\h l4             ; Trigger multiple simultaneously
+K \cp l4 \hp            ; Rhythm Source Dump (stop Cymbal, HiHat)
+
+; §14-2 Rhythm Sound Source Master Volume Setting (\V)
+K \V63 \b \V-10 \s \V+5 \c ; Rhythm Master Volume (0-63, absolute, +/- relative)
+
+; §14-3 Rhythm Sound Source Individual Volume Setting (\vb \vs \vc \vh \vt \vi)
+K \vb31 \b \vs+2 \s \vc-5 \c \vh15 \vt10 \vi20 ; Rhythm Individual Volume (0-31, absolute, +/- relative)
+
+; §14-4 Rhythm Sound Source Output Position Setting (\lb \mb \rb etc.)
+K \lb \b \rs \s \mc \c \mh \h \mt \t \li \i ; Rhythm Panning (l=left, m=mid, r=right)
+
+; --- Part A: Rhythm source edge cases ---
+; Rhythm trigger, dump, volume, pan
+K \V63 \b \s \h l4 \c \t \i
+K \b\s\h l4
+K \cp l4 \hp
+K \V-10 \b \V+5 \s
+K \vb31 \b \vs+2 \s \vc-5 \c
+K \vh15 \vt10 \vi20 \h \t \i
+K \lb \b \rs \s \mc \c \mh \h
+
+; Rhythm dump with 'p' suffix
+K l4 \b \sp \cp \hp
+
+; Rhythm notes for rhythm press paths
+K l4 \b \b \s \s \c \c
+
+; --- Rhythm dump with p suffix (rs00) ---
+K " \bp \sp " l4 \b \s \c

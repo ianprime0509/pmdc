@@ -1,0 +1,19 @@
+; Output: TONE_FILE_OVERRIDE.M
+; Console: TONE_FILE_OVERRIDE.OUT
+; Extra input: ext/EXT.FF
+; Options: /V TONE_FILE_OVERRIDE.MML EXT
+; PMDMML.MAN §2-4
+
+#Title TONE_FILE_OVERRIDE
+
+; A voice defined in the MML replaces the one in EXT.FF, while the voices
+; the MML leaves alone still come from the file.
+@1 =OvrVoice
+  31  3 5 7 9 0 12 0  0  0  0  0  0  0  0  0  0  0
+  31  2 4 6 8 0 10 0  0  0  0  0  0  0  0  0  0  0
+  31  1 3 5 7 0  8 0  0  0  0  0  0  0  0  0  0  0
+  31  0 2 4 6 0  6 0  0  0  0  0  0  0  0  0  0  0
+
+A @0 v12 l4 c d e
+A @1 v12 l4 e f g
+A @2 v12 l4 g a b

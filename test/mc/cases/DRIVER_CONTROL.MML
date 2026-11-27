@@ -1,0 +1,67 @@
+; Output: DRIVER_CONTROL.M
+; Console: DRIVER_CONTROL.OUT
+; PMDMML.MAN §15-1, §15-2, §15-3, §15-5, §15-6, §15-7, §15-8, §15-9, §15-10
+
+#Title DRIVER_CONTROL
+#Option /v/c
+
+; --- §15 MML Commands - FM Sound Source LSI / Driver Control ---
+
+; §15-1 Direct Output to FM Sound Source LSI (y)
+A y$a4,127 c y$28,0 d   ; Direct FM register write (reg, value) - Use with caution!
+
+; §15-2 PDR Operation Mode Control (*) (K/R part only)
+K *0 \b *1 \s           ; PDR Mode (0=Double, 1=Single etc. - Requires PDR) - uncomment if needed
+
+; §15-3 Fadeout Specification (F)
+A c d e F16 f g a       ; Fadeout start (speed 1-127)
+
+; §15-5 FM Sound Effect Production (N)
+A N1 c d N0 e           ; FM Effect trigger (number 1-255, 0=stop)
+
+; §15-6 SSG Sound Effect Production (n)
+G n5 c d n130 e n0 f    ; SSG/PPS Effect trigger (1-127 SSG, 128-255 PPS, 0=stop)
+
+; §15-7 Part Mask Control (m)
+A c d m1 e f m0 g a     ; Part mask set (1=mask on/mute, 0=mask off/play)
+
+; §15-8 Measure Length Setting (Z)
+A Z96 c d Z72 e f       ; Measure length information (ticks per measure for driver info)
+
+; §15-9 Number Writing to Status1 (~)
+A ~10 c ~+5 d ~-2 e     ; Status1 write (for driver communication)
+
+; §15-10 PCM Specification Selection (A) (PMD86 only)
+J A1 c A0 d             ; PCM Specification select (1=ADPCM match, 0=normal) - uncomment if needed
+
+; --- Part B: Direct FM register write ---
+B @1 y$a4,127 c y$28,0 d y$00,$ff e
+
+; --- Part C: Fadeout, part mask, status, measure ---
+C @1 c d e F16 f g
+C m1 c m0 d e f
+C Z96 c d Z72 e f
+C ~10 c ~+5 d ~-2 e
+
+; --- Part D: Volume down settings ---
+D @1 DF+8 c DS-4 d DP128 e DR+16 f
+D DF0 c DS0 d DP0 e DR0 f
+
+; --- Part F: Effect triggers ---
+; N (FM effect)
+F @1 N1 c d N0 e
+; n (SSG effect)
+G @1 n5 c d n130 e n0 f
+
+; --- Part I: Various command boundary values ---
+; y (direct FM register write) with hex
+I @1 y$00,$00 c y$ff,$ff d y$a4,127 e
+; Z (measure length) boundary
+I Z1 c Z255 d
+; ~ (status write) boundary
+I ~0 c ~255 d ~+1 e ~-1 f
+; F (fadeout)
+I F1 c d F127 e f
+
+; --- PCM J with A command (adp_set) ---
+J @0 v10 A1 c d A0 e f

@@ -1,0 +1,99 @@
+; Output: VOLUME.M
+; Console: VOLUME.OUT
+; PMDMML.MAN §5-1, §5-2, §5-3, §5-4, §5-5
+
+#Title VOLUME
+#Option /v/c
+
+; --- §5 MML Commands - Volume Section ---
+
+; §5-1 Volume Specification 1 (v)
+A v15 c v8 d v0 e v16 f ; Volume v (0-16 FM/PCM)
+G v10 c v5 d v0 e       ; Volume v (SSG 0-15)
+
+; §5-2 Volume Specification 2 (V)
+A V127 c V64 d V0 e     ; Volume V (FM 0-127)
+J V255 c V128 d V0 e    ; Volume V (PCM 0-255)
+G V15 c V8 d V0 e       ; Volume V (SSG 0-15)
+
+; §5-3 Overall Volume Change 1 (v+ v-)
+A v+8 V100 c v-16 V100 d ; Overall volume change (fine adjustment)
+
+; §5-4 Overall Volume Change 2 (v) v()
+A v(2 v12 c v)1 v10 d   ; Overall volume change (rough 'v' level adjustment)
+
+; §5-5 Volume Relative Change () ()
+A v10 c ) d ( e )%10 f (%5 g ^) a (^%8 a ; Relative volume change +/- 1 (or more), fine %, accent ^
+
+; --- Part B: Volume edge cases ---
+; v with volss2 adjustment, boundary values
+B @1 v0 c v16 d v8 e
+; V with full range
+B V0 c V127 d V64 e
+; v+/v- overall volume change (fine)
+B v+8 V100 c v-16 V100 d v+0 V50 e
+; v)/v( overall volume change (rough)
+B v(2 v12 c v)1 v10 d v(0 v8 e v)0 v6 f
+; ) ( relative with %, ^) accent
+B v10 c ) d ( e )%10 f (%5 g
+
+; --- Part B: Volume overflow in vset (FM) ---
+; v+127 then v15 should give vol = fmvol[15] + 127 which overflows
+; volss > 0 and overflow -> vol = 0x7f
+B @1 v+127 v15 c d
+; v-128 then v15 should underflow -> vol = 0
+B v-128 v15 e f
+
+; --- Part G: Volume overflow in vset (SSG) ---
+; volss > 0, ongen >= psg, overflow -> vol = 15
+G @1 v+15 v15 c d
+; volss < 0, underflow -> vol = 0
+G v-15 v15 e f
+
+; --- Part J: PCM volume paths (vsetm1) ---
+; Tests the PCM-specific vsetm1 path
+J @0 v10 c v0 d v16 e
+; vss for PCM (exercises vsetm1 with volss)
+J v+3 v10 c v-5 v10 d
+; V (direct volume) for PCM
+J V255 c V128 d V0 e
+
+; --- vss: volume relative change with sign ---
+; v) and v( use volss internally; negative values need int8_t handling
+; v(N sets volss to -N (rough step), v)N sets volss to +N
+C @1 v10 v)2 c v(1 d v)0 e v(3 f
+
+; Volume up/down with vol_base > 1 (triggers 0xe3/0xe2 instead of 0xf4/0xf3)
+A v10 c )2 d (2 e )^2 f (^2 g
+
+; SSG volume overflow (v+N with high vol)
+G v+15 v15 c v-15 v15 d
+
+; PCM volume edge cases
+J V0 c V255 d V128 e
+
+; volup )^%n (vol up with ^ and % prefix)
+A )^%2 c d
+
+; voldown (^%n path
+A (^%2 c d
+
+; v/V paths for different sound sources
+; FM volume V (large value)
+A V127 c V0 d V64 e
+; SSG volume paths
+G v15 c V15 d v0 e V0 f
+; PCM volume V (0-255 range)
+J V255 c V0 d V128 e
+
+; Volume relative with accent
+A v10 c )^ d (^%8 e
+
+; Exercise volume relative/absolute paths (vset*, vss*, vsetm*)
+A v10 c v+2 d v-4 e v(2 f v)1 g ) a ( b V120 c V0 d
+
+; Volume overflow: v+ that exceeds max, v- that goes below 0
+A v+127 V0 c v-127 V127 d
+
+; SSG volume overflow paths
+G v15 c ) d ) e ( f ( g

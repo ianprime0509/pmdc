@@ -1,0 +1,28 @@
+; Output: TEMPO.M
+; Console: TEMPO.OUT
+; PMDMML.MAN §11-1, §11-2
+
+#Title TEMPO
+#Option /v/c
+
+; --- §11 MML Commands - Tempo Setting Section ---
+
+; §11-1 Tempo Setting 1 (t)
+A t120 c d t+10 e f t-20 g ; Tempo setting t (BPM based on C command)
+
+; §11-2 Tempo Setting 2 (T)
+A T200 c d T+10 e f T-20 g ; Tempo setting T (Direct TimerB value)
+
+; --- Part A: Tempo edge cases ---
+; t (tempo BPM style) with +/-
+A @1 t120 c t+10 d t-20 e
+; T (timerB) with +/-
+A T200 c T+10 d T-20 e
+; Tempo with delta=0 edge case (di rollback)
+A t+0 c t-0 d
+
+; Tempo T inline to generate 0xfd byte for lc
+A T200 c T+10 d
+
+; T command (direct TimerB) inline
+A T200 c T+10 d T-5 e

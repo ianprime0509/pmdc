@@ -1,0 +1,17 @@
+; Output: KEYON_DELAY.M
+; Console: KEYON_DELAY.OUT
+; PMDMML.MAN §12-3
+
+#Title KEYON_DELAY
+#Option /v/c
+
+; §12-3 Keyon Delay Setting for Each Slot (sk) (FM only)
+A sk3,8 c               ; Slot keyon delay (slots 1&2 delay 8 ticks)
+A sk12,l16 d            ; Slot keyon delay (slots 3&4 delay l16)
+A sk0 e                 ; Slot keyon delay off
+
+; --- More slot keyon delay (sk0 path) ---
+A sk0 c d
+
+; sk (slot keyon delay)
+E @1 sk3,8 c sk12,l16 d sk0 e

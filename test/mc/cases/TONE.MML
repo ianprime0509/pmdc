@@ -1,0 +1,78 @@
+; Output: TONE.M
+; Console: TONE.OUT
+; PMDMML.MAN §6-1-1, §6-1-2, §6-1-5, §6-2, §6-3, §6-4, §6-8
+
+#Title TONE
+#Option /v/c
+
+; --- §6 MML Commands - Tone Specification Section ---
+
+; §6-1 Tone Number Specification (@)
+A @1 c d @10 e f        ; FM Tone number
+G @1 c @7 d             ; SSG Software Envelope number (@0-@9)
+J @0 c d @10 e f        ; PCM Tone number (@0-@255)
+J @0,100,-50,-50 g1     ; PCM Tone with loop/release points (+start, -end)
+A @@128 c d e           ; PPZ Tone number @@ variant (requires PMDPPZ) - uncomment if needed
+;R0 @1 c @2 d @128 e     ; Rhythm Tone number (SSG Drum / PPS) R part only
+;K l8 R0                 ; Need K part to play R part
+
+; §6-2 FM Sound Source Used Slot Position Specification (s) (FM3ch parts C-F or extended)
+C s3 @10 c d s12 @11 e f ; FM Slot mask (use slots 1&2, then 3&4) (Requires FM3ch capable driver)
+
+; §6-3 FM Sound Source TL Value Setting (O)
+A O1,100 c O2,+5 d O4,-10 e O8,0 f ; FM TL set (slot, value / +/-relative)
+
+; §6-4 FM Sound Source FB Value Setting (FB)
+A FB5 c FB-2 d FB+1 e   ; FM Feedback set (value / +/-relative)
+
+; §6-8 FM Sound Source SSG-EG Value Setting (SE) (OPN/OPNA only)
+A SE3,10 c SE15,0 d     ; FM SSG-EG set (slots, value 8-15=on)
+
+; --- Part E: TL set with +/- relative ---
+; O (TL) with slot, absolute value
+E @1 O1,100 c O2,+5 d O4,-10 e O8,0 f
+; Multiple slots
+E O15,50 c O3,+10 d
+
+; --- fb_set +/- edge cases ---
+; FB allows 0-7 absolute, or +/- relative adjustments
+; The bounds check uses (uint8_t)(val+7) >= 15
+A @1 FB0 c FB7 d FB+1 e FB-1 f FB+7 g FB-7 a
+
+; --- ssgeg_set slot bitmask ---
+; SE command: SE<slot>,<value>
+; slot is a bitmask: 1=slot1, 2=slot2, 4=slot3, 8=slot4, 15=all
+; Tests individual slots and combinations
+B @1 SE1,10 c SE2,11 d SE4,12 e SE8,13 f SE15,14 g SE3,9 a
+
+; --- Additional fb_set edge: large negative ---
+; FB-7 from FB7 should give 0 (boundary)
+E @1 FB7 c FB-7 d FB0 e FB+3 f
+
+; --- ssgeg with value 0 (off) and value 15 (max) ---
+F @1 SE15,8 c SE1,15 d SE15,0 e
+
+; --- SSG-EG with slot 4 and slot 8 (uncovered slot bits) ---
+B SE4,10 c SE8,12 d
+
+; SSG-EG with all slot combinations (slot 4, 8 for uncovered branches)
+A SE4,10 c SE8,12 d SE15,0 e
+
+; @n,m on PCM part - repeat_check with 2 params
+J @1,2 c d
+
+; @n,m,o on PCM part - repeat_check with 3 params
+J @1,2,3 c d
+
+; @n,m,o,p on PCM part - repeat_check with all 4 params
+J @1,2,3,4 c d
+
+; --- Part H: PCM with repeat_check (@n,start,end,release) ---
+; @0 with loop/release points
+J @0,100,-50,-50 c d e
+
+; --- Part E: Slot mask, slot detune, slot keyon delay ---
+; s (slot mask) on FM3ch part
+C s3 @10 c d s12 @11 e f
+; sd (slot detune)
+C sd1,5 c sdd2,-3 d sd12,0 e

@@ -1,0 +1,39 @@
+; Output: TRANSPOSE.M
+; Console: TRANSPOSE.OUT
+; PMDMML.MAN §1-1-2, §4-14, §4-15, §4-16
+
+#Title TRANSPOSE
+#Option /v/c
+
+; §4-14 Transpose Specification (_ __)
+A _+2 c d e _-1 f g __+1 a __-2 b _0 c ; Transpose absolute/relative
+
+; §4-15 Transposition Setting (_{ })
+A _{+fcg} cdefgab>c<    ; Set sharps for F, C, G (G Major / E Minor)
+A _{-bea} cdefgab>c<    ; Set flats for B, E, A (F Major / D Minor)
+A _{=fcg} cdefgab>c<    ; Remove sharps/flats set previously
+
+; §4-16 Master Transpose Value Setting (_M)
+A _M+1 c _+1 d _0 e      ; Master transpose +1, then local +1, then local 0
+
+ABC _{-b}
+DE _{+f}
+
+A abc _{+ac} abc
+B bcd _{+b c d} bcd
+C cde cde
+D def _{=f} def
+E efg _{+f,g} def
+
+; --- Part G: Transpose edge cases ---
+; _ absolute, __ relative
+G @1 _+12 c _-12 d __+1 e __-1 f _0 g
+; _M master transpose
+G _M+1 c _+1 d _0 e _M0 f
+; _{ } transposition set
+G _{+fcg} cdefgab>c<
+G _{-bea} cdefgab>c<
+G _{=fcg} cdefgab>c<
+
+; --- Note with = (no transposition, otoset) ---
+A _{+f} f4 =f4 c d e

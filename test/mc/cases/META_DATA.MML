@@ -1,0 +1,18 @@
+; Output: META_DATA.M
+; Console: META_DATA.OUT
+; PMDMML.MAN §2-1, §2-6, §2-7, §2-8, §2-9, §2-10, §2-24
+
+#Title META_DATA
+#Option /v/c
+#Filename META_DATA.M
+
+#Composer TestComposer
+#Arranger TestArranger
+#Memo Line1
+#Memo Line2
+#Tempo 150
+#Timer 200
+#JumpFlag 1
+
+; Backtick block comment test
+A ` this is skipped ` c d e f g

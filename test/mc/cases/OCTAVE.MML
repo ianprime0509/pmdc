@@ -1,0 +1,29 @@
+; Output: OCTAVE.M
+; Console: OCTAVE.OUT
+; PMDMML.MAN §4-4, §4-5, §4-6, §4-7
+
+#Title OCTAVE
+#Option /v/c
+
+; --- Part H: Octave edge cases ---
+; o with boundary values
+H @1 o1 c o8 d o2 e
+; > < multiple
+H o4 c >> d << e >>> f <<< g
+; X toggle
+H o4 c > d X < e > f X g
+; o+ o- overall octave shift - SSG/FM
+I @1 o+1 o4 c o-1 o4 d o+0 o4 e
+
+; §4-4 Octave Specification (o)
+A o4 c o5 d o3 e        ; Octave specification
+
+; §4-5 Octave Up/Down (> <)
+A o4 c > d < e >> f << g  ; Octave up/down
+
+; §4-6 Octave Up/Down Symbol Inversion (X)
+A o4 c > d X < e > f X g  ; Octave toggle ('>' becomes down, '<' becomes up, then back)
+
+; §4-7 Overall Octave Change (o+ o-)
+G o-1 o4 c              ; Part G octave shifted down by 1
+H o+1 o4 d              ; Part H octave shifted up by 1

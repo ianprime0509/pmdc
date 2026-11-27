@@ -1,0 +1,13 @@
+; Console: MCH_PART_LENGTHS.OUT
+; Command: mch
+; Options: /C MCH_PART_LENGTHS.MML
+; PMDMML.MAN §4-1, §4-2, §4-8, §4-11, §10-1
+
+#Title MCH_PART_LENGTHS
+
+; mch compiles and plays instead of saving, so the part lengths it prints are
+; the only thing to compare against.
+A l4 cdefgab
+B l8 o4 cde
+C t120 l16 c
+D l2 [cde]2

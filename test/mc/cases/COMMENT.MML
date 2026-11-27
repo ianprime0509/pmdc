@@ -1,0 +1,33 @@
+; Output: COMMENT.M
+; Console: COMMENT.OUT
+; PMDMML.MAN §1-4, §16-5, §16-6
+
+#Title COMMENT
+#Option /v/c
+
+; §16-5 Comment Specification (;) (Used throughout)
+A c d e ; This is a comment until end of line
+
+; §16-6 Comment Specification 2 (`)
+A c d ` This is a comment ` e f ; Block/inline comment toggle
+`                       ; Block comment start
+A f4 g4 a4              ; Inside the block, not compiled
+B f g                   ; Inside the block, not compiled
+`                       ; Block comment end
+A a b                   ; Not skipped
+
+`
+;skipped header comment in first pass
+`
+
+; Backtick block comment in cmloop2 (second pass scan)
+`
+A this line is skipped by backtick
+`
+A f g a b
+
+; Backtick block comment crossing multiple commands
+A c d ` skipped stuff here ` e f
+
+; Backtick block comment test
+A ` this is skipped ` c d e f g

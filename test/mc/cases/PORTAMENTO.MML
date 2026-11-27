@@ -1,0 +1,35 @@
+; Output: PORTAMENTO.M
+; Console: PORTAMENTO.OUT
+; PMDMML.MAN §4-3
+
+#Title PORTAMENTO
+#Option /v/c
+
+; §4-3 Portamento Specification ({ })
+A {c g}4                ; Basic portamento C->G over 1/4 note
+A {c g}4,8              ; Portamento C->G over 1/4 note, delay 1/8 note
+G {o4 c o5 d}2          ; Portamento across octaves (SSG)
+J {c d}4                ; Portamento (PCM - behavior might vary by driver)
+
+; --- Part A: Portamento edge cases ---
+; Basic portamento
+A @1 {c g}4 c
+; Portamento with delay
+A {c g}4,8 c
+; Portamento across octaves
+A {o4c o5d}2 c
+
+; Portamento with grace note length (porta_end with comma)
+A {c g}4,8
+
+; Portamento inside " skip (porta_end skip mode)
+A " {c g}4,8 " d e
+
+; Portamento in skip with comma params
+A " {d a}4,8 " c
+
+; --- Part F: Portamento with slot detune ---
+; Portamento on FM part
+F @1 {c g}4 d {e b}2 f
+; Portamento with delay
+F {c g}4,8 d

@@ -2,6 +2,7 @@
 ; Console: EFC_NOTE.OUT
 ; Command: efc
 ; Options: /V EFC_NOTE.EML
+; PMDMML.MAN §1-1-1, §4-1
 
 ; EFC numbers its parts from 0 instead of lettering them, and lines for the
 ; same part may be interleaved.

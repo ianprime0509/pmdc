@@ -1,0 +1,20 @@
+; Output: TONE_NOISE.M
+; Console: TONE_NOISE.OUT
+; PMDMML.MAN §6-5, §6-6
+
+#Title TONE_NOISE
+#Option /v/c
+
+; §6-5 SSG / OPM Tone/Noise Output Selection (P)
+G P2 w15 c P3 d P1 e    ; SSG Tone/Noise select (1=tone, 2=noise, 3=mix)
+H P2 w15 c P1 d         ; OPM Noise select (ch H only) (Requires PMD.X) - uncomment if needed
+
+; §6-6 Noise Frequency Setting (w)
+G P2 w15 c w+5 d w-10 e ; Noise frequency set (0-31, higher=lower pitch)
+
+; --- Part G: SSG tone/noise, envelope ---
+; P (tone/noise select), w (noise freq) with boundary
+G @1 P1 c P2 w0 d P3 w31 e P1 w+5 f w-10 g
+
+; SSG noise + tone mix
+G P2 w15 c P3 d P1 e

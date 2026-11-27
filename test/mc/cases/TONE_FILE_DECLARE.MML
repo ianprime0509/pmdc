@@ -1,0 +1,11 @@
+; Output: TONE_FILE_DECLARE.M
+; Console: TONE_FILE_DECLARE.OUT
+; Extra input: ext/EXT.FF
+; PMDMML.MAN §2-4
+
+#Title TONE_FILE_DECLARE
+#FFFile EXT.FF
+
+; #FFFile pulls in the voice file without naming it on the command line.
+A @0 v12 l4 c d e
+A @2 v12 l4 e f g

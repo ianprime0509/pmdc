@@ -1,8 +1,0 @@
-; Console: INC_ERR.OUT
-; Exit status: 1
-; Extra input: ext/INC_SUB.MML, ext/INC_LEAF.MML
-
-#Title include test
-#Include INC_SUB.MML
-A cdef
-A o9

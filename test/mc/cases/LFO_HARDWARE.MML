@@ -1,0 +1,37 @@
+; Output: LFO_HARDWARE.M
+; Console: LFO_HARDWARE.OUT
+; PMDMML.MAN §9-10, §9-11, §9-12, §9-13
+
+#Title LFO_HARDWARE
+#Option /v/c
+
+; §9-10 Hardware LFO Speed, Delay Setting (H) (OPNA/OPM only)
+A H6 c                  ; Hardware LFO PMS=6 (OPNA/OPM)
+A H6,2 d                ; Hardware LFO PMS=6, AMS=2 (OPNA/OPM)
+A H6,2,l4 e             ; Hardware LFO PMS=6, AMS=2, Delay=l4 (OPNA/OPM)
+
+; §9-11 Hardware LFO Switch, Depth Setting (#) (OPNA only)
+A H6,2 #1,5 c #0 d      ; Hardware LFO switch/depth (OPNA only)
+
+; §9-12 Hardware LFO Frequency, Waveform, Depth Setting (## #f #w #p #a) (OPM only)
+A ##100,0,20,10 c       ; Hardware LFO set all (OPM only) - uncomment if needed
+A #f120 #w1 #p-10 #a5 d ; Hardware LFO individual set (OPM only) - uncomment if needed
+A #w c #f120 #p-10 d    ; #w with no value (defaults to 1)
+
+; §9-13 Hardware LFO Delay Setting (#D) (OPNA/OPM only)
+A H6,2 #1,5 #D24 c      ; Hardware LFO delay
+
+; --- Part H: Hardware LFO edge cases ---
+; H with PMS only
+H @1 H0 c H7 d
+; H with PMS,AMS
+H H6,2 c H0,3 d
+; H with PMS,AMS,delay
+H H6,2,l4 c H7,3,24 d
+; # (HW LFO switch/depth)
+H H6,2 #1,5 c #0 d
+; #D (HW LFO delay)
+H H6,2 #1,5 #D24 c #D0 d
+
+; Hardware LFO H command patterns
+A H2,1 c d

@@ -1,0 +1,17 @@
+; Output: TONE_FILE_MISSING.M
+; Console: TONE_FILE_MISSING.OUT
+; Options: /V TONE_FILE_MISSING.MML NOSUCH.FF
+; PMDMML.MAN §2-4
+
+#Title TONE_FILE_MISSING
+
+; The voice file named on the command line does not exist: MC warns and
+; compiles the voices the MML defines.
+@0 =OnlyVoice
+  31  7 7 7 7 0 38 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 33 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 30 0  0  0  0  0  0  0  0  0  0  0
+  31  0 0 0 0 0 24 0  0  0  0  0  0  0  0  0  0  0
+
+A @0 v12 l4 c d e
+A @1 v12 l4 e f g

@@ -1,0 +1,33 @@
+; Output: ARPEGGIO.M
+; Console: ARPEGGIO.OUT
+; PMDMML.MAN §12-4
+
+#Title ARPEGGIO
+#Option /v/c
+
+; §12-4 Arpeggio Specification ({{ }})
+A {{ceg}}4 c            ; Basic Arpeggio C-E-G over 1/4 note (1 tick notes, tied)
+A {{cf>c<}}4,16,0,8,-2 d ; Arpeggio (note len 16 ticks, no tie, gate 8 ticks, vol -2 per cycle)
+
+; --- Part E: Arpeggio edge cases ---
+; Basic arpeggio
+E @1 {{ceg}}4 c
+; Arpeggio with all params (note_len, tie, gate, vol)
+E {{cf>c<}}4,16,0,8,-2 c
+; Simple 2-note arpeggio
+E {{cd}}8 c
+
+; Arpeggio with all 5 params: len, 1cnt, tieflag, gate, vol
+A {{c e g}}8,16,0,4,-2
+
+; Arpeggio with 3 params: len, 1cnt, tieflag=1
+A {{d f a}}4,8,1
+
+; Arpeggio with 4 params: len, 1cnt, tieflag=0, gate
+A {{e g b}}8,16,0,2
+
+; Arpeggio inside " skip with all 5 params (bunsan_end skip)
+A " {{c e g}}8,16,0,4,-2 " f g
+
+; Arpeggio with all 5 optional params (note_len, tie_flag, gate, vol)
+A {{ceg}}4,16,0,8,-2

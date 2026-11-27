@@ -1,0 +1,7 @@
+ .MML file --> .M file Compiler ver 4.8s
+		Programmed by M.Kajihara(KAJA) 2023/09/23
+
+INCLUDE_NESTED_ERROR.MML(9) : Error 26: Part A: Command o
+---------- 音程が限界を越えています。
+A o9
+   ^^
