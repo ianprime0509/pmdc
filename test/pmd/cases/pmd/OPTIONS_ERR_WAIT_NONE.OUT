@@ -1,0 +1,23 @@
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+WARNING:ＦＭ音源ボードが装着されていません．
+Usage:	PMD [/option[数値]][/option[数値]]..
+Option:	  /Mn  曲データ      バッファサイズ指定(KB単位)Def.=16
+	  /Vn  音色データ    バッファサイズ指定(KB単位)Def.= 8
+	  /En  FM効果音データバッファサイズ指定(KB単位)Def.= 4
+	  /On  FM音源 PORT指定 0=088H 1=188H 2=288H 3=388H Def.=auto
+	* /DFn FM音源の    音量調整値設定(最大0〜最小255)Def.=16
+	* /DSn SSG音源の   音量調整値設定(最大0〜最小255)Def.= 0
+	* /K(-)ESC/GRPHキーで曲の停止/早送りをしない(する)
+	* /KEn MSTOP/ESC と同時に使用するキーの設定 Def.=16
+	* /KGn FF   /GRPHと同時に使用するキーの設定 Def.=16
+	* /KRn REW  /GRPHと同時に使用するキーの設定 Def.=1
+		設定値: 1=SHIFT 2=CAPS 4=ｶﾅ 16=CTRL (加算して複数指定可)
+	* /F(-)フェードアウト後に曲を停止しない(する)
+	* /I(-)FM/INT60割り込み中は割り込みを禁止する(しない)
+	* /P(-)PPSDRVに対応しない(常駐していたら対応する)
+	* /Wn  FM音源REG-DATA間のWait回数の設定(1〜255,数値省略時は自動判別)
+	* /Gn  GRPHキーによる早送りのTimerB値 Def.=250
+	  /R   常駐解除する		/H   ヘルプの表示
+	(* の付いたoptionは常駐後に再設定可能, - は括弧内に設定)

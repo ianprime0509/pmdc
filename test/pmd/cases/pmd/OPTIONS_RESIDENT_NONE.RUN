@@ -1,0 +1,14 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+; PMDOPT: /M10 /V4 /E3 /DF10 /DS2 /DP8 /DZ5 /DR1 /K- /I- /N- /F- /P- /KG1 /KR2 /KE4
+
+main /C /M12 /V6 /E2 /DF20 /DS4 /DR3 /K /KE16 /KG2 /KR4 /I /N /F /P /Z /W20 /G100 /A1 /S /HZ4 /O1
+musdat
+tondat
+efcdat
+size
+drvchk
+ppsdrv
+status
+change

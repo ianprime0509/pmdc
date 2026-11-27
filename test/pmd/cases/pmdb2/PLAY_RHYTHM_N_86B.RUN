@@ -1,0 +1,11 @@
+; Driver: pmdb2
+; Board: 86B
+; Chip: YM2608
+
+main /C /N
+load ../fixtures/RHYTHM.M
+mstart
+status
+run b 8
+status
+mstop

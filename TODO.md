@@ -6,13 +6,6 @@ below are what remains.
 
 ## Trace coverage
 
-- [ ] **Reference-driven option/probe matrix.** The checked-in cases exercise
-  only `/C`, `/Z`, `/K-`, `/H`, `/M16`, and a `PMDOPT` of `/M /V /E`
-  (`test/pmd/cases/pmd/DATA_26K.RUN`, `OPTIONS_26K.RUN`). Add cases for `/M`,
-  `/V`, `/E`, `/P`, `/Z`, `/S`, `/K` (including `/KG`, `/KR`, `/KE`), `/R`,
-  `/O`, `/W`, `/G`, `/A`, `/DF`-`/DR`, `/I`, `/N`, `/F`, `/HZ`, and their
-  `PMDOPT` and command-line precedence forms, for each variant.
-
 - [ ] **Remaining API actions.** Add the `musname` action planned in
   `PLAN.md` (music-name bytes recorded in the `.LOG`) and exercise the
   `setfv` verb, which exists in `trace.c` but appears in no case. Add an action

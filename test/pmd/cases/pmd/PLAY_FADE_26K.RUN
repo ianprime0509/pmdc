@@ -1,0 +1,15 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+
+main /C /F
+load ../fixtures/SAMPLE2.M
+mstart
+run b 8
+fout 127
+run b 24
+status
+fout 132
+run b 8
+status
+mstop

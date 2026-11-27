@@ -1,0 +1,23 @@
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+WARNING:ＦＭ音源ボードが装着されていません．
+WARNING:環境変数 PMDOPT の設定に誤りがあります．
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+　----- 現在の設定 -----
+・曲　　データバッファサイズ:4KB
+・音色　データバッファサイズ:8KB
+・効果音データバッファサイズ:4KB
+・FM音源    音量調整値:16
+・SSG音源   音量調整値:0
+・GRPH/ESCキーで早送り/曲の停止を制御する
+・MSTOP/ESC と同時に使用するキー設定値:16
+・FF   /GRPHと同時に使用するキー設定値:16
+・REW  /GRPHと同時に使用するキー設定値:1
+・フェードアウト後に曲の演奏を停止する
+・FM/INT60割り込み中に割り込みを禁止しない
+・PPSDRVを使用する
+・FM音源LSI REG-DATA間 Waitloop回数: 0回(約 0ns)
+・GRPHによる早送り時のTimerB値: 250

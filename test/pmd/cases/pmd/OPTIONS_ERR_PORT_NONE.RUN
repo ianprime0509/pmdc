@@ -1,0 +1,5 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+
+main /C /O4

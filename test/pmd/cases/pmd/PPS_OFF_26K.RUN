@@ -1,0 +1,12 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+; Drivers: pps
+
+main /C /P
+ppsdrv
+status
+effon 0
+effoff
+effon 1
+effoff

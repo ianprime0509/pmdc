@@ -1,0 +1,27 @@
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(PPZ8E)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+WARNING:YM2608+PCM が見つかりません．
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(PPZ8E)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+　----- 現在の設定 -----
+・曲　　データバッファサイズ:12KB
+・音色　データバッファサイズ:6KB
+・効果音データバッファサイズ:2KB
+・FM音源    音量調整値:20
+・SSG音源   音量調整値:4
+・PCM音源   音量調整値:8
+・PPZ8      音量調整値:5
+・RHYTHM音源音量調整値:3
+・SSGドラム発音時に同時にRHYTHM音源を鳴らさない
+・GRPH/ESCキーで早送り/曲の停止を制御しない
+・MSTOP/ESC と同時に使用するキー設定値:16
+・FF   /GRPHと同時に使用するキー設定値:2
+・REW  /GRPHと同時に使用するキー設定値:4
+・フェードアウト後に曲の演奏を停止しない
+・FM/INT60割り込み中に割り込みを禁止する
+・PPSDRVを使用しない
+・PPZ8  を使用しない
+・FM音源LSI REG-DATA間 Waitloop回数: 20回(約 0ns)
+・GRPHによる早送り時のTimerB値: 100

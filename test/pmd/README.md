@@ -341,13 +341,13 @@ install, the INT 60h probes, a playback, and the module-loaded control trace.
 
 | Directory | Board | Cases |
 | --- | --- | --- |
-| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `PLAY_TIMING`, `PLAY_CONTROL`, `USAGE_NONE`, `OPTIONS_26K`, `CHANGE_NONE`, `CHANGE_RESET_26K` |
-| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B`, `CHANGE_NONE`, `CHANGE_RESET` |
-| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `CHANGE_NONE`, `CHANGE_RESET` |
-| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `CHANGE_NONE`, `CHANGE_RESET` |
-| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `CHANGE_NONE`, `CHANGE_RESET` |
-| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `ADPCM_PLAY_VA`, `RHYTHM_VA`, `API_VA`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `CHANGE_NONE`, `CHANGE_RESET` |
-| `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `CHANGE_NONE`, `CHANGE_RESET` |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PPS_OFF_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `PLAY_TIMING`, `PLAY_FADE_26K`, `PLAY_FF_26K`, `PLAY_VOLDOWN_26K`, `PLAY_CONTROL`, `USAGE_NONE`, `OPTIONS_26K`, `OPTIONS_RESIDENT_NONE`, `OPTIONS_PRECEDENCE_NONE`, `OPTIONS_ENV_NONE`, `OPTIONS_ERR_M_NONE`, `OPTIONS_ERR_TOTAL_NONE`, `OPTIONS_ERR_R_NONE`, `OPTIONS_ERR_PORT_NONE`, `OPTIONS_ERR_HZ_NONE`, `OPTIONS_ERR_WAIT_NONE`, `OPTIONS_ERR_ADPCM_NONE`, `OPTIONS_PORT_86B`, `CHANGE_NONE`, `CHANGE_RESET_26K` |
+| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B`, `PCM86_HZ4_86B`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
+| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_RHYTHM_86B`, `PLAY_RHYTHM_N_86B`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
+| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
+| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
+| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `ADPCM_PLAY_VA`, `RHYTHM_VA`, `API_VA`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
+| `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
 
 What the `pmd` cases cover:
 
@@ -373,6 +373,18 @@ What the `pmd` cases cover:
 | `PLAY_CONTROL` | `SAMPLE2.M` with FM and SSG effects running: `ff` forward and rewind with a partial fade held across the skip, `pause`/`resume`, `partmask` on the FM, SSG, PCM, rhythm, and effect-masked parts, and a full fade-in that reaches `volset2rf` on the board2 builds |
 | `USAGE_NONE` | no board plus `/H`: the full usage text and exit status 255 |
 | `OPTIONS_26K` | `PMDOPT` buffers overridden by the command line, `/K-`, and the `size`/`drvchk`/`ppsdrv` results |
+| `OPTIONS_RESIDENT_NONE` | every resident option at once, defaulted from `PMDOPT` and overridden from the command line, then the second-instance status text, `tondat`/`efcdat`, `size`, `drvchk`, and `ppsdrv` |
+| `OPTIONS_PRECEDENCE_NONE` | the same fields set from both `PMDOPT` and the command line: the command line wins for `/M`, `/V`, `/E`, `/W`, `/G`, `/DF`, `/DR`, the key options and `/P`, while `PMDOPT`'s `/DS`, `/DP`, `/DZ` survive |
+| `OPTIONS_ENV_NONE` | a bad `PMDOPT` option: the warning and `mes_kankyo`, the options parsed before it kept, and the command line still applied |
+| `OPTIONS_ERR_M_NONE` | `/M0`: the "1KB or more" error and exit status 1 |
+| `OPTIONS_ERR_TOTAL_NONE` | `/M16 /V16 /E16`: the "40KB total" error and exit status 1 |
+| `OPTIONS_ERR_R_NONE` | `/R` at install: `pmderror_mes5` and exit status 1 |
+| `OPTIONS_ERR_PORT_NONE`, `_HZ_NONE`, `_WAIT_NONE`, `_ADPCM_NONE` | `/O4`, `/HZ9`, `/W0`, `/A3`: each handler's range check falls into the usage text and exit status 255 |
+| `OPTIONS_PORT_86B` | `/O1` re-probes 188h and installs the 86B board there: the probe writes move and `drvchk`/`size` follow |
+| `PPS_OFF_26K` | `/P` with a resident PPSDRV: the driver keeps its flag clear and `effon`/`effoff` take the SSG effect path instead of the `pps` calls |
+| `PLAY_FADE_26K` | `/F`: a completed fade-out does not stop the music, so the keyoffs `PLAY_TIMING` reaches at the same point are absent |
+| `PLAY_FF_26K` | `/G100`: the fast-forward Timer B reload (`0x63` instead of the default `0xf9`) and the tick spacing it changes |
+| `PLAY_VOLDOWN_26K` | `/DF20 /DS4` and the other `/D` volumes: the offset the FM volume registers are written with |
 | `CHANGE_NONE` | the second-instance status: `/K`, `/KE`, `/KG`, `/KR`, `/DF`, `/DS`, `/W`, `/G`, `/A`, then `/I`, `/N`, `/F`, `/S`, `/P`, and `/Z` reflected in the `changemes_*` text, an option-less status, the rejected-option message, the usage text, and `/R` |
 | `CHANGE_RESET_26K` | `/R` with a board and a module playing: the shutdown's keyoffs, the FM interrupt reset (`27h=30h`), and `ret change 01` |
 
@@ -388,11 +400,13 @@ The board2 variants add their own driver-specific cases:
 | `PPZ_PLAY_86B` | `PPZEXT.M` through PPZ8: keyon, volume, tone, loop/rate from the (empty) voice table, pan, and the directly called FM entry on each tick |
 | `PCM86_86B` | a resident P86DRV and `PCM86.M` with a PCM86 part: the INT 65h version/push/pop/data calls, the FIFO transfers each tick, the volume register, and both pan directions |
 | `PCM86_S_86B` | `/S`: the SPB volume curve and the one-octave-lower playback of notes from 65h up |
-| `PCM86_HZ_86B` | `/HZ0`: the downloaded frequency table changes the rate bits each note writes to the PCM86 register |
+| `PCM86_HZ_86B`, `PCM86_HZ4_86B` | `/HZ0` and `/HZ4`: the downloaded frequency table changes the rate bits each note writes to the PCM86 register |
+| `PLAY_RHYTHM_86B`, `PLAY_RHYTHM_N_86B` | `RHYTHM.M`'s FM rhythm commands: the second chip's rhythm register writes, and their absence under `/N` (the SSG drum path is unchanged) |
 
-Every directory's `CHANGE_NONE` runs the same script on its own build, so the
-status text it prints covers that variant's `put_status` blocks (the board2
-volume lines, PPZ8's line, the PCM86 frequency, the 88VA key-mask rotation).
+Every directory's `CHANGE_NONE` and `OPTIONS_RESIDENT_NONE` run the same script
+on its own build, so the status text they print covers that variant's
+`put_status` blocks (the board2 volume lines, PPZ8's line, the PCM86 frequency,
+the 88VA key-mask rotation) and every option handler that variant compiles in.
 `CHANGE_RESET` pairs a short playback with `/R`; on the PPZ8 builds it also
 asks the fake resident PPZ8 for the 1900h removal release. The status has to be
 a `Board: none` case: `fm_check` calibrates the two wait counts by timing
@@ -415,11 +429,13 @@ voice table and rhythm ROM.
 `cases/fixtures` holds the binary fixtures a case loads, each covering one
 shape: `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` are ordinary modules (taken
 from the original PMD 4.8s distribution), `PPZEXT.M` uses PPZ8 extension
-voices, `PDR.M` drives the rhythm part's `*` command, and `PCM86.M` has a PCM86
-part. `SHORT.M` is a module short enough to reach the end of the music inside
-`PLAY_END`'s tick bound; `SAMPLE.M` and `SAMPLE2.M` run for thousands of ticks,
-which would make that golden an order of magnitude larger. `VOICE.FF` is an
-external voice bank and `EFFECT.EFC` is EFC effect data. `VOICE.M` is hand-built
+voices, `PDR.M` drives the rhythm part's `*` command, `RHYTHM.M` (from
+`test/mc/cases/RHYTHM.MML`) keys the FM rhythm instruments through `\br` and
+friends, and `PCM86.M` has a PCM86 part. `SHORT.M` is a module short enough to
+reach the end of the music inside `PLAY_END`'s tick bound; `SAMPLE.M` and
+`SAMPLE2.M` run for thousands of ticks, which would make that golden an order
+of magnitude larger. `VOICE.FF` is an external voice bank and `EFFECT.EFC` is
+EFC effect data. `VOICE.M` is hand-built
 because MC always embeds a program area: its first part starts at offset 24,
 which is how `play_init` detects `prg_flg == 0` and reads voices from `tondat`.
 `PCM86.P86` is hand-built to the `.P86` format `PCMLOAD.INC` documents: a
@@ -444,6 +460,12 @@ playback registers, and rhythm ROM. Still open:
 - The reference `Board: 86` (PC-88), which no shipped binary targets.
 - A board-present status: its wait counts are calibrated from a `loop $`
   timing, so only the `Board: none` status is comparable.
+- Keyboard input: neither host models the key port, so the `/K` handler and
+  its `/KG`, `/KR`, and `/KE` masks are compared only through the status text,
+  not through the stop/fast-forward they select. `/I`, `/W`, and `/A` are in
+  the same position: their fields are reported by the status, but they change
+  no register write (`/W` and `/A` only scale delay loops, which the hosts
+  leave out).
 
 To add a case: write `NAME.RUN` (plus any fixture) in the driver's directory,
 regenerate the goldens with `repro.py`, and run `zig build test-pmd-traces`.
