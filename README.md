@@ -29,7 +29,7 @@ this translation to make verification and debugging simpler.
 ## Building
 
 This project uses [Zig](https://ziglang.org/) to make (cross-)compilation easy.
-Currently, it requires Zig 0.14. Running `zig build` will compile all available
+Currently, it requires Zig 0.17. Running `zig build` will compile all available
 programs into `zig-out/bin`.
 
 By default, the output will contain the original Japanese messages for usage
