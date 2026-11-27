@@ -317,17 +317,17 @@ Console cases must avoid module-derived text such as the music name.
 ## Cases
 
 Each variant's directory covers the same shapes: a no-board install, a board
-install, the INT 60h probes, and a short playback.
+install, the INT 60h probes, a playback, and the module-loaded control trace.
 
 | Directory | Board | Cases |
 | --- | --- | --- |
-| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
-| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B` |
-| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `ADPCM_PLAY_VA`, `RHYTHM_VA`, `API_VA`, `PLAY_SAMPLE` |
-| `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `PLAY_TIMING`, `PLAY_CONTROL`, `USAGE_NONE`, `OPTIONS_26K` |
+| `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B` |
+| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL` |
+| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL` |
+| `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL` |
+| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `ADPCM_PLAY_VA`, `RHYTHM_VA`, `API_VA`, `PLAY_SAMPLE`, `PLAY_CONTROL` |
+| `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE`, `PLAY_CONTROL` |
 
 What the `pmd` cases cover:
 
@@ -349,6 +349,8 @@ What the `pmd` cases cover:
 | `PLAY_SSGEG` | official `SSGEG_S.M`, same shape |
 | `PLAY_86B` | `SAMPLE.M` on the 86B board: the FM6/rhythm writes the second chip adds |
 | `PLAY_END` | `SHORT.M` played to its end, bounded by `run-until status2 ff max 512` |
+| `PLAY_TIMING` | `SAMPLE2.M` over 88 Timer B ticks: the module's tempo rewrite of the Timer B reload, coincident A/B overflows, `fout` to full fade and back, then `mstop`/`mstart` reinitialization |
+| `PLAY_CONTROL` | `SAMPLE2.M` with FM and SSG effects running: `ff` forward and rewind with a partial fade held across the skip, `pause`/`resume`, `partmask` on the FM, SSG, PCM, rhythm, and effect-masked parts, and a full fade-in that reaches `volset2rf` on the board2 builds |
 | `USAGE_NONE` | no board plus `/H`: the full usage text and exit status 255 |
 | `OPTIONS_26K` | `PMDOPT` buffers overridden by the command line, `/K-`, and the `size`/`drvchk`/`ppsdrv` results |
 
@@ -369,7 +371,11 @@ The board2 variants add their own driver-specific cases:
 The variant directories reuse those shapes: the install cases pin each build's
 probe and initialization sequence, the API cases pin its `drvchk` board value
 and no-module results, and the playback cases pin its timer and register
-writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
+writes. `PLAY_CONTROL` appears in every directory with the same script and
+characterizes the module-loaded control paths on that build: the second chip's
+FM2 and rhythm masks, the PCM part where the variant has one, and the effect
+parts where PPZ8's work array shortens the part table.
+`pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
 `pmdb2` the ADPCM RAM check's transfer, and `pmdb2`/`pmdppz`/`pmdva` the ADPCM
 voice table and rhythm ROM.
 
@@ -402,8 +408,7 @@ install/reset handshakes, PPSDRV effects (including the PDR switch), a PPZ8
 playback, the PCM86 FIFO, EMS, and transfer calls, and the ADPCM voice table,
 playback registers, and rhythm ROM. Still open:
 
-- Long fade/FF/pause/part-mask traces and the reference `Board: 86` (PC-88,
-  which no shipped binary targets).
+- The reference `Board: 86` (PC-88), which no shipped binary targets.
 
 To add a case: write `NAME.RUN` (plus any fixture) in the driver's directory,
 regenerate the goldens with `repro.py`, and run `zig build test-pmd-traces`.

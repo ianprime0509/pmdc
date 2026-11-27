@@ -1,0 +1,54 @@
+; Driver: pmdppze
+; Board: 86B
+; Chip: YM2608
+
+main /C
+load ../fixtures/SAMPLE2.M
+mstart
+loadeffect ../fixtures/EFFECT.EFC
+fmefon 0
+effon 0
+status
+run b 8
+fout 127
+run b 8
+fout 0
+ff 2
+status
+run b 8
+ff 0
+status
+run b 8
+pause
+run b 8
+resume
+run b 8
+partmask 0
+run b 2
+partmask 128
+partmask 2
+run b 2
+partmask 130
+partmask 3
+run b 2
+partmask 131
+partmask 5
+run b 2
+partmask 133
+partmask 6
+run b 2
+partmask 134
+partmask 9
+run b 2
+partmask 137
+partmask 14
+run b 2
+partmask 142
+fout 132
+run b 16
+status
+fmefoff
+effoff
+fmefcnum
+psgefcnum
+status

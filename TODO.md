@@ -6,13 +6,6 @@ below are what remains.
 
 ## Trace coverage
 
-- [ ] **Long-run timing traces.** Coincident Timer A/B overflows, tempo and
-  timer reprogramming, fade, fast-forward/skip, pause, part masks, and
-  effect/music masking. These are the cases where golden comparison beats
-  single-tick assertions, and the ones that need the most normalization. The
-  `ff`, `fout`, `pause`, and `partmask` actions currently appear only in API
-  cases with no module loaded, so they never reach the sequencer.
-
 - [ ] **`pmd_change_main` in the trace harness.** There is no `change` action
   on either host, so the status text and the `/R` shutdown handshake are
   covered only by hand-written expectations in `test/pmd/test_pmd.c`

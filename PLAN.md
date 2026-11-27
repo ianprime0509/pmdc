@@ -1558,7 +1558,7 @@ needs no Python or Unicorn.
 
 These items extend the harness beyond the coverage defined above.
 
-1. **External drivers, PCM/data paths, and long-run timer cases.**
+1. **External drivers and PCM/data paths.**
    - Driver coverage: fake resident PPSDRV and PPZ8 answer the original's
      residency checks on both hosts, and the cases cover detection, the
      install/reset handshakes, effect keyon/keyoff, the PDR mode switch, a
@@ -1571,11 +1571,6 @@ These items extend the harness beyond the coverage defined above.
      `loadadpcm`, and `loadrom` provide PCM86, ADPCM, and rhythm ROM data, so
      the ADPCM voice table, its repeat and release offsets, and the
      data-memory contents are compared too.
-   - Add long-run timing traces for coincident Timer A/B overflows, tempo and
-     timer reprogramming, fade, fast-forward/skip, pause, part masks, and
-     effect/music masking. These are the cases where trace comparison is most
-     valuable over single-tick assertions, but they also need the most
-     normalization.
    - Drive `pmd_change_main` from the harness too, so the status text and the
      `/R` shutdown handshake are compared against the original rather than
      against expectations written by hand.

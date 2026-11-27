@@ -120,7 +120,9 @@ fn compareFile(
     run_path: []const u8,
     results: *Results,
 ) !bool {
-    const data_limit: Io.Limit = .limited(std.math.maxInt(u16));
+    // Long-run traces exceed 64 KiB; the bound only guards against a runaway
+    // trace host.
+    const data_limit: Io.Limit = .limited(1 << 20);
     const expected = test_dir.readFileAlloc(io, sub_path, gpa, data_limit) catch |err| switch (err) {
         error.FileNotFound => {
             results.fail(run_path, "golden {s} is missing", .{sub_path});
