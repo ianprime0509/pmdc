@@ -1567,9 +1567,10 @@ These items extend the harness beyond the coverage defined above.
      EMS/FIFO calls that only a PCM86 board reaches.
    - Data coverage: `loadvoice`/`loadeffect` fill the INT 60h voice and effect
      buffers, and a hand-built module without a program area reaches
-     `tondat`, so FM and built-in SSG effects are compared. Extend it with
-     ADPCM/PCM86 data reads, loop offsets, and rhythm ROM contents, which need
-     another fixture and a data-memory model.
+     `tondat`, so FM and built-in SSG effects are compared. `loadpcm`,
+     `loadadpcm`, and `loadrom` provide PCM86, ADPCM, and rhythm ROM data, so
+     the ADPCM voice table, its repeat and release offsets, and the
+     data-memory contents are compared too.
    - Add long-run timing traces for coincident Timer A/B overflows, tempo and
      timer reprogramming, fade, fast-forward/skip, pause, part masks, and
      effect/music masking. These are the cases where trace comparison is most

@@ -1,0 +1,13 @@
+; Driver: pmdb2
+; Board: 86B
+; Chip: YM2608
+
+main /C
+loadadpcm ../fixtures/ADPCM.ADP
+load ../fixtures/ADPCM.M
+mstart
+status
+run b 8
+status
+mstop
+status

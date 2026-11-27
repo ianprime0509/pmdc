@@ -114,6 +114,9 @@ struct board {
     uint8_t adpcm_dummy;
     bool adpcm_external;
     bool adpcm_record;
+    // The ADPCM-A sample memory, which holds the rhythm ROM image the chip
+    // reads when the rhythm part keys an instrument.
+    uint8_t rhythm_rom[0x10000];
     // The PCM86 card's FIFO register. Bit 4 is the interrupt flag the driver
     // polls at 0A468h; bits 5 and 7 are the interrupt enable and playback
     // start it sets. The card raises the flag once per timer delivery while
@@ -898,11 +901,90 @@ static void do_loadpcm(const char *name) {
 #endif
 }
 
+// `loadadpcm` fills the ADPCM voice table and the board's ADPCM-B memory the
+// way an external loader would after reading an .ADP file: the fixture holds
+// the 16-byte header, the 256 four-byte entries, and the sample image.
+static void do_loadadpcm(const char *name) {
+#if board2 && adpcm && !ademu
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", trace.cases_dir, name);
+    char *data;
+    size_t len;
+    if (!read_file(path, &data, &len)) fail("cannot open fixture %s", path);
+
+    enum { adpcm_header = 16, adpcm_voices = 256, adpcm_entry = 4 };
+    const size_t table_len = (size_t)adpcm_voices * adpcm_entry;
+    if (len < adpcm_header + table_len) fail("%s: truncated ADPCM data file", name);
+    if (memcmp(data, "ADPCM DATA\n", 11) != 0) fail("%s: not an ADPCM data file", name);
+    uint32_t total = (uint32_t)(uint8_t)data[13] | ((uint32_t)(uint8_t)data[14] << 8) |
+                     ((uint32_t)(uint8_t)data[15] << 16);
+    size_t sample_len = len - (adpcm_header + table_len);
+    if (total != sample_len) {
+        fail("%s: header size %" PRIu32 " does not match the %zu data bytes", name,
+             total, sample_len);
+    }
+    if (sample_len > sizeof(trace.board.adpcm_mem)) {
+        fail("%s: sample data is too large", name);
+    }
+
+    union pmd_pcm_table *table = pmd_get_pcm_adr(trace.pmd);
+    if (table == NULL) fail("%s: this variant has no ADPCM voice table", name);
+    for (size_t i = 0; i < adpcm_voices; i++) {
+        const uint8_t *entry = (const uint8_t *)data + adpcm_header + i * adpcm_entry;
+        table->adpcm_data.pcmadrs[i].start =
+            (uint16_t)(entry[0] | ((uint16_t)entry[1] << 8));
+        table->adpcm_data.pcmadrs[i].stop =
+            (uint16_t)(entry[2] | ((uint16_t)entry[3] << 8));
+    }
+    memset(trace.board.adpcm_mem, 0, sizeof(trace.board.adpcm_mem));
+    memcpy(trace.board.adpcm_mem, data + adpcm_header + table_len, sample_len);
+    free(data);
+#else
+    (void)name;
+    fail("this variant has no ADPCM driver");
+#endif
+}
+
+// `loadrom` fills the board's ADPCM-A memory with the rhythm ROM image.
+static void do_loadrom(const char *name) {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", trace.cases_dir, name);
+    char *data;
+    size_t len;
+    if (!read_file(path, &data, &len)) fail("cannot open fixture %s", path);
+    if (len > sizeof(trace.board.rhythm_rom)) fail("%s: rhythm ROM image is too large", name);
+    memset(trace.board.rhythm_rom, 0, sizeof(trace.board.rhythm_rom));
+    memcpy(trace.board.rhythm_rom, data, len);
+    free(data);
+}
+
 static unsigned long parse_number(const char *text) {
     char *end = NULL;
     unsigned long value = strtoul(text, &end, 0);
     if (end == text || *trim(end) != '\0') fail("bad number '%s'", text);
     return value;
+}
+
+// `rom OFFSET COUNT` records bytes from the board's ADPCM-A memory, which is
+// host data no driver call returns. It is how a rhythm ROM fixture's contents
+// are compared.
+static void do_rom(const char *rest) {
+    char offset_text[32];
+    char count_text[16];
+    if (sscanf(rest, "%31s %15s", offset_text, count_text) != 2) {
+        fail("rom takes 'OFFSET COUNT'");
+    }
+    unsigned long offset = parse_number(offset_text);
+    unsigned long count = parse_number(count_text);
+    if (offset > sizeof(trace.board.rhythm_rom) ||
+        count > sizeof(trace.board.rhythm_rom) - offset) {
+        fail("rom range is outside the ADPCM-A memory");
+    }
+    fprintf(trace.log, "%" PRIu64 " ret rom %lx", trace.now, offset);
+    for (unsigned long i = 0; i < count; i++) {
+        fprintf(trace.log, " %02x", trace.board.rhythm_rom[offset + i]);
+    }
+    fputc('\n', trace.log);
 }
 
 // Delivers one timer interrupt: from the replay schedule, or from the board
@@ -1000,6 +1082,10 @@ static void run_actions(void) {
             do_loadeffect(rest);
         } else if (strcmp(verb, "loadpcm") == 0) {
             do_loadpcm(rest);
+        } else if (strcmp(verb, "loadadpcm") == 0) {
+            do_loadadpcm(rest);
+        } else if (strcmp(verb, "loadrom") == 0) {
+            do_loadrom(rest);
         } else if (strcmp(verb, "mstart") == 0) {
             event_ret("mstart", result_flag(pmd_mstart_f(trace.pmd)), 0, false);
         } else if (strcmp(verb, "mstop") == 0) {
@@ -1072,6 +1158,8 @@ static void run_actions(void) {
             do_run(rest);
         } else if (strcmp(verb, "run-until") == 0) {
             do_run_until(rest);
+        } else if (strcmp(verb, "rom") == 0) {
+            do_rom(rest);
         } else {
             fail("unknown action '%s'", verb);
         }

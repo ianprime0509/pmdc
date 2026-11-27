@@ -4,15 +4,6 @@ Outstanding work from `PLAN.md`. Phases 1-8 and the Phase 9 trace harness are
 in place; `zig build` and `zig build test` pass for every variant. The items
 below are what remains.
 
-## External drivers and data paths
-
-- [ ] **ADPCM sample data and rhythm ROM fixtures.** The board models serve
-  registers, the ADPCM-B external RAM check, and the PCM86 card (including
-  sample data through the fake P86DRV), but the ADPCM-B RAM is never filled
-  with a sample fixture, and rhythm ROM contents are never compared. Add a
-  data-memory model to both hosts plus fixtures, following how `VOICE.FF`,
-  `EFFECT.EFC`, and `PCM86.P86` supply voice, effect, and PCM86 data.
-
 ## Trace coverage
 
 - [ ] **Long-run timing traces.** Coincident Timer A/B overflows, tempo and

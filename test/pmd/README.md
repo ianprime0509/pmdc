@@ -83,6 +83,9 @@ Every other line is one action, in order.
 | `loadvoice NAME` | AH=07h buffer; the voice file is read into it | none |
 | `loadeffect NAME` | AH=0Bh buffer; the EFC file is read into it | none |
 | `loadpcm NAME` | the PCM86 voice table and the fake P86DRV's sample area; a .P86 file | none |
+| `loadadpcm NAME` | the ADPCM voice table and the board's ADPCM-B memory; an .ADP file | none |
+| `loadrom NAME` | the board's ADPCM-A memory; a rhythm ROM image | none |
+| `rom OFFSET COUNT` | host data memory, no driver call | `ret rom OFFSET BYTES...` |
 | `mstart` | AH=00h, `pmd_mstart_f` | `ret mstart 00` or `ff` |
 | `mstop` | AH=01h, `pmd_mstop_f` | `ret mstop 00` or `ff` |
 | `status` | AH=0Ah, `pmd_get_status` | `ret status AH AL` |
@@ -136,6 +139,17 @@ header and 256 six-byte start/size entries into the PCM voice table (through
 `pmd_get_pcm_adr` / INT 60h AH=0Eh) and copies the sample data into the fake
 driver's 64 KiB area, which `get_data_offset` then maps. It records nothing.
 
+`loadadpcm` stands in for whatever external loader fills PMD's ADPCM table and
+the YM2608's ADPCM-B memory. The file has a 16-byte header, 256 four-byte
+start/stop entries in the 32-byte units the driver writes to registers 02h-05h,
+and the sample image. The entries go into the driver at offset 2 of the
+`pmd_get_pcm_adr` pointer (after `pcmends`, `PMD.ASM:8357`), and the image fills
+the board's 64 KiB ADPCM-B memory. It records nothing. `loadrom` copies a
+rhythm ROM image into the board's 64 KiB ADPCM-A memory, which is also where
+the YM2608 reads rhythm samples. `rom OFFSET COUNT` records the ADPCM-A bytes
+there; neither the original nor the translation exposes them through a driver
+call, so the action is how the fixture's contents are compared.
+
 ## Trace format
 
 One event per line: `<clock> <event> [args...]`. The clock is a decimal count
@@ -151,7 +165,8 @@ of OPN master clocks; ports, registers, and values are lowercase hex.
 - `a`, `b`, `ab`: the interrupt delivered at this clock. A coincident Timer A
   and B overflow is one delivery, `ab`, never two.
 - `ret NAME VALUES`: a scripted action's result, including `ret exit STATUS`
-  at the end of `main`.
+  at the end of `main` and `ret rom OFFSET BYTES...`, the ADPCM-A memory dump
+  the `rom` action records.
 - `pps OP ARGS`, `ppz8 OP ARGS`, `p86 OP ARGS`: a call into a fake resident
   driver, named for the interface operation rather than the interrupt register
   contract (`pps keyon NUM DETUNE VOLUME`, `pps pdr NUMBER MODE`, `ppz8
@@ -193,7 +208,11 @@ The fake board is deliberately small and must stay identical in both hosts:
   reads before a read transfer, and returns the stored bytes from the data
   port, so `ADRAMCHK.ASM` reads back what it wrote. The status port reports
   BRDY (bit 3) while the bank is in external mode, which is all the check
-  polls; EOS is not modelled because the driver never tests it.
+  polls; EOS is not modelled because the driver never tests it. `loadadpcm`
+  fills that memory with a sample image, and `loadrom` fills the separate
+  64 KiB ADPCM-A memory the chip reads for rhythm instruments. The trace hosts
+  do not decode either memory, so only the driver's register stream and the
+  `rom` action observe them.
 - The OPNA ID port 0A460h: FFh when no OPNA is declared, 00h otherwise, and
   writes to it track the driver's OPNA on/off sequence. The mute port 0A66Eh
   reads 00h.
@@ -304,10 +323,10 @@ install, the INT 60h probes, and a short playback.
 | --- | --- | --- |
 | `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
 | `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B` |
-| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE` |
+| `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdppze` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
-| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
+| `pmdva` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `ADPCM_PLAY_VA`, `RHYTHM_VA`, `API_VA`, `PLAY_SAMPLE` |
 | `pmdva1` | VA, none | `INSTALL_NONE`, `INSTALL_VA`, `API_VA`, `PLAY_SAMPLE` |
 
 What the `pmd` cases cover:
@@ -338,6 +357,8 @@ The board2 variants add their own driver-specific cases:
 | Case | Covers |
 | --- | --- |
 | `ADPCM_86B` | a successful `ADRAMCHK.ASM` transfer (the model reads back what it wrote, so `pcm_gs_flag` stays 0) and the PCM-part masking it changes |
+| `ADPCM_PLAY_86B` / `_VA` | `ADPCM.M` through `PCMDRV.ASM` with the `ADPCM.ADP` voice table: `@n` start/stop writes, the `@n,m,o,p` repeat and release addresses, pitch, volume, and both pan directions |
+| `RHYTHM_86B` / `_VA` | `loadrom` and the `rom` dump: a rhythm ROM image in the board's ADPCM-A memory, including the zero fill past the image |
 | `PPZ_86B` | a resident PPZ8: the 0410h/0409h handshake, 1901h protection, and the `mstart` init/stop sequence |
 | `PPZ_RESET_86B` | `/Z`: FIFO stop, one keyoff per channel, and 1900h removal permission |
 | `PPZ_PLAY_86B` | `PPZEXT.M` through PPZ8: keyon, volume, tone, loop/rate from the (empty) voice table, pan, and the directly called FM entry on each tick |
@@ -349,7 +370,8 @@ The variant directories reuse those shapes: the install cases pin each build's
 probe and initialization sequence, the API cases pin its `drvchk` board value
 and no-module results, and the playback cases pin its timer and register
 writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
-and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's transfer.
+`pmdb2` the ADPCM RAM check's transfer, and `pmdb2`/`pmdppz`/`pmdva` the ADPCM
+voice table and rhythm ROM.
 
 `cases/fixtures` holds the binary fixtures a case loads, each covering one
 shape: `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` are ordinary modules (taken
@@ -364,18 +386,22 @@ which is how `play_init` detects `prg_flg == 0` and reads voices from `tondat`.
 `PCM86.P86` is hand-built to the `.P86` format `PCMLOAD.INC` documents: a
 16-byte header, 256 six-byte start/size entries (voice 0 is a long sine and
 voice 1 a short ramp), and 4 KiB of sample data. `loadpcm` uses it to fill the
-voice table and the fake P86DRV's area on both hosts.
+voice table and the fake P86DRV's area on both hosts. `ADPCM.M` has an ADPCM
+part and comes from `test/mc/cases/ADPCM.MML`. `ADPCM.ADP` follows the same
+shape as the `.P86` file with four-byte start/stop entries and a sample image:
+voice 0 runs from 26h to 66h and voice 1 from 66h to 6Eh in the units the
+driver writes to the chip, and the image is 6Eh*32 bytes so the rhythm-style
+first offset matches `pcmends`. `RHYTHM.ROM` is a 256-byte ADPCM-A image;
+everything past it reads as zero.
 
 ## Limitations
 
 PPSDRV (INT 64h), PPZ8 (INT 7Fh), and P86DRV (INT 65h) are modelled as fake
 resident drivers on both hosts, and the cases above cover detection, the
 install/reset handshakes, PPSDRV effects (including the PDR switch), a PPZ8
-playback, and the PCM86 FIFO, EMS, and transfer calls. Still open:
+playback, the PCM86 FIFO, EMS, and transfer calls, and the ADPCM voice table,
+playback registers, and rhythm ROM. Still open:
 
-- ADPCM sample data and rhythm ROM contents, which need data-memory fixtures
-  the same way `VOICE.FF`, `EFFECT.EFC`, and `PCM86.P86` provide voice, effect,
-  and PCM86 data.
 - Long fade/FF/pause/part-mask traces and the reference `Board: 86` (PC-88,
   which no shipped binary targets).
 

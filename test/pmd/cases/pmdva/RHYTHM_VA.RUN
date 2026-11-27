@@ -1,0 +1,8 @@
+; Driver: pmdva
+; Board: VA
+; Chip: YM2608
+
+main /C
+loadrom ../fixtures/RHYTHM.ROM
+rom 0 32
+rom 0xf0 32

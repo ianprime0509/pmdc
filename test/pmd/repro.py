@@ -111,6 +111,16 @@ TIMER_B_STEP = 1152
 # (pmd_get_pcm_adr). `ret pcm` records the address only where it is used.
 NO_PCM_DRIVER = {"pmd", "pmdva1"}
 
+# The YM2608 ADPCM voice table exists only in the variants whose PCM driver is
+# PCMDRV.ASM. PMDPPZE has the table in its fixed layout but emulates ADPCM
+# through PPZ8 instead.
+ADPCM_DRIVERS = {"pmdb2", "pmdppz", "pmdva"}
+
+# The YM2608's ADPCM-A sample memory (the rhythm ROM) and ADPCM-B external
+# memory are 64 KiB in the board model.
+ADPCM_MEM_SIZE = 0x10000
+RHYTHM_ROM_SIZE = 0x10000
+
 
 class EmulationError(Exception):
     pass
@@ -237,11 +247,14 @@ class Board:
         # the high register bank, 110h for the flag control. ADRAMCHK.ASM only
         # needs BRDY (bit 3) set and does not check EOS.
         self.adpcm_regs = [0] * 0x20
-        self.adpcm_mem = bytearray(0x10000)
+        self.adpcm_mem = bytearray(ADPCM_MEM_SIZE)
         self.adpcm_addr = 0
         self.adpcm_dummy = 0
         self.adpcm_external = False
         self.adpcm_record = False
+        # The ADPCM-A sample memory, which holds the rhythm ROM image the
+        # chip reads when the rhythm part keys an instrument.
+        self.rhythm_rom = bytearray(RHYTHM_ROM_SIZE)
         # The PCM86 FIFO register: bit 4 is the interrupt flag, bits 5 and 7
         # the interrupt enable and playback start. The card raises the flag
         # once per timer delivery while playback runs, and a write that clears
@@ -893,6 +906,10 @@ class Machine:
                 self._load_area(rest, 0x0B, (self.api(0x22)["dx"] & 0xFF) * 1024)
             elif verb == "loadpcm":
                 self._loadpcm(rest)
+            elif verb == "loadadpcm":
+                self._loadadpcm(rest)
+            elif verb == "loadrom":
+                self._loadrom(rest)
             elif verb == "mstart":
                 self.record.write(f"{self.now} ret mstart {hex8(self._result(0x00))}\n")
             elif verb == "mstop":
@@ -972,6 +989,8 @@ class Machine:
                 self._run(rest)
             elif verb == "run-until":
                 self._run_until(rest)
+            elif verb == "rom":
+                self._rom(rest)
             else:
                 raise EmulationError(f"unknown action {verb!r}")
 
@@ -1033,6 +1052,58 @@ class Machine:
         address = (result["ds"] << 4) + result["dx"]
         table = bytearray(4) + bytearray(data[header:header + voices * entry])
         self.mu.mem_write(address, bytes(table))
+
+    def _loadadpcm(self, path: str) -> None:
+        """Loads an .ADP file: the ADPCM voice table and the ADPCM-B samples."""
+        if self.script.driver not in ADPCM_DRIVERS:
+            raise EmulationError(f"{self.script.driver} has no ADPCM voice table")
+        source = self.cwd / path
+        if not source.is_file():
+            raise EmulationError(f"fixture {path} not found")
+        data = source.read_bytes()
+        header, voices, entry = 16, 256, 4
+        if len(data) < header + voices * entry:
+            raise EmulationError(f"{path}: truncated ADPCM data file")
+        if data[:11] != b"ADPCM DATA\n":
+            raise EmulationError(f"{path}: not an ADPCM data file")
+        total = int.from_bytes(data[13:16], "little")
+        samples = data[header + voices * entry:]
+        if total != len(samples):
+            raise EmulationError(
+                f"{path}: header size {total} does not match the {len(samples)} data bytes")
+        if len(samples) > ADPCM_MEM_SIZE:
+            raise EmulationError(f"{path}: sample data is too large")
+        self.board.adpcm_mem = bytearray(ADPCM_MEM_SIZE)
+        self.board.adpcm_mem[:len(samples)] = samples
+        # The table follows pcmends in the driver (PMD.ASM:8357).
+        result = self.api(0x0E)
+        address = (result["ds"] << 4) + result["dx"]
+        self.mu.mem_write(address + 2, data[header:header + voices * entry])
+
+    def _loadrom(self, path: str) -> None:
+        """Loads the ADPCM-A rhythm ROM image into the fake board."""
+        source = self.cwd / path
+        if not source.is_file():
+            raise EmulationError(f"fixture {path} not found")
+        data = source.read_bytes()
+        if len(data) > RHYTHM_ROM_SIZE:
+            raise EmulationError(f"{path}: rhythm ROM image is too large")
+        self.board.rhythm_rom = bytearray(RHYTHM_ROM_SIZE)
+        self.board.rhythm_rom[:len(data)] = data
+
+    def _rom(self, rest: str) -> None:
+        parts = rest.split()
+        if len(parts) != 2:
+            raise EmulationError("rom takes 'OFFSET COUNT'")
+        offset = int(parts[0], 0)
+        count = int(parts[1], 0)
+        if offset < 0 or count < 0 or offset + count > RHYTHM_ROM_SIZE:
+            raise EmulationError("rom range is outside the ADPCM-A memory")
+        values = " ".join(hex8(b) for b in self.board.rhythm_rom[offset:offset + count])
+        line = f"{self.now} ret rom {hexval(offset)}"
+        if values:
+            line += f" {values}"
+        self.record.write(line + "\n")
 
     def _run(self, rest: str) -> None:
         parts = rest.split()

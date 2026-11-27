@@ -1,0 +1,14 @@
+; Output: ADPCM.M
+; Console: ADPCM.OUT
+; PMDMML.MAN §13-2, §5-2, §4-4
+
+#Title ADPCM
+#Option /v/c
+
+; Part 9 in the ADPCM variants. The voice table and the sample data are not
+; part of the module: they come from the .ADP fixture the PMD trace tests load.
+; @n,m,o,p selects repeat and release offsets relative to the voice's
+; start/stop, so the driver writes the repeat registers and the release path.
+J @0 V255 px0 o4 c96
+J @1,8,-8,4 V128 px-64,1 o5 e96
+J @0,100,-50,-50 V64 px0,1 o3 g96
