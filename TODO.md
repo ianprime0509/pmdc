@@ -6,11 +6,6 @@ below are what remains.
 
 ## Trace coverage
 
-- [ ] **Remaining API actions.** Add the `musname` action planned in
-  `PLAN.md` (music-name bytes recorded in the `.LOG`) and exercise the
-  `setfv` verb, which exists in `trace.c` but appears in no case. Add an action
-  for `pmd_set_ppsdrv_flag` so the setter is compared against the original too.
-
 - [ ] **`Board: 86` reference board (PC-88).** No shipped binary targets it;
   lowest priority. Add the model only if a case needs it.
 

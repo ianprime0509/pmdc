@@ -34,3 +34,8 @@ pcm
 workadr
 memo 0
 memo 1
+musname
+setfv 42
+fv
+setppsdrv 1
+ppsdrv

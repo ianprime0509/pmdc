@@ -98,6 +98,8 @@ Every other line is one action, in order.
 | `pcmefcnum` | AH=12h, `pmd_get_pcmefc_num` | `ret pcmefcnum AL` |
 | `psgefcnum` | AH=15h, `pmd_get_psgefcnum` | `ret psgefcnum AH AL` |
 | `ppsdrv` | AH=17h, `pmd_get_ppsdrv_flag` | `ret ppsdrv AL` |
+| `setppsdrv N` | AH=18h, AL=N, `pmd_set_ppsdrv_flag` | none |
+| `musname` | AH=21h, `pmd_get_mus_name` | `ret musname BYTES...` |
 | `joy` | AH=16h, `pmd_get_joy` | `ret joy AL AH` |
 | `musdat` / `tondat` / `efcdat` | AH=06h/07h/0Bh, the data-area pointers | `ret NAME OFFSET` |
 | `pcm` | AH=0Eh, `pmd_get_pcm_adr` | `ret pcm ALIAS` or `none` |
@@ -116,6 +118,10 @@ Every other line is one action, in order.
 `mstart` and `mstop` return AH=FFh when the call is deferred or rejected and
 otherwise leave the caller's AH alone, so the trace records a normalized
 success flag: `00` or `ff`.
+
+`musname` records the whole 13-byte music-name buffer as hex bytes rather than
+as a string: the player fills it, and hex keeps a CP932 name out of the UTF-8
+record.
 
 `main` records the process exit code last, `ret exit STATUS` (00 for the
 ordinary AH=31h TSR exit). That lets an option or usage error be a golden: the
@@ -185,8 +191,9 @@ of OPN master clocks; ports, registers, and values are lowercase hex.
   and B overflow is one delivery, `ab`, never two.
 - `ret NAME VALUES`: a scripted action's result, including `ret exit STATUS`
   at the end of `main` or of an errored `change`, `ret change RESULT` for a
-  `change` that ended normally, and `ret rom OFFSET BYTES...`, the ADPCM-A
-  memory dump the `rom` action records.
+  `change` that ended normally, `ret rom OFFSET BYTES...`, the ADPCM-A memory
+  dump the `rom` action records, and `ret musname BYTES...`, the 13 bytes of
+  the music-name buffer.
 - `pps OP ARGS`, `ppz8 OP ARGS`, `p86 OP ARGS`: a call into a fake resident
   driver, named for the interface operation rather than the interrupt register
   contract (`pps keyon NUM DETUNE VOLUME`, `pps pdr NUMBER MODE`, `ppz8

@@ -11,3 +11,7 @@ effon 200
 effoff
 effon 255
 effoff
+setppsdrv 0
+ppsdrv
+setppsdrv 1
+ppsdrv

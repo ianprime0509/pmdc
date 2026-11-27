@@ -1005,6 +1005,13 @@ class Machine:
                     f"{self.now} ret psgefcnum {hex8(result['ah'])} {hex8(result['al'])}\n")
             elif verb == "ppsdrv":
                 self.record.write(f"{self.now} ret ppsdrv {hex8(self.api(0x17)['al'])}\n")
+            elif verb == "musname":
+                # The name buffer is 13 bytes (PMD.ASM:8123) at the returned
+                # CS:DX; the player fills it, so no driver call changes it.
+                address = self._pointer(self.api(0x21))
+                name = self.mu.mem_read(address, 13)
+                values = " ".join(f"{byte:02x}" for byte in name)
+                self.record.write(f"{self.now} ret musname {values}\n")
             elif verb == "joy":
                 result = self.api(0x16)
                 self.record.write(
@@ -1031,10 +1038,10 @@ class Machine:
                 else:
                     offset = self._data_offset(pointer)
                     self.record.write(f"{self.now} ret memo {hexval(offset)}\n")
-            elif verb in ("fout", "setfv", "partmask", "effon", "fmefon"):
+            elif verb in ("fout", "setfv", "setppsdrv", "partmask", "effon", "fmefon"):
                 command = {
-                    "fout": 0x02, "setfv": 0x19, "partmask": 0x1E,
-                    "effon": 0x03, "fmefon": 0x0C,
+                    "fout": 0x02, "setfv": 0x19, "setppsdrv": 0x18,
+                    "partmask": 0x1E, "effon": 0x03, "fmefon": 0x0C,
                 }[verb]
                 self.api(command, al=int(rest, 0) & 0xFF)
             elif verb in ("effoff", "fmefoff"):

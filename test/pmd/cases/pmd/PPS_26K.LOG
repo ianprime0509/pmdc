@@ -109,3 +109,5 @@
 0 outb 88 7
 0 outb 88 7
 0 outb 8a 24
+0 ret ppsdrv 00
+0 ret ppsdrv 01

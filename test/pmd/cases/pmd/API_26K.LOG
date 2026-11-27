@@ -260,3 +260,6 @@
 0 ret workadr p1
 0 ret memo none
 0 ret memo none
+0 ret musname 00 00 00 00 00 00 00 00 00 00 00 00 00
+0 ret fv 2a
+0 ret ppsdrv 00

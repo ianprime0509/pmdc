@@ -1122,6 +1122,15 @@ static void run_actions(void) {
             event_ret("psgefcnum", num.psgefcnum, num.effon, true);
         } else if (strcmp(verb, "ppsdrv") == 0) {
             event_ret("ppsdrv", pmd_get_ppsdrv_flag(trace.pmd), 0, false);
+        } else if (strcmp(verb, "musname") == 0) {
+            // The name buffer is 13 bytes (PMD.ASM:8123), and the player fills
+            // it, so no driver call changes it: the whole buffer is the result.
+            const uint8_t *name = (const uint8_t *)pmd_get_mus_name(trace.pmd);
+            fprintf(trace.log, "%" PRIu64 " ret musname", trace.now);
+            for (size_t byte = 0; byte < 13; byte++) {
+                fprintf(trace.log, " %02x", name[byte]);
+            }
+            fputc('\n', trace.log);
         } else if (strcmp(verb, "joy") == 0) {
             struct pmd_joy joy = pmd_get_joy(trace.pmd);
             event_ret("joy", joy.joystick1, joy.joystick2, true);
@@ -1146,6 +1155,8 @@ static void run_actions(void) {
             pmd_fout(trace.pmd, (uint8_t)parse_number(rest));
         } else if (strcmp(verb, "setfv") == 0) {
             pmd_set_fv(trace.pmd, (uint8_t)parse_number(rest));
+        } else if (strcmp(verb, "setppsdrv") == 0) {
+            pmd_set_ppsdrv_flag(trace.pmd, (uint8_t)parse_number(rest));
         } else if (strcmp(verb, "partmask") == 0) {
             pmd_part_mask(trace.pmd, (uint8_t)parse_number(rest));
         } else if (strcmp(verb, "effon") == 0) {
