@@ -18,6 +18,9 @@ This project has several goals:
     completes almost instantly.
 - Serve as a cross-reference for the original source code and make it easier to
   document the original's behavior and formats.
+- Replicate the original's support for various less used platforms: while other
+  translations of the PMD driver itself exist, as far as I know, they all
+  support only one emulated board (the most advanced/complete one).
 - Have fun and improve my knowledge of C and assembly.
 
 The translation attempts to be as direct as possible, but some changes are
@@ -39,38 +42,36 @@ information, errors, etc. To compile with English messages, run
 
 ## Usage
 
-`zig build` installs MC, MCH, EFC, every PMD variant, and a player per variant
-into `zig-out/bin`:
+`zig build` installs MC, MCH, and EFC to `zig-out/bin`, along with a simple
+`pmd-play` utility to play a module. The `pmd-play` utility is built for each
+variant of the original PMD executable, so `pmd86-play`, `pmdppz-play`, etc. are
+also available.
 
 ```
-mc SONG.MML              # MML compiler
-mch SONG.MML             # MML compiler with evaluation listings
-efc SONG.MML             # EFC effect compiler
-pmd /M16                 # resident PMD, one-shot: prints the install report
+mc SONG.MML               # MML compiler
+mch SONG.MML              # MML compiler with evaluation listings
+efc SONG.MML              # EFC effect compiler
 pmd-play SONG.M           # play a module on an FM chip
 pmd86-play SONG.M         # the PCM86 variant, and so on for pmdb2, pmdppz,
                           # pmdppze, pmdva, and pmdva1
 ```
-
-`pmd` and the other PMD programs accept the same options as the originals
-(`/M`, `/V`, `/E`, `/K`, `/C`, ...); run one with no arguments to install with
-its defaults. Unlike the original, `pmd` cannot stay resident: the process
-prints its report and exits. `pmd-play` is the host-side equivalent of
-PMP, and `pmd-play --help` lists its chip, board, and output options.
 
 This translation is intended to behave in exactly the same way as the original
 programs, including bugs and quirks, with a few exceptions:
 
 - Program output printed to the console is encoded in UTF-8 rather than Shift
   JIS so that it will display correctly on modern systems.
-- Functionality specific to DOS can't be implemented as-is, notably, any
-  functionality requiring PMD to be "resident" in memory. The translation
-  replaces residency with a host interface: the FM timer, port I/O, and the
-  PPSDRV/PPZ8/P86DRV resident drivers are supplied through `struct pmd_hw` and
-  the driver vtables in `pmd.h`. The `pmd-play` utility is one such host (YMFM
-  audio output); `test/pmd/trace.c` is another (a recording fake board). In
-  the long term, I'd like to find a solution to residency which is as
-  cross-platform as possible.
+
+- Some DOS-specific behavior and functionality, such as interrupts and the TSR
+  (terminate and stay resident) behavior of PMD, can't be replicated as-is, and
+  is instead replaced with individual C functions to control the driver.
+
+  One consequence of this is that any real usage of PMD needs to be embedded in
+  another program, such as the `pmd-play` program in this project. There is no
+  standalone `pmd` executable built here. (One way to possibly implement this
+  to replicate usage similar to DOS would be to create a "PMD daemon" to behave
+  as the TSR, and use some form of IPC to mimic the interrupts; that is not done
+  here yet.)
 
 Any other difference in behavior is considered a bug in this translation.
 
@@ -80,14 +81,6 @@ typically not observable when using DOSBox or another emulator as a simple
 wrapper. For example, if you don't provide a composer or arranger in MML, it is
 likely that your current system username will be used as a default via the
 `USER` environment variable.
-
-## Tests
-
-`zig build test` runs the MC compiler goldens, the PMD unit tests, and the PMD
-trace tests. The trace tests compare PMD's console output and its ordered port
-write/timer interrupt stream with the shipped 4.8s binaries; see
-`test/pmd/README.md` for the case format and for how to regenerate a golden
-with `repro.py` (which needs Python and Unicorn, unlike a normal test run).
 
 ## License
 

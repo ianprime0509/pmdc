@@ -89,12 +89,6 @@ pub fn build(b: *std.Build) void {
 
     const pmd_test_step = b.step("test-pmd", "Run PMD tests");
     for (pmd_variants) |variant| {
-        const pmd_exe = addPmd(b, variant.name, target, optimize, lang_num, "pmd_main.c", null);
-        addFeatures(pmd_exe.root_module, variant.features);
-        b.installArtifact(pmd_exe);
-
-        // The playback utility is installed once per variant, so the effect of
-        // each variant's feature flags can be heard.
         const pmd_play_exe = addPmd(
             b,
             b.fmt("{s}-play", .{variant.name}),
@@ -107,8 +101,6 @@ pub fn build(b: *std.Build) void {
         addFeatures(pmd_play_exe.root_module, variant.features);
         b.installArtifact(pmd_play_exe);
 
-        // Run the unit tests and the header self-containment check for every
-        // variant's flag set.
         const pmd_test_exe = addPmdTest(b, variant.name, target, optimize, lang_num);
         addFeatures(pmd_test_exe.root_module, variant.features);
         const pmd_test_run = b.addRunArtifact(pmd_test_exe);
@@ -153,9 +145,6 @@ pub fn build(b: *std.Build) void {
         pmd_test_step.dependOn(&pmd_test_run.step);
     }
 
-    // The trace-driven golden tests share one harness executable and run it
-    // against each variant's own trace host. Cases are grouped by driver, so
-    // each variant runs its own directory under test/pmd/cases.
     const pmd_trace_step = b.step("test-pmd-traces", "Run the PMD trace tests");
     const replay = b.option(bool, "replay", "Drive the trace tests from the goldens' timer lines") orelse false;
     const pmd_trace_harness_mod = b.createModule(.{
