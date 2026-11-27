@@ -1561,9 +1561,9 @@ These items extend the harness beyond the coverage defined above.
 1. **External drivers, PCM/data paths, and long-run timer cases.**
    - Driver coverage: fake resident PPSDRV and PPZ8 answer the original's
      residency checks on both hosts, and the cases cover detection, the
-     install/reset handshakes, effect keyon/keyoff, a PPZ8 playback, and the
-     unavailable-driver (NULL vtable / absent vector) paths. Extend it with
-     the PDR switch, P86DRV (which needs a modelled PCM86 card), and the
+     install/reset handshakes, effect keyon/keyoff, the PDR mode switch, a
+     PPZ8 playback, and the unavailable-driver (NULL vtable / absent vector)
+     paths. Extend it with P86DRV (which needs a modelled PCM86 card) and the
      EMS/FIFO calls that only a PCM86 board reaches.
    - Data coverage: `loadvoice`/`loadeffect` fill the INT 60h voice and effect
      buffers, and a hand-built module without a program area reaches

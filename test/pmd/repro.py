@@ -620,8 +620,10 @@ class Machine:
                 f"{self.now} pps keyon {hex8(al & 0x7f)} {hex8(self._reg(UC_X86_REG_BX, 8))} "
                 f"{hex8(self._reg(UC_X86_REG_BX))}\n")
         elif ah == 0x05:
+            # The original splits the operand itself (PMD.ASM:2483-2484), so
+            # AL is already the PDR number and DL the mode.
             self.record.write(
-                f"{self.now} pps pdr {hex8(al >> 1)} {hex8(self._reg(UC_X86_REG_DX) & 1)}\n")
+                f"{self.now} pps pdr {hex8(al)} {hex8(self._reg(UC_X86_REG_DX) & 1)}\n")
         else:
             raise EmulationError(f"unimplemented PPSDRV call AH={ah:#04x}")
 

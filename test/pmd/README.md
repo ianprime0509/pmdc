@@ -146,9 +146,12 @@ of OPN master clocks; ports, registers, and values are lowercase hex.
   at the end of `main`.
 - `pps OP ARGS`, `ppz8 OP ARGS`: a call into a fake resident driver, named
   for the interface operation rather than the interrupt register contract
-  (`pps keyon NUM DETUNE VOLUME`, `ppz8 protect BOOL`, ...). The PPZ8 entry
-  obtained through 0409h is recorded as `ppz8 fmint`, and the voice-table
-  query is not recorded because only its contents affect the driver.
+  (`pps keyon NUM DETUNE VOLUME`, `pps pdr NUMBER MODE`, `ppz8 protect BOOL`,
+  ...). The PDR line records what the driver receives: `PMD.ASM:2483-2484`
+  split the module's `*` operand into AL = `n >> 1` and DL = `n & 1`. The
+  PPZ8 entry obtained through 0409h is recorded as `ppz8 fmint`, and the
+  voice-table query is not recorded because only its contents affect the
+  driver.
 
 Not recorded:
 
@@ -280,7 +283,7 @@ install, the INT 60h probes, and a short playback.
 
 | Directory | Board | Cases |
 | --- | --- | --- |
-| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `USAGE_NONE`, `OPTIONS_26K` |
 | `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `API_86B`, `PLAY_SAMPLE` |
 | `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `API_86B`, `PLAY_SAMPLE` |
@@ -299,6 +302,7 @@ What the `pmd` cases cover:
 | `API_26K` | the INT 60h probes and controls that need no module, with a board |
 | `DATA_26K` | `PMDOPT` buffer sizes, the resulting `tondat`/`efcdat` offsets, the pointer aliases, and the memo table before and after `load` |
 | `PPS_26K` | a resident PPSDRV: detection, then the `pps keyon`/`keyoff` calls `effon`/`effoff` make |
+| `PDR_26K` | the rhythm part's `*` (PDR mode) command from `PDR.M`, with a rhythm hit between switches: one `pps pdr` call for each of the six documented operands, 0-5 |
 | `VOICE_26K` | external voice bank: `EXT.FF` (from `test/mc/cases`) loaded into `tondat`, then a no-program module that selects voice 1 with `@1` |
 | `EFC_26K` | FM effect data: `EFC_EFCT.EFC` (from `test/mc/cases`) loaded into `efcdat`, then `fmefon 0` through its `n`/`N` commands |
 | `SSGEFC_26K` | the built-in SSG effect table: `effon 0` and its pitch/noise writes each Timer A tick |
@@ -326,7 +330,7 @@ writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
 and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's transfer.
 
 `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` come from the official 4.8s
-distribution; `DEFONKAI.M` and `PPZEXT.M` are MC outputs copied from
+distribution; `DEFONKAI.M`, `PPZEXT.M`, and `PDR.M` are MC outputs copied from
 `test/mc/cases`, as are `EXT.FF` (external voice bank) and `EFC_EFCT.EFC`
 (EFC effect data). They live in `cases/fixtures` and every playback case loads
 one from there. `VOICE.M` is hand-built because MC always embeds a program
@@ -337,9 +341,8 @@ area: its first part starts at offset 24, which is how `play_init` detects
 
 PPSDRV (INT 64h) and PPZ8 (INT 7Fh) are modelled as fake resident drivers on
 both hosts, and the cases above cover detection, the install/reset handshakes,
-PPSDRV effects, and a PPZ8 playback. Still open:
+PPSDRV effects (including the PDR switch), and a PPZ8 playback. Still open:
 
-- The PDR switch (`pps pdr`), which needs a module carrying the `p` command.
 - P86DRV (INT 65h): the PCM86 card it needs is not part of any board model,
   so `Drivers: p86` is rejected.
 - ADPCM/PCM data and rhythm ROM contents, which need data-memory fixtures the

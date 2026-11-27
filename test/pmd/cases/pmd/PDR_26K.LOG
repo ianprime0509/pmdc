@@ -1,0 +1,297 @@
+0 outb 88 ff
+0 outb 188 ff
+0 outb 288 ff
+0 outb 388 ff
+0 outb 88 b
+0 outb 8a aa
+0 outb 88 7
+0 outb 8a 3f
+0 outb 88 e
+0 outb 88 e
+0 outb 88 29
+0 outb 8a 0
+0 outb 88 24
+0 outb 8a 0
+0 outb 88 25
+0 outb 8a 0
+0 outb 88 26
+0 outb 8a 0
+0 outb 88 27
+0 outb 8a 3f
+0 outb 88 29
+0 outb 8a 83
+0 outb 88 6
+0 outb 8a 0
+0 outb 88 90
+0 outb 8a 0
+0 outb 88 91
+0 outb 8a 0
+0 outb 88 92
+0 outb 8a 0
+0 outb 88 94
+0 outb 8a 0
+0 outb 88 95
+0 outb 8a 0
+0 outb 88 96
+0 outb 8a 0
+0 outb 88 98
+0 outb 8a 0
+0 outb 88 99
+0 outb 8a 0
+0 outb 88 9a
+0 outb 8a 0
+0 outb 88 9c
+0 outb 8a 0
+0 outb 88 9d
+0 outb 8a 0
+0 outb 88 9e
+0 outb 8a 0
+0 outb 88 7
+0 outb 8a bf
+0 outb 88 80
+0 outb 8a ff
+0 outb 88 81
+0 outb 8a ff
+0 outb 88 82
+0 outb 8a ff
+0 outb 88 84
+0 outb 8a ff
+0 outb 88 85
+0 outb 8a ff
+0 outb 88 86
+0 outb 8a ff
+0 outb 88 88
+0 outb 8a ff
+0 outb 88 89
+0 outb 8a ff
+0 outb 88 8a
+0 outb 8a ff
+0 outb 88 8c
+0 outb 8a ff
+0 outb 88 8d
+0 outb 8a ff
+0 outb 88 8e
+0 outb 8a ff
+0 outb 88 28
+0 outb 8a 0
+0 outb 88 28
+0 outb 8a 1
+0 outb 88 28
+0 outb 8a 2
+0 pps keyoff
+0 outb 88 7
+0 outb 8a bf
+0 outb 88 26
+0 outb 8a c8
+0 outb 88 25
+0 outb 8a 0
+0 outb 88 24
+0 outb 8a 0
+0 outb 88 27
+0 outb 8a 3f
+0 outb 88 29
+0 outb 8a 83
+0 ret exit 00
+0 outb 88 80
+0 outb 8a ff
+0 outb 88 81
+0 outb 8a ff
+0 outb 88 82
+0 outb 8a ff
+0 outb 88 84
+0 outb 8a ff
+0 outb 88 85
+0 outb 8a ff
+0 outb 88 86
+0 outb 8a ff
+0 outb 88 88
+0 outb 8a ff
+0 outb 88 89
+0 outb 8a ff
+0 outb 88 8a
+0 outb 8a ff
+0 outb 88 8c
+0 outb 8a ff
+0 outb 88 8d
+0 outb 8a ff
+0 outb 88 8e
+0 outb 8a ff
+0 outb 88 28
+0 outb 8a 0
+0 outb 88 28
+0 outb 8a 1
+0 outb 88 28
+0 outb 8a 2
+0 pps keyoff
+0 outb 88 7
+0 outb 8a bf
+0 outb 88 29
+0 outb 8a 83
+0 outb 88 6
+0 outb 8a 0
+0 outb 88 90
+0 outb 8a 0
+0 outb 88 91
+0 outb 8a 0
+0 outb 88 92
+0 outb 8a 0
+0 outb 88 94
+0 outb 8a 0
+0 outb 88 95
+0 outb 8a 0
+0 outb 88 96
+0 outb 8a 0
+0 outb 88 98
+0 outb 8a 0
+0 outb 88 99
+0 outb 8a 0
+0 outb 88 9a
+0 outb 8a 0
+0 outb 88 9c
+0 outb 8a 0
+0 outb 88 9d
+0 outb 8a 0
+0 outb 88 9e
+0 outb 8a 0
+0 outb 88 25
+0 outb 8a 0
+0 outb 88 24
+0 outb 8a 0
+0 outb 88 27
+0 outb 8a 3f
+0 ret mstart 00
+0 ret status 00 00
+73728 a
+73728 outb 88 27
+73728 outb 8a 3f
+147456 a
+147456 outb 88 27
+147456 outb 8a 3f
+221184 a
+221184 outb 88 27
+221184 outb 8a 3f
+294912 ab
+294912 outb 88 27
+294912 outb 8a 3f
+294912 pps pdr 00 00
+294912 pps pdr 00 01
+294912 pps pdr 01 00
+294912 pps pdr 01 01
+294912 pps pdr 02 00
+294912 pps pdr 02 01
+359424 b
+359424 outb 88 27
+359424 outb 8a 3f
+368640 a
+368640 outb 88 27
+368640 outb 8a 3f
+423936 b
+423936 outb 88 27
+423936 outb 8a 3f
+442368 a
+442368 outb 88 27
+442368 outb 8a 3f
+488448 b
+488448 outb 88 27
+488448 outb 8a 3f
+516096 a
+516096 outb 88 27
+516096 outb 8a 3f
+552960 b
+552960 outb 88 27
+552960 outb 8a 3f
+589824 a
+589824 outb 88 27
+589824 outb 8a 3f
+617472 b
+617472 outb 88 27
+617472 outb 8a 3f
+663552 a
+663552 outb 88 27
+663552 outb 8a 3f
+681984 b
+681984 outb 88 27
+681984 outb 8a 3f
+737280 a
+737280 outb 88 27
+737280 outb 8a 3f
+746496 b
+746496 outb 88 27
+746496 outb 8a 3f
+811008 ab
+811008 outb 88 27
+811008 outb 8a 3f
+875520 b
+875520 outb 88 27
+875520 outb 8a 3f
+884736 a
+884736 outb 88 27
+884736 outb 8a 3f
+940032 b
+940032 outb 88 27
+940032 outb 8a 3f
+958464 a
+958464 outb 88 27
+958464 outb 8a 3f
+1004544 b
+1004544 outb 88 27
+1004544 outb 8a 3f
+1032192 a
+1032192 outb 88 27
+1032192 outb 8a 3f
+1069056 b
+1069056 outb 88 27
+1069056 outb 8a 3f
+1105920 a
+1105920 outb 88 27
+1105920 outb 8a 3f
+1133568 b
+1133568 outb 88 27
+1133568 outb 8a 3f
+1179648 a
+1179648 outb 88 27
+1179648 outb 8a 3f
+1198080 b
+1198080 outb 88 27
+1198080 outb 8a 3f
+1253376 a
+1253376 outb 88 27
+1253376 outb 8a 3f
+1262592 b
+1262592 outb 88 27
+1262592 outb 8a 3f
+1262592 ret status 00 ff
+1262592 outb 88 80
+1262592 outb 8a ff
+1262592 outb 88 81
+1262592 outb 8a ff
+1262592 outb 88 82
+1262592 outb 8a ff
+1262592 outb 88 84
+1262592 outb 8a ff
+1262592 outb 88 85
+1262592 outb 8a ff
+1262592 outb 88 86
+1262592 outb 8a ff
+1262592 outb 88 88
+1262592 outb 8a ff
+1262592 outb 88 89
+1262592 outb 8a ff
+1262592 outb 88 8a
+1262592 outb 8a ff
+1262592 outb 88 8c
+1262592 outb 8a ff
+1262592 outb 88 8d
+1262592 outb 8a ff
+1262592 outb 88 8e
+1262592 outb 8a ff
+1262592 outb 88 28
+1262592 outb 8a 0
+1262592 outb 88 28
+1262592 outb 8a 1
+1262592 outb 88 28
+1262592 outb 8a 2
+1262592 pps keyoff
+1262592 outb 88 7
+1262592 outb 8a bf
+1262592 ret mstop 00

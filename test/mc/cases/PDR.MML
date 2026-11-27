@@ -1,0 +1,13 @@
+; Output: PDR.M
+; Console: PDR.OUT
+; PMDMML.MAN §14-1, §15-2
+
+#Title PDR
+#Option /v/c
+
+; §15-2 PDR operation mode control, interleaved with §14-1 rhythm shots. The
+; rhythm part is where this command byte differs from the FM part's §9-3
+; software LFO switch. The operands cover every (PDR number, mode) pair the
+; driver receives, since the original splits the byte into AL = n >> 1 and
+; DL = n & 1. 4 and 5 are the EI and DI modes.
+K *0 \b *1 \s *2 \h *3 \t *4 \c *5 \i

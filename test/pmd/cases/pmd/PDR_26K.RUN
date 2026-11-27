@@ -1,0 +1,12 @@
+; Driver: pmd
+; Board: 26K
+; Chip: YM2203
+; Drivers: pps
+
+main /C
+load ../fixtures/PDR.M
+mstart
+status
+run b 16
+status
+mstop
