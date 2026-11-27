@@ -10,7 +10,7 @@ efcdat
 pcm
 workadr
 memo 0
-load ../fixtures/DEFONKAI.M
+load ../fixtures/SHORT.M
 memo 0
 memo 1
 memo 2

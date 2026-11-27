@@ -3,7 +3,7 @@
 ; Chip: YM2203
 
 main /C
-load ../fixtures/DEFONKAI.M
+load ../fixtures/SHORT.M
 mstart
 status
 run-until status2 ff max 512

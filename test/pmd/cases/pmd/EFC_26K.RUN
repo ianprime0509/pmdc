@@ -3,7 +3,7 @@
 ; Chip: YM2203
 
 main /C
-loadeffect ../fixtures/EFC_EFCT.EFC
+loadeffect ../fixtures/EFFECT.EFC
 fmefon 0
 fmefcnum
 status

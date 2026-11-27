@@ -322,14 +322,14 @@ What the `pmd` cases cover:
 | `DATA_26K` | `PMDOPT` buffer sizes, the resulting `tondat`/`efcdat` offsets, the pointer aliases, and the memo table before and after `load` |
 | `PPS_26K` | a resident PPSDRV: detection, then the `pps keyon`/`keyoff` calls `effon`/`effoff` make |
 | `PDR_26K` | the rhythm part's `*` (PDR mode) command from `PDR.M`, with a rhythm hit between switches: one `pps pdr` call for each of the six documented operands, 0-5 |
-| `VOICE_26K` | external voice bank: `EXT.FF` (from `test/mc/cases`) loaded into `tondat`, then a no-program module that selects voice 1 with `@1` |
-| `EFC_26K` | FM effect data: `EFC_EFCT.EFC` (from `test/mc/cases`) loaded into `efcdat`, then `fmefon 0` through its `n`/`N` commands |
+| `VOICE_26K` | external voice bank: `VOICE.FF` loaded into `tondat`, then a no-program module that selects voice 1 with `@1` |
+| `EFC_26K` | FM effect data: `EFFECT.EFC` loaded into `efcdat`, then `fmefon 0` through its `n`/`N` commands |
 | `SSGEFC_26K` | the built-in SSG effect table: `effon 0` and its pitch/noise writes each Timer A tick |
 | `PLAY_SAMPLE` | official `SAMPLE.M`, `mstart`, 16 ticks, status |
 | `PLAY_SAMPLE2` | official `SAMPLE2.M`, same shape |
 | `PLAY_SSGEG` | official `SSGEG_S.M`, same shape |
 | `PLAY_86B` | `SAMPLE.M` on the 86B board: the FM6/rhythm writes the second chip adds |
-| `PLAY_END` | `DEFONKAI.M` (from `test/mc/cases`) played to its end, bounded by `run-until status2 ff max 512` |
+| `PLAY_END` | `SHORT.M` played to its end, bounded by `run-until status2 ff max 512` |
 | `USAGE_NONE` | no board plus `/H`: the full usage text and exit status 255 |
 | `OPTIONS_26K` | `PMDOPT` buffers overridden by the command line, `/K-`, and the `size`/`drvchk`/`ppsdrv` results |
 
@@ -340,7 +340,7 @@ The board2 variants add their own driver-specific cases:
 | `ADPCM_86B` | a successful `ADRAMCHK.ASM` transfer (the model reads back what it wrote, so `pcm_gs_flag` stays 0) and the PCM-part masking it changes |
 | `PPZ_86B` | a resident PPZ8: the 0410h/0409h handshake, 1901h protection, and the `mstart` init/stop sequence |
 | `PPZ_RESET_86B` | `/Z`: FIFO stop, one keyoff per channel, and 1900h removal permission |
-| `PPZ_PLAY_86B` | `PPZEXT.M` (from `test/mc/cases`) through PPZ8: keyon, volume, tone, loop/rate from the (empty) voice table, pan, and the directly called FM entry on each tick |
+| `PPZ_PLAY_86B` | `PPZEXT.M` through PPZ8: keyon, volume, tone, loop/rate from the (empty) voice table, pan, and the directly called FM entry on each tick |
 | `PCM86_86B` | a resident P86DRV and `PCM86.M` with a PCM86 part: the INT 65h version/push/pop/data calls, the FIFO transfers each tick, the volume register, and both pan directions |
 | `PCM86_S_86B` | `/S`: the SPB volume curve and the one-octave-lower playback of notes from 65h up |
 | `PCM86_HZ_86B` | `/HZ0`: the downloaded frequency table changes the rate bits each note writes to the PCM86 register |
@@ -351,13 +351,16 @@ and no-module results, and the playback cases pin its timer and register
 writes. `pmdva`/`pmdva1` additionally exercise the adjacent-port 88VA layout,
 and `pmdb2`/`pmdppz`/`pmdva` the ADPCM RAM check's transfer.
 
-`SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` come from the official 4.8s
-distribution; `DEFONKAI.M`, `PPZEXT.M`, `PDR.M`, and `PCM86.M` are MC outputs
-copied from `test/mc/cases`, as are `EXT.FF` (external voice bank) and
-`EFC_EFCT.EFC` (EFC effect data). They live in `cases/fixtures` and every
-playback case loads one from there. `VOICE.M` is hand-built because MC always
-embeds a program area: its first part starts at offset 24, which is how
-`play_init` detects `prg_flg == 0` and reads voices from `tondat`.
+`cases/fixtures` holds the binary fixtures a case loads, each covering one
+shape: `SAMPLE.M`, `SAMPLE2.M`, and `SSGEG_S.M` are ordinary modules (taken
+from the original PMD 4.8s distribution), `PPZEXT.M` uses PPZ8 extension
+voices, `PDR.M` drives the rhythm part's `*` command, and `PCM86.M` has a PCM86
+part. `SHORT.M` is a module short enough to reach the end of the music inside
+`PLAY_END`'s tick bound; `SAMPLE.M` and `SAMPLE2.M` run for thousands of ticks,
+which would make that golden an order of magnitude larger. `VOICE.FF` is an
+external voice bank and `EFFECT.EFC` is EFC effect data. `VOICE.M` is hand-built
+because MC always embeds a program area: its first part starts at offset 24,
+which is how `play_init` detects `prg_flg == 0` and reads voices from `tondat`.
 `PCM86.P86` is hand-built to the `.P86` format `PCMLOAD.INC` documents: a
 16-byte header, 256 six-byte start/size entries (voice 0 is a long sine and
 voice 1 a short ramp), and 4 KiB of sample data. `loadpcm` uses it to fill the
@@ -371,7 +374,7 @@ install/reset handshakes, PPSDRV effects (including the PDR switch), a PPZ8
 playback, and the PCM86 FIFO, EMS, and transfer calls. Still open:
 
 - ADPCM sample data and rhythm ROM contents, which need data-memory fixtures
-  the same way `EXT.FF`, `EFC_EFCT.EFC`, and `PCM86.P86` provide voice, effect,
+  the same way `VOICE.FF`, `EFFECT.EFC`, and `PCM86.P86` provide voice, effect,
   and PCM86 data.
 - Long fade/FF/pause/part-mask traces and the reference `Board: 86` (PC-88,
   which no shipped binary targets).

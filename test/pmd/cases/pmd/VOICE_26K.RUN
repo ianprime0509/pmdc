@@ -3,7 +3,7 @@
 ; Chip: YM2203
 
 main /C
-loadvoice ../fixtures/EXT.FF
+loadvoice ../fixtures/VOICE.FF
 load ../fixtures/VOICE.M
 mstart
 status
