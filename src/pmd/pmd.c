@@ -48,11 +48,11 @@ static char to_upper(char c) { return is_lower(c) ? c - 'a' + 'A' : c; }
 
 // Data read/write helpers
 
-static uint8_t lodsb(uint8_t **si) { return *(*si)++; }
+static uint8_t lodsb(uint8_t **src) { return *(*src)++; }
 
-static uint16_t lodsw(uint8_t **si) {
-    uint16_t value = (uint16_t)((*si)[0] | ((*si)[1] << 8));
-    *si += 2;
+static uint16_t lodsw(uint8_t **src) {
+    uint16_t value = (uint16_t)((*src)[0] | ((*src)[1] << 8));
+    *src += 2;
     return value;
 }
 
@@ -71,14 +71,14 @@ static void print_char(struct pmd *pmd, char c) {
 
 // Helpers for repeated logic
 
-// True when DI is the selected FM3 part (always the front chip).
-static bool fm3_active(struct pmd *pmd, struct pmd_qq *di) {
-    (void)di;
+// True when `part` is the selected FM3 part (always the front chip).
+static bool fm3_active(struct pmd *pmd, struct pmd_qq *part) {
+    (void)part;
     if (pmd->partb != 3) return false;
 #if board2
     return pmd->fmsel == 0;
 #else
-    return di != &pmd->part_e;
+    return part != &pmd->part_e;
 #endif
 }
 
@@ -726,7 +726,7 @@ enum pmd_cmd_result {
     PMD_CMD_PCMMNP_1,
 };
 
-typedef enum pmd_cmd_result (*pmd_cmd_fn)(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+typedef enum pmd_cmd_result (*pmd_cmd_fn)(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 
 // :151
 PMDC_NORETURN static void error_exit(struct pmd *pmd, int status);
@@ -751,64 +751,64 @@ static bool int60_enter(struct pmd *pmd, uint8_t entry);
 static void int60_exit(struct pmd *pmd);
 #if board2
 // PCMDRV.ASM:7, PCMDRVE.ASM:7, PCMDRV86.ASM:7
-static void pcmmain(struct pmd *pmd, struct pmd_qq *di);
+static void pcmmain(struct pmd *pmd, struct pmd_qq *part);
 // PCMDRV.ASM:821, PCMDRV86.ASM:1347
-static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch, uint8_t cl);
+static void pcm_effect(struct pmd *pmd, uint8_t efcnum, uint16_t deltan, uint8_t pan, uint8_t volume);
 #endif
 #if board2 && (pcm || adpcm)
 // PCMDRV.ASM:185, PCMDRVE.ASM:173, PCMDRV86.ASM:180
-static enum pmd_cmd_result commandsm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result commandsm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // The PCM command table (PCMDRV.ASM:188, PCMDRV86.ASM:183).
 static const pmd_cmd_fn cmdtblm[0xff - 0xb1 + 1];
 // PCMDRV.ASM:291, PCMDRVE.ASM:279, PCMDRV86.ASM:281
-static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:317, PCMDRVE.ASM:305, PCMDRV86.ASM:304
-static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:355, PCMDRVE.ASM:359. PCMDRV86.ASM:246 has no portamento: its
 // 0dah entry is jump1.
 #if !pcm
-static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 #endif
 // PCMDRV.ASM:401, PCMDRVE.ASM:405, PCMDRV86.ASM:426
-static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:411, PCMDRVE.ASM:415, PCMDRV86.ASM:436
-static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:418, PCMDRVE.ASM:422, PCMDRV86.ASM:444
-static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:425, PCMDRVE.ASM:429, PCMDRV86.ASM:451
-static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:437, PCMDRVE.ASM:441, PCMDRV86.ASM:467
-static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:449, PCMDRVE.ASM:465, PCMDRV86.ASM:491
-static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:467, PCMDRVE.ASM:483, PCMDRV86.ASM:531
-static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PCMDRV.ASM:489, PCMDRVE.ASM:512, PCMDRV86.ASM:564
-static void volsetm(struct pmd *pmd, struct pmd_qq *di);
+static void volsetm(struct pmd *pmd, struct pmd_qq *part);
 // PCMDRV.ASM:606, PCMDRVE.ASM:630, PCMDRV86.ASM:707
-static void keyonm(struct pmd *pmd, struct pmd_qq *di);
+static void keyonm(struct pmd *pmd, struct pmd_qq *part);
 // PCMDRV.ASM:676, PCMDRVE.ASM:650, PCMDRV86.ASM:722
-static void keyoffm(struct pmd *pmd, struct pmd_qq *di);
+static void keyoffm(struct pmd *pmd, struct pmd_qq *part);
 // PCMDRV.ASM:718, PCMDRVE.ASM:665, PCMDRV86.ASM:752
-static void otodasim(struct pmd *pmd, struct pmd_qq *di);
+static void otodasim(struct pmd *pmd, struct pmd_qq *part);
 // PCMDRV.ASM:771, PCMDRVE.ASM:711, PCMDRV86.ASM:817
-static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void fnumsetm(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 #endif
 #if board2 && pcm
 // PCMDRV86.ASM:412
-static uint16_t pcm86vol_chk(struct pmd *pmd, uint16_t ax);
+static uint16_t pcm86vol_chk(struct pmd *pmd, uint16_t value);
 // PCMDRV86.ASM:1162
 static const uint8_t *get_data_offset(struct pmd *pmd);
 // PCMDRV86.ASM:789
-static void tone_set2(struct pmd *pmd, uint16_t ax, uint8_t bl);
+static void tone_set2(struct pmd *pmd, uint16_t freq, uint8_t rate);
 // PCMDRV86.ASM:534
-static void neiro_set(struct pmd *pmd, uint8_t al);
+static void neiro_set(struct pmd *pmd, uint8_t voice);
 // PCMDRV86.ASM:671
-static void pcm86_vol_out(struct pmd *pmd, uint8_t al);
+static void pcm86_vol_out(struct pmd *pmd, uint8_t volume);
 // PCMDRV86.ASM:495
-static void set_pcm_pan(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah);
+static void set_pcm_pan(struct pmd *pmd, struct pmd_qq *part, uint8_t pan, uint8_t rev);
 // PCMDRV86.ASM:498
-static void set_pcm_pan2(struct pmd *pmd, uint8_t al, uint8_t ah);
+static void set_pcm_pan2(struct pmd *pmd, uint8_t pan, uint8_t rev);
 // PCMDRV86.ASM:1386
 enum { trans_size = 256 };
 // PCMDRV86.ASM:859
@@ -824,61 +824,61 @@ static void stop_86pcm(struct pmd *pmd);
 // PPZDRV.ASM:4
 static const struct pmd_drv_ppz8 *ppz8_ops(struct pmd *pmd);
 // PPZDRV.ASM:11
-static void ppzmain(struct pmd *pmd, struct pmd_qq *di);
+static void ppzmain(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:185
-static enum pmd_cmd_result commandsz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result commandsz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:188
 static const pmd_cmd_fn cmdtblz[0xff - 0xb1 + 1];
 // PPZDRV.ASM:287
-static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:320
-static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:352
-static enum pmd_cmd_result ppzrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result ppzrepeat_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:392
-static const struct pmd_ppz8_voice *ppz_voicetable_calc(struct pmd *pmd, struct pmd_qq *di);
+static const struct pmd_ppz8_voice *ppz_voicetable_calc(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:415
-static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:475
-static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:494
-static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:514
-static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // PPZDRV.ASM:542
-static void ppz_neiro_reset(struct pmd *pmd, struct pmd_qq *di);
+static void ppz_neiro_reset(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:571
-static void volsetz(struct pmd *pmd, struct pmd_qq *di);
+static void volsetz(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:699
-static void keyonz(struct pmd *pmd, struct pmd_qq *di);
+static void keyonz(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:720
-static void keyoffz(struct pmd *pmd, struct pmd_qq *di);
+static void keyoffz(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:735
-static void otodasiz(struct pmd *pmd, struct pmd_qq *di);
+static void otodasiz(struct pmd *pmd, struct pmd_qq *part);
 // PPZDRV.ASM:801
-static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void fnumsetz(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 #endif
 #if board2 && (pcm || adpcm)
 // The volume calculation shared by the PPZ8 and PCM volume setters
 // (PPZDRV.ASM:578, PCMDRV.ASM:496).
-static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t voldown, bool square_fade);
+static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *part, uint8_t voldown, bool square_fade);
 #endif
 // EFCDRV.ASM:9
-// Takes the effect number in al. `di` is the part whose detune and volume the
+// `efcnum` is the effect number. `part` is the part whose detune and volume the
 // PPSDRV path corrects; eff_on passes NULL because its hosei_flag is 0.
-static void effgo(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void effgo(struct pmd *pmd, struct pmd_qq *part, uint8_t efcnum);
 // EFCDRV.ASM:22
-static void eff_on2(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void eff_on2(struct pmd *pmd, struct pmd_qq *part, uint8_t efcnum);
 // EFCDRV.ASM:25
-static void eff_on(struct pmd *pmd, uint8_t al);
+static void eff_on(struct pmd *pmd, uint8_t efcnum);
 // EFCDRV.ASM:27
-static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void eff_main(struct pmd *pmd, struct pmd_qq *part, uint8_t efcnum);
 // EFCDRV.ASM:118
 static void effplay(struct pmd *pmd);
 // EFCDRV.ASM:125
-static void efffor(struct pmd *pmd, const uint8_t **si);
+static void efffor(struct pmd *pmd, const uint8_t **src);
 // EFCDRV.ASM:178
-static void efsnd(struct pmd *pmd, const uint8_t **si, uint8_t *dh, uint8_t *dl);
+static void efsnd(struct pmd *pmd, const uint8_t **src, uint8_t *reg, uint8_t *value);
 // EFCDRV.ASM:184
 static void effend(struct pmd *pmd);
 // EFCDRV.ASM:210
@@ -906,33 +906,33 @@ static void sel46(struct pmd *pmd);
 static void sel44(struct pmd *pmd);
 #endif
 // :1053
-static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *di);
+static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *part);
 #if ppz
 // :250
 static void ppz_int_hook(struct pmd *pmd);
 #endif
 // :1306
-static void rest_note(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static void rest_note(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :1204
-static void mnp_ret(struct pmd *pmd, struct pmd_qq *di);
+static void mnp_ret(struct pmd *pmd, struct pmd_qq *part);
 // :1215
-static void calc_q(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static void calc_q(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :1318
-static void fmmnp_4(struct pmd *pmd, struct pmd_qq *di);
+static void fmmnp_4(struct pmd *pmd, struct pmd_qq *part);
 // :1329
-static void psgmain(struct pmd *pmd, struct pmd_qq *di);
+static void psgmain(struct pmd *pmd, struct pmd_qq *part);
 // :1508
-static bool ssgdrum_check(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static bool ssgdrum_check(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 // :1539
-static void rhythmmain(struct pmd *pmd, struct pmd_qq *di);
+static void rhythmmain(struct pmd *pmd, struct pmd_qq *part);
 // :1713
-static enum pmd_cmd_result commands(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result commands(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :1717
-static enum pmd_cmd_result commandsr(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result commandsr(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :1721
-static enum pmd_cmd_result commandsp(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result commandsp(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :1724
-static enum pmd_cmd_result command00(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, const pmd_cmd_fn *table);
+static enum pmd_cmd_result command00(struct pmd *pmd, struct pmd_qq *part, uint8_t **src, const pmd_cmd_fn *table);
 // :1745
 static const pmd_cmd_fn cmdtbl[0xff - 0xb1 + 1];
 // :1843
@@ -940,333 +940,333 @@ static const pmd_cmd_fn cmdtblp[0xff - 0xb1 + 1];
 // :1939
 static const pmd_cmd_fn cmdtblr[0xff - 0xb1 + 1];
 // :2035
-static enum pmd_cmd_result jump16(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump16(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2037
-static enum pmd_cmd_result jump6(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump6(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2039
-static enum pmd_cmd_result jump5(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump5(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2041
-static enum pmd_cmd_result jump4(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump4(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2043
-static enum pmd_cmd_result jump3(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump3(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2045
-static enum pmd_cmd_result jump2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2047
-static enum pmd_cmd_result jump1(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump1(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2049
-static enum pmd_cmd_result jump0(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result jump0(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2055
-static enum pmd_cmd_result special_0c0h(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, uint8_t al);
+static enum pmd_cmd_result special_0c0h(struct pmd *pmd, struct pmd_qq *part, uint8_t **src, uint8_t cmd);
 // :2082
-static enum pmd_cmd_result pmd86_s(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pmd86_s(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2091
-static enum pmd_cmd_result vd_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vd_fm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2092
-static enum pmd_cmd_result vd_main(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, uint8_t *vol, uint8_t *base, bool add);
+static enum pmd_cmd_result vd_main(struct pmd *pmd, struct pmd_qq *part, uint8_t **src, uint8_t *vol, uint8_t *base, bool add);
 // :2097
-static enum pmd_cmd_result vd_ssg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vd_ssg(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2100
-static enum pmd_cmd_result vd_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vd_pcm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2103
-static enum pmd_cmd_result vd_rhythm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vd_rhythm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2107
-static enum pmd_cmd_result vd_ppz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vd_ppz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2111
-static enum pmd_cmd_result _vd_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _vd_fm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2136
-static enum pmd_cmd_result _vd_ssg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _vd_ssg(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2141
-static enum pmd_cmd_result _vd_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _vd_pcm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2146
-static enum pmd_cmd_result _vd_rhythm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _vd_rhythm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2151
-static enum pmd_cmd_result _vd_ppz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _vd_ppz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2159
-static enum pmd_cmd_result slot_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result slot_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2176
-static enum pmd_cmd_result fb_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result fb_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2186
-static void fb_set3(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void fb_set3(struct pmd *pmd, struct pmd_qq *part, uint8_t fb);
 // :2213
-static void _fb_set(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void _fb_set(struct pmd *pmd, struct pmd_qq *part, uint8_t fb);
 // :2248
-static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2357
-static enum pmd_cmd_result fm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result fm_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2378
-static enum pmd_cmd_result ssg_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result ssg_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2402
-static enum pmd_cmd_result rhythm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhythm_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2417
-static void neiro_reset(struct pmd *pmd, struct pmd_qq *di);
+static void neiro_reset(struct pmd *pmd, struct pmd_qq *part);
 // :2478
-static enum pmd_cmd_result pdrswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result pdrswitch(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2493
-static enum pmd_cmd_result volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result volmask_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2510
-static enum pmd_cmd_result _volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _volmask_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2528
-static bool ch3_setting(struct pmd *pmd, struct pmd_qq *di);
+static bool ch3_setting(struct pmd *pmd, struct pmd_qq *part);
 // :2549
-static enum pmd_cmd_result fm3_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result fm3_extpartset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2576
-static void fm3_partinit(struct pmd *pmd, struct pmd_qq *di, uint8_t *address);
+static void fm3_partinit(struct pmd *pmd, struct pmd_qq *part, uint8_t *address);
 // :2597
-static enum pmd_cmd_result detune_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result detune_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2607
-static enum pmd_cmd_result lfo_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result lfo_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2618
-static enum pmd_cmd_result envelope_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result envelope_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2630
-static enum pmd_cmd_result lfowave_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result lfowave_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2638
-static enum pmd_cmd_result extend_psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result extend_psgenvset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2674
-static enum pmd_cmd_result slotdetune_set2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result slotdetune_set2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2704
-static enum pmd_cmd_result slotdetune_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result slotdetune_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2745
-static void ch3mode_set(struct pmd *pmd, struct pmd_qq *di);
+static void ch3mode_set(struct pmd *pmd, struct pmd_qq *part);
 // :2823
-static void otodasi_cm(struct pmd *pmd, struct pmd_qq *di);
+static void otodasi_cm(struct pmd *pmd, struct pmd_qq *part);
 // :2839
-static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2945
-static void keyon_sm(struct pmd *pmd, struct pmd_qq *di);
+static void keyon_sm(struct pmd *pmd, struct pmd_qq *part);
 // :2957
-static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :2981
-static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3029
-static enum pmd_cmd_result fade_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result fade_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3037
-static enum pmd_cmd_result mdepth_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result mdepth_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3045
-static enum pmd_cmd_result mdepth_count(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result mdepth_count(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3067
-static void porta_calc(struct pmd *pmd, struct pmd_qq *di);
+static void porta_calc(struct pmd *pmd, struct pmd_qq *part);
 // :3085
-static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3155
-static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3200
-static enum pmd_cmd_result status_write(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result status_write(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3208
-static enum pmd_cmd_result status_add(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result status_add(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3218
-static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3229
-static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 #if (board2 && (pcm || adpcm)) || ppz
 // :3237
-static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 #endif
 // :3248
-static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3260
-static enum pmd_cmd_result hlfo_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result hlfo_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3304
-static enum pmd_cmd_result hlfo_onoff(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result hlfo_onoff(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3318
-static enum pmd_cmd_result hlfo_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result hlfo_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3328
-static enum pmd_cmd_result syousetu_lng_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result syousetu_lng_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3334
-static enum pmd_cmd_result com_at(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result com_at(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3381
-static enum pmd_cmd_result comq(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comq(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3386
-static enum pmd_cmd_result comq3(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comq3(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3390
-static enum pmd_cmd_result comq4(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comq4(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3398
-static enum pmd_cmd_result comq2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comq2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3406
-static enum pmd_cmd_result comv(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comv(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3417
-static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3480
 static void calc_tb_tempo(struct pmd *pmd);
 // :3502
 static void calc_tempo_tb(struct pmd *pmd);
 // :3524
-static enum pmd_cmd_result comtie(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comtie(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3531
-static enum pmd_cmd_result comd(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comd(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3538
-static enum pmd_cmd_result comdd(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comdd(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3545
-static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3561
-static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3590
-static enum pmd_cmd_result comexloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comexloop(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3613
-static enum pmd_cmd_result comlopset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comlopset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3620
-static enum pmd_cmd_result comshift(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comshift(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3628
-static enum pmd_cmd_result comshift2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comshift2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3637
-static enum pmd_cmd_result comshift_master(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comshift_master(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3646
-static enum pmd_cmd_result comvolup(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvolup(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3657
-static enum pmd_cmd_result comvolup2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvolup2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3663
-static enum pmd_cmd_result comvolupp(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvolupp(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3673
-static enum pmd_cmd_result comvolupp2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvolupp2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3682
-static enum pmd_cmd_result comvoldown(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvoldown(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3690
-static enum pmd_cmd_result comvoldown2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvoldown2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3700
-static enum pmd_cmd_result comvoldownp(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvoldownp(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3708
-static enum pmd_cmd_result comvoldownp2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comvoldownp2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3720
-static enum pmd_cmd_result _lfoset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _lfoset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3733
-static enum pmd_cmd_result _mdepth_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _mdepth_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3737
-static enum pmd_cmd_result _lfowave_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _lfowave_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3741
-static enum pmd_cmd_result _lfo_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _lfo_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3745
-static enum pmd_cmd_result _lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _lfoset_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3749
-static enum pmd_cmd_result _lfoswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _lfoswitch(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3762
-static enum pmd_cmd_result _lfoswitch_f(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result _lfoswitch_f(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3769
-static void lfo_change(struct pmd_qq *di);
+static void lfo_change(struct pmd_qq *part);
 // :3813
-static enum pmd_cmd_result lfoset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result lfoset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3827
-static enum pmd_cmd_result lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result lfoset_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3836
-static enum pmd_cmd_result lfoswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result lfoswitch(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3847
-static enum pmd_cmd_result lfoswitch_f(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result lfoswitch_f(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3854
-static enum pmd_cmd_result psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result psgenvset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3876
-static enum pmd_cmd_result comy(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result comy(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3885
-static enum pmd_cmd_result psgnoise(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result psgnoise(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3889
-static enum pmd_cmd_result psgnoise_move(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result psgnoise_move(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3906
-static enum pmd_cmd_result psgsel(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result psgsel(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3914
-static enum pmd_cmd_result panset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result panset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3917
-static void panset_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void panset_main(struct pmd *pmd, struct pmd_qq *part, uint8_t pan);
 #if board2
 // :3961
-static void calc_panout(struct pmd *pmd, struct pmd_qq *di, uint8_t *dl);
+static void calc_panout(struct pmd *pmd, struct pmd_qq *part, uint8_t *pan);
 #endif
 // :3972
-static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :3994
-static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 #if board2
 // :4045
-static void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags);
+static void rflag_inc(struct pmd *pmd, uint8_t mask, uint8_t *flags);
 #endif
 // :4064
-static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 #if board2
 // :4077
 static uint8_t *rdat_adr(struct pmd *pmd, uint8_t index);
 #endif
 #if board2
 // :4064
-static void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl);
+static void rhyvs_write(struct pmd *pmd, uint8_t cmd, uint8_t volume);
 #endif
 // :4097
-static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :4136
-static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :4155
-static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 #if board2
 // :4166
-static void volset2r(struct pmd *pmd, uint8_t dl);
+static void volset2r(struct pmd *pmd, uint8_t volume);
 #endif
 #if board2
 // :4169
-static void volset2rf(struct pmd *pmd, uint8_t dl);
+static void volset2rf(struct pmd *pmd, uint8_t volume);
 #endif
 // :4184
-static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si);
+static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *part, uint8_t **src);
 // :4208
-static uint8_t oshift(struct pmd_qq *di, uint8_t al);
+static uint8_t oshift(struct pmd_qq *part, uint8_t note);
 // :4266
-static void fnumset(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void fnumset(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 // :4302
-static void fnumsetp(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static void fnumsetp(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 // :4335
-static void otodasi(struct pmd *pmd, struct pmd_qq *di);
+static void otodasi(struct pmd *pmd, struct pmd_qq *part);
 // :4549
-static void fm_block_calc(uint16_t *cx, uint16_t *ax);
+static void fm_block_calc(uint16_t *block, uint16_t *fnum);
 // :4588
-static void otodasip(struct pmd *pmd, struct pmd_qq *di);
+static void otodasip(struct pmd *pmd, struct pmd_qq *part);
 // :4726
-static void volset(struct pmd *pmd, struct pmd_qq *di);
+static void volset(struct pmd *pmd, struct pmd_qq *part);
 // :4864
-static void fmlfo_sub(uint8_t al, uint8_t bl, uint8_t *vol);
+static void fmlfo_sub(uint8_t delta, uint8_t mask, uint8_t *vol);
 // :4890
-static void volsetp(struct pmd *pmd, struct pmd_qq *di);
+static void volsetp(struct pmd *pmd, struct pmd_qq *part);
 // :4998
-static void keyon(struct pmd *pmd, struct pmd_qq *di);
+static void keyon(struct pmd *pmd, struct pmd_qq *part);
 // :5039
-static void keyonp(struct pmd *pmd, struct pmd_qq *di);
+static void keyonp(struct pmd *pmd, struct pmd_qq *part);
 // :5074
-static void psgmsk(struct pmd *pmd, uint8_t *al, uint8_t *ah);
+static void psgmsk(struct pmd *pmd, uint8_t *mix, uint8_t *channel);
 // :5091
-static void keyoff(struct pmd *pmd, struct pmd_qq *di);
+static void keyoff(struct pmd *pmd, struct pmd_qq *part);
 // :5095
-static void keyoff_main(struct pmd *pmd, struct pmd_qq *di);
+static void keyoff_main(struct pmd *pmd, struct pmd_qq *part);
 // :5125
-static void keyoffp(struct pmd *pmd, struct pmd_qq *di);
+static void keyoffp(struct pmd *pmd, struct pmd_qq *part);
 // :5144
-static void neiroset(struct pmd *pmd, struct pmd_qq *di, uint8_t dl);
+static void neiroset(struct pmd *pmd, struct pmd_qq *part, uint8_t voice);
 // :5258
-static void neiroset_tl(struct pmd_qq *di, const uint8_t *bx);
+static void neiroset_tl(struct pmd_qq *part, const uint8_t *tl);
 // :5274
-static void toneadr_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t dl, uint8_t **bx);
+static void toneadr_calc(struct pmd *pmd, struct pmd_qq *part, uint8_t voice, uint8_t **tone);
 // :5307
-static bool silence_fmpart(struct pmd *pmd, struct pmd_qq *di);
+static bool silence_fmpart(struct pmd *pmd, struct pmd_qq *part);
 // :5341
-static bool lfo(struct pmd *pmd, struct pmd_qq *di);
+static bool lfo(struct pmd *pmd, struct pmd_qq *part);
 // :5375
-static void lfo_main(struct pmd *pmd, struct pmd_qq *di);
+static void lfo_main(struct pmd *pmd, struct pmd_qq *part);
 // :5499
-static void md_inc(struct pmd_qq *di);
+static void md_inc(struct pmd_qq *part);
 // :5548
-static uint16_t rnd(struct pmd *pmd, uint16_t ax);
+static uint16_t rnd(struct pmd *pmd, uint16_t range);
 // :5568
-static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 // :5645
-static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al);
+static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *part, uint8_t note);
 // :5661
-static void lfo_exit_common(struct pmd *pmd, struct pmd_qq *di);
+static void lfo_exit_common(struct pmd *pmd, struct pmd_qq *part);
 // :5684
-static void lfin1(struct pmd *pmd, struct pmd_qq *di);
+static void lfin1(struct pmd *pmd, struct pmd_qq *part);
 // :5737
-static void lfoinit_main(struct pmd_qq *di);
+static void lfoinit_main(struct pmd_qq *part);
 // :5761
-static bool soft_env(struct pmd *pmd, struct pmd_qq *di);
+static bool soft_env(struct pmd *pmd, struct pmd_qq *part);
 // :5778
-static bool soft_env_main(struct pmd_qq *di);
+static bool soft_env_main(struct pmd_qq *part);
 // :5789
-static void soft_env_sub(struct pmd_qq *di, uint8_t *dl);
+static void soft_env_sub(struct pmd_qq *part, uint8_t *value);
 // :5835
-static bool ext_ssgenv_main(struct pmd_qq *di);
+static bool ext_ssgenv_main(struct pmd_qq *part);
 // :5849
-static void esm_sub(struct pmd_qq *di, uint8_t *ah, uint8_t *dl);
+static void esm_sub(struct pmd_qq *part, uint8_t *count, uint8_t *value);
 // :5967
 static void fadeout(struct pmd *pmd);
 // :6005
@@ -1274,37 +1274,37 @@ static void setint(struct pmd *pmd);
 // :6040
 static void silence(struct pmd *pmd);
 // :6173
-static void opnset44(struct pmd *pmd, uint16_t dx);
+static void opnset44(struct pmd *pmd, uint16_t cmd);
 #if board2
 // :6200
-static void opnset46(struct pmd *pmd, uint16_t dx);
+static void opnset46(struct pmd *pmd, uint16_t cmd);
 #endif
 // :6226
-static void opnset(struct pmd *pmd, uint16_t dx);
+static void opnset(struct pmd *pmd, uint16_t cmd);
 // :6253
 static uint8_t get07(struct pmd *pmd);
 // :6592
 static struct pmd_joy get_joy(struct pmd *pmd);
 // :6741
-static uint8_t *get_memo(struct pmd *pmd, uint8_t al);
+static uint8_t *get_memo(struct pmd *pmd, uint8_t n);
 // :6820
-static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx);
+static uint8_t ff_music_main(struct pmd *pmd, uint16_t bar);
 // :6902
 static void maskon_all(struct pmd *pmd);
 // :6935
 static void maskoff_all(struct pmd *pmd);
 // :6967
-static void part_mask(struct pmd *pmd, uint8_t al);
+static void part_mask(struct pmd *pmd, uint8_t n);
 // :7001
-static void maskon_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah);
+static void maskon_main(struct pmd *pmd, struct pmd_qq *part, uint8_t partb, uint8_t source);
 // :7100
 static void rhythm_mask(struct pmd *pmd);
 // :7111
-static void part_on(struct pmd *pmd, uint8_t ah);
+static void part_on(struct pmd *pmd, uint8_t n);
 // :7135
-static void maskoff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah);
+static void maskoff_main(struct pmd *pmd, struct pmd_qq *part, uint8_t partb, uint8_t source);
 // :7354
-static void fm_effect_on(struct pmd *pmd, uint8_t al);
+static void fm_effect_on(struct pmd *pmd, uint8_t efcnum);
 // :7419
 static void fm_effect_off(struct pmd *pmd);
 // :7492
@@ -1329,7 +1329,7 @@ static void syousetu_count(struct pmd *pmd);
 // :7844
 static void settempo_b(struct pmd *pmd);
 // :7852
-static void stb_ff(struct pmd *pmd, uint8_t dl);
+static void stb_ff(struct pmd *pmd, uint8_t tempo);
 // :7864
 static void rew(struct pmd *pmd);
 // :7887
@@ -1358,7 +1358,7 @@ static bool ppz8_check(struct pmd *pmd);
 static void opnint_start(struct pmd *pmd);
 #if !va
 // :9174
-static void opnset_fmc(struct pmd *pmd, uint16_t dx, uint16_t ax);
+static void opnset_fmc(struct pmd *pmd, uint16_t port, uint16_t cmd);
 #endif
 // :9196
 static bool port_check(struct pmd *pmd);
@@ -1370,16 +1370,16 @@ static bool check_86b(struct pmd *pmd);
 static bool check_spb(struct pmd *pmd);
 #endif
 // :9468
-static void set_port(struct pmd *pmd, uint16_t dx);
+static void set_port(struct pmd *pmd, uint16_t base);
 #endif
 // :9511
 static void put_status(struct pmd *pmd);
 // :9598
 static uint8_t sp_key_display(uint8_t key);
 // :9715
-static void put8(struct pmd *pmd, uint8_t al);
+static void put8(struct pmd *pmd, uint8_t value);
 // :9726
-static void p8_oneset(struct pmd *pmd, uint8_t *al, uint8_t dl, bool *printed);
+static void p8_oneset(struct pmd *pmd, uint8_t *value, uint8_t digit, bool *printed);
 // :9753
 static bool resident_cut_main(struct pmd *pmd, const char **cmd, bool from_env);
 // :9927
@@ -1425,9 +1425,9 @@ static bool message_clear_set(struct pmd *pmd, const char **cmd, bool from_env);
 // :10314
 static bool get_comline_number(const char **cmd, uint8_t *out);
 // :10350
-static void print_16(struct pmd *pmd, uint16_t ax);
+static void print_16(struct pmd *pmd, uint16_t value);
 // :10366
-static void p16_oneset(struct pmd *pmd, uint16_t *ax, uint16_t bx, bool *printed);
+static void p16_oneset(struct pmd *pmd, uint16_t *value, uint16_t digit, bool *printed);
 // :10440
 PMDC_NORETURN static bool pmderr_5(struct pmd *pmd, const char **cmd, bool from_env);
 // :10444
@@ -1722,13 +1722,13 @@ static void _rwait(struct pmd *pmd) {
 
 // :242
 // Discards one status read, then waits for the BUSY bit to clear. The original
-// leaves the final read in AL, which opnint's timer checks inspect; callers
-// that write a register discard it.
+// returns the final read, which opnint's timer checks inspect; callers that
+// write a register discard it.
 static uint8_t rdychk(struct pmd *pmd, uint16_t port) {
-    uint8_t al;
+    uint8_t status;
     (void)inb(pmd, port);
-    while ((al = inb(pmd, port)) & 0x80) ;
-    return al;
+    while ((status = inb(pmd, port)) & 0x80) ;
+    return status;
 }
 
 // C-only helpers shared by the sequencer.
@@ -1759,34 +1759,35 @@ static void int60_exit(struct pmd *pmd) { pmd->int60flag--; }
 #if board2
 // PCMDRV.ASM:7, PCMDRVE.ASM:7, PCMDRV86.ASM:7
 // The PCM part main loop.
-static void pcmmain(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t *si = di->address;
-    if (si == NULL) return;
+static void pcmmain(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t *src = part->address;
+    if (src == NULL) return;
 
-    if (di->partmask != 0) goto pcmmain_nonplay;
+    if (part->partmask != 0) goto pcmmain_nonplay;
 
-    di->leng--;
-    uint8_t al = di->leng;
+    part->leng--;
+    uint8_t remaining = part->leng;
+    uint8_t cmd;
 
     // PCMDRV.ASM:18, PCMDRVE.ASM:18, PCMDRV86.ASM:18
     // Keyoff when the remaining length reaches Q.
-    if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
-        di->keyoff_flag = 0xff;
-        keyoffm(pmd, di);
+    if ((part->keyoff_flag & 3) == 0 && remaining <= part->qdat) {
+        part->keyoff_flag = 0xff;
+        keyoffm(pmd, part);
     }
-    if (al != 0) goto mpexitm;
+    if (remaining != 0) goto mpexitm;
 
 #if !pcm
     // PCMDRV.ASM:29, PCMDRVE.ASM:29
-    di->lfoswi &= 0xf7; // portamento off
+    part->lfoswi &= 0xf7; // portamento off
 #endif
 
 mp1m:
-    al = lodsb(&si);
-    if (al < 0x80) goto mp2m;
-    if (al == 0x80) goto mp15m;
+    cmd = lodsb(&src);
+    if (cmd < 0x80) goto mp2m;
+    if (cmd == 0x80) goto mp15m;
 
-    switch (commandsm(pmd, di, &si)) {
+    switch (commandsm(pmd, part, &src)) {
     case PMD_CMD_MP1M: goto mp1m;
     case PMD_CMD_PCMMNP_1: goto pcmmnp_1;
     case PMD_CMD_PORTA_RETURNM: goto porta_returnm;
@@ -1797,155 +1798,155 @@ mp1m:
 mp15m:
     // PCMDRV.ASM:42, PCMDRVE.ASM:42, PCMDRV86.ASM:42
     // End of music, or a loop if "L" was seen.
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) goto mpexitm;
-    si = di->partloop;
-    di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) goto mpexitm;
+    src = part->partloop;
+    part->loopcheck = 1;
     goto mp1m;
 
 mp2m:
     // PCMDRV.ASM:55, PCMDRVE.ASM:55, PCMDRV86.ASM:55
     // Note: set the pitch and gate.
-    al = lfoinitp(pmd, di, al);
-    al = oshift(di, al);
-    fnumsetm(pmd, di, al);
+    cmd = lfoinitp(pmd, part, cmd);
+    cmd = oshift(part, cmd);
+    fnumsetm(pmd, part, cmd);
 
-    al = lodsb(&si);
-    di->leng = al;
-    calc_q(pmd, di, &si);
+    cmd = lodsb(&src);
+    part->leng = cmd;
+    calc_q(pmd, part, &src);
 
 porta_returnm:
     // PCMDRV.ASM:64, PCMDRVE.ASM:64, PCMDRV86.ASM:64
-    if (di->volpush == 0) goto mp_newm;
-    if (di->onkai == 0xff) goto mp_newm;
+    if (part->volpush == 0) goto mp_newm;
+    if (part->onkai == 0xff) goto mp_newm;
     pmd->volpush_flag--;
     if (pmd->volpush_flag == 0) goto mp_newm;
     pmd->volpush_flag = 0;
-    di->volpush = 0;
+    part->volpush = 0;
 
 mp_newm:
-    volsetm(pmd, di);
-    otodasim(pmd, di);
-    if ((di->keyoff_flag & 1) != 0) keyonm(pmd, di);
-    di->keyon_flag++;
+    volsetm(pmd, part);
+    otodasim(pmd, part);
+    if ((part->keyoff_flag & 1) != 0) keyonm(pmd, part);
+    part->keyon_flag++;
 
-    di->address = si;
+    part->address = src;
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
-    di->keyoff_flag = 0;
-    if (*si == 0xfb) di->keyoff_flag = 2; // '&' immediately follows
-    mnp_ret(pmd, di);
+    part->keyoff_flag = 0;
+    if (*src == 0xfb) part->keyoff_flag = 2; // '&' immediately follows
+    mnp_ret(pmd, part);
     return;
 
 mpexitm:;
 #if pcm
     // PCMDRV86.ASM:88
-    uint8_t cl = di->lfoswi;
-    if ((cl & 0x22) != 0) {
+    uint8_t lfosw = part->lfoswi;
+    if ((lfosw & 0x22) != 0) {
         pmd->lfo_switch = 0;
-        if ((cl & 2) != 0) {
-            (void)lfo(pmd, di);
-            pmd->lfo_switch = (uint8_t)(cl & 2);
+        if ((lfosw & 2) != 0) {
+            (void)lfo(pmd, part);
+            pmd->lfo_switch = (uint8_t)(lfosw & 2);
         }
-        if ((cl & 0x20) != 0) {
-            lfo_change(di);
-            if (lfo(pmd, di)) {
-                lfo_change(di);
-                pmd->lfo_switch |= di->lfoswi & 0x20;
+        if ((lfosw & 0x20) != 0) {
+            lfo_change(part);
+            if (lfo(pmd, part)) {
+                lfo_change(part);
+                pmd->lfo_switch |= part->lfoswi & 0x20;
             } else {
-                lfo_change(di);
+                lfo_change(part);
             }
         }
-        if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+        if (!soft_env(pmd, part) && (pmd->lfo_switch & 0x22) == 0 &&
             pmd->fadeout_speed == 0) {
-            mnp_ret(pmd, di);
+            mnp_ret(pmd, part);
             return;
         }
-        volsetm(pmd, di);
-        mnp_ret(pmd, di);
+        volsetm(pmd, part);
+        mnp_ret(pmd, part);
         return;
     }
-    if (!soft_env(pmd, di)) {
+    if (!soft_env(pmd, part)) {
         if (pmd->fadeout_speed == 0) {
-            mnp_ret(pmd, di);
+            mnp_ret(pmd, part);
             return;
         }
     }
-    volsetm(pmd, di);
-    mnp_ret(pmd, di);
+    volsetm(pmd, part);
+    mnp_ret(pmd, part);
     return;
 #else
     // PCMDRV.ASM:89, PCMDRVE.ASM:89
     // The YM2608 drivers process the tone and volume LFOs and portamento.
-    uint8_t cl = di->lfoswi;
-    pmd->lfo_switch = (uint8_t)(cl & 8);
-    if (cl != 0) {
-        if ((cl & 3) != 0) {
-            if (lfo(pmd, di)) pmd->lfo_switch |= cl & 3;
+    uint8_t lfosw = part->lfoswi;
+    pmd->lfo_switch = (uint8_t)(lfosw & 8);
+    if (lfosw != 0) {
+        if ((lfosw & 3) != 0) {
+            if (lfo(pmd, part)) pmd->lfo_switch |= lfosw & 3;
         }
-        if ((cl & 0x30) != 0) {
-            lfo_change(di);
-            if (lfo(pmd, di)) {
-                lfo_change(di);
-                pmd->lfo_switch |= di->lfoswi & 0x30;
+        if ((lfosw & 0x30) != 0) {
+            lfo_change(part);
+            if (lfo(pmd, part)) {
+                lfo_change(part);
+                pmd->lfo_switch |= part->lfoswi & 0x30;
             } else {
-                lfo_change(di);
+                lfo_change(part);
             }
         }
         if ((pmd->lfo_switch & 0x19) != 0) {
-            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, di);
-            otodasim(pmd, di);
+            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, part);
+            otodasim(pmd, part);
         }
     }
     // PCMDRV:129, PCMDRVE.ASM:129 volsm
-    if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+    if (!soft_env(pmd, part) && (pmd->lfo_switch & 0x22) == 0 &&
         pmd->fadeout_speed == 0) {
-        mnp_ret(pmd, di);
+        mnp_ret(pmd, part);
         return;
     }
-    volsetm(pmd, di);
-    mnp_ret(pmd, di);
+    volsetm(pmd, part);
+    mnp_ret(pmd, part);
     return;
 #endif
 
 pcmmain_nonplay:;
 #if pcm
     // PCMDRV86.ASM:134
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
         return;
     }
-    if ((di->partmask & 2) != 0) {
+    if ((part->partmask & 2) != 0) {
         if (pmd->play86_flag == 1) goto pcmmnp_1; // the PCM effect is sounding
         pmd->pcmflag = 0;
         pmd->pcm_effec_num = 0xff;
-        di->partmask &= 0xfd;
-        if (di->partmask != 0) goto pcmmnp_1;
-        neiro_set(pmd, di->voicenum);
-        set_pcm_pan(pmd, di, di->fmpan, pmd->revpan);
+        part->partmask &= 0xfd;
+        if (part->partmask != 0) goto pcmmnp_1;
+        neiro_set(pmd, part->voicenum);
+        set_pcm_pan(pmd, part, part->fmpan, pmd->revpan);
         goto mp1m; // the part is revived
     }
 #elif ademu
     // PCMDRVE.ASM:142
-    di->keyoff_flag = 0xff;
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
+    part->keyoff_flag = 0xff;
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
         return;
     }
 #else
     // PCMDRV.ASM:142
-    di->keyoff_flag = 0xff;
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
+    part->keyoff_flag = 0xff;
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
         return;
     }
-    if ((di->partmask & 2) != 0) {
+    if ((part->partmask & 2) != 0) {
         // PCMDRV.ASM:149
         // EOS check: the interrupt PCM has finished when bit 2 of the FM2 data
         // port is set.
@@ -1953,18 +1954,18 @@ pcmmain_nonplay:;
         if ((eos & 0x04) == 0) goto pcmmnp_1; // still sounding
         pmd->pcmflag = 0;
         pmd->pcm_effec_num = 0xff;
-        di->partmask &= 0xfd;
-        if (di->partmask != 0) goto pcmmnp_1;
+        part->partmask &= 0xfd;
+        if (part->partmask != 0) goto pcmmnp_1;
         // PCMDRV.ASM:316 revives at mp1m, past mp1m0's portamento clear.
         goto mp1m; // the part is revived
     }
 #endif
 
 pcmmnp_1:
-    al = lodsb(&si);
-    if (al == 0x80) goto pcmmnp_2;
-    if (al < 0x80) goto pcmmnp_3;
-    switch (commandsm(pmd, di, &si)) {
+    cmd = lodsb(&src);
+    if (cmd == 0x80) goto pcmmnp_2;
+    if (cmd < 0x80) goto pcmmnp_3;
+    switch (commandsm(pmd, part, &src)) {
     case PMD_CMD_MP1M: goto mp1m;
     case PMD_CMD_PCMMNP_1: goto pcmmnp_1;
     case PMD_CMD_PORTA_RETURNM: goto porta_returnm;
@@ -1975,29 +1976,29 @@ pcmmnp_1:
 pcmmnp_2:
     // PCMDRV.ASM:167, PCMDRVE.ASM:167, PCMDRV86.ASM:167
     // End of music, or a loop if "L" was seen.
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) {
-        fmmnp_4(pmd, di);
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) {
+        fmmnp_4(pmd, part);
         return;
     }
-    si = di->partloop;
-    di->loopcheck = 1;
+    src = part->partloop;
+    part->loopcheck = 1;
     goto pcmmnp_1;
 
 pcmmnp_3:
     // PCMDRV.ASM:163, PCMDRVE.ASM:151, PCMDRV86.ASM:173 A rest goes through
     // the shared rest-note path.
-    rest_note(pmd, di, &si);
+    rest_note(pmd, part, &src);
 }
 #endif
 
 #if board2 && (pcm || adpcm)
 // PCMDRV.ASM:185, PCMDRVE.ASM:173, PCMDRV86.ASM:180
-static enum pmd_cmd_result commandsm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return command00(pmd, di, si, cmdtblm);
+static enum pmd_cmd_result commandsm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return command00(pmd, part, src, cmdtblm);
 }
 
 // PCMDRV.ASM:188, PCMDRVE.ASM:176, PCMDRV86.ASM:183
@@ -2107,17 +2108,17 @@ static const pmd_cmd_fn cmdtblm[0xff - 0xb1 + 1] = {
 };
 
 // PCMDRV.ASM:291, PCMDRVE.ASM:279, PCMDRV86.ASM:281
-static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (al >= 2) return special_0c0h(pmd, di, si, al);
-    if (al == 0) {
-        di->partmask &= 0xbf;
-        if (di->partmask != 0) return PMD_CMD_PCMMNP_1;
+static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src);
+    if (mask >= 2) return special_0c0h(pmd, part, src, mask);
+    if (mask == 0) {
+        part->partmask &= 0xbf;
+        if (part->partmask != 0) return PMD_CMD_PCMMNP_1;
         return PMD_CMD_MP1M; // the part is revived
     }
 
-    di->partmask |= 0x40;
-    if (di->partmask != 0x40) return PMD_CMD_PCMMNP_1;
+    part->partmask |= 0x40;
+    if (part->partmask != 0x40) return PMD_CMD_PCMMNP_1;
 #if pcm
     stop_86pcm(pmd); // PCMDRV86.ASM:290
 #elif ademu
@@ -2136,8 +2137,8 @@ static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di,
 
 // PCMDRV.ASM:317, PCMDRVE.ASM:305, PCMDRV86.ASM:304
 // Sets the PCM repeat range (0ceh).
-static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if pcm
     // PCMDRV86.ASM:304 `whole` is the original voice size (the original pushes
     // DX:CX) and `running` the working copy it adjusts while reading the
@@ -2151,29 +2152,29 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
     pmd->release_flag1 = 0;
 
     // PCMDRV86.ASM:320 The first value is the repeat start.
-    uint16_t ax = lodsw(si);
-    if ((int16_t)ax < 0) {
-        ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
-        repeat_size = ax;
-        running = (uint32_t)(whole - ax);
+    uint16_t value = lodsw(src);
+    if ((int16_t)value < 0) {
+        value = pcm86vol_chk(pmd, (uint16_t)(0u - value));
+        repeat_size = value;
+        running = (uint32_t)(whole - value);
         repeat_ofs += running;
     } else {
-        ax = pcm86vol_chk(pmd, ax);
-        repeat_size = (uint32_t)(whole - ax);
-        repeat_ofs += ax;
+        value = pcm86vol_chk(pmd, value);
+        repeat_size = (uint32_t)(whole - value);
+        repeat_ofs += value;
     }
 
     // PCMDRV86.ASM:345 The second value is the repeat end.
-    ax = lodsw(si);
-    if (ax != 0) {
-        if ((int16_t)ax < 0) {
-            ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
-            repeat_size = (uint32_t)(repeat_size - ax);
-            size = (uint32_t)(size - ax);
+    value = lodsw(src);
+    if (value != 0) {
+        if ((int16_t)value < 0) {
+            value = pcm86vol_chk(pmd, (uint16_t)(0u - value));
+            repeat_size = (uint32_t)(repeat_size - value);
+            size = (uint32_t)(size - value);
         } else {
-            ax = pcm86vol_chk(pmd, ax);
-            size = ax;
-            running = (uint32_t)(running - ax);
+            value = pcm86vol_chk(pmd, value);
+            size = value;
+            running = (uint32_t)(running - value);
             repeat_size = (uint32_t)(repeat_size - running);
         }
     }
@@ -2186,20 +2187,20 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
 
     // PCMDRV86.ASM:371 The third value is the release start; the original
     // restores the pushed whole size for it.
-    ax = lodsw(si);
-    if (ax == 0x8000) return PMD_CMD_RETURN; // no release
+    value = lodsw(src);
+    if (value == 0x8000) return PMD_CMD_RETURN; // no release
     uint32_t release_size = whole;
     uint32_t release_ofs = ((uint32_t)pmd->_start_ofs2 << 16) | pmd->_start_ofs;
     pmd->release_flag1 = 1;
-    if (ax >= 0x8000) {
-        ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
-        release_size = ax;
-        running = (uint32_t)(whole - ax);
+    if (value >= 0x8000) {
+        value = pcm86vol_chk(pmd, (uint16_t)(0u - value));
+        release_size = value;
+        running = (uint32_t)(whole - value);
         release_ofs += running;
     } else {
-        ax = pcm86vol_chk(pmd, ax);
-        release_size = (uint32_t)(release_size - ax);
-        release_ofs += ax;
+        value = pcm86vol_chk(pmd, value);
+        release_size = (uint32_t)(release_size - value);
+        release_ofs += value;
     }
     pmd->release_size1 = (uint16_t)release_size;
     pmd->release_size2 = (uint16_t)(release_size >> 16);
@@ -2208,18 +2209,18 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
 #elif ademu
     // PCMDRVE.ASM:305 The loop offsets are in 1/64ths of the voice's size.
     uint16_t size = 0;
-    di->voicenum |= 0x80;
+    part->voicenum |= 0x80;
     {
-        const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, di);
-        di->voicenum &= 0x7f;
+        const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, part);
+        part->voicenum &= 0x7f;
         if (voice != NULL) size = (uint16_t)(voice->size >> 6);
     }
 
-    uint16_t ax = lodsw(si);
-    uint16_t start = (int16_t)ax < 0 ? (uint16_t)(ax + size) : ax;
-    ax = lodsw(si);
-    uint16_t end = (ax == 0 || (int16_t)ax < 0) ? (uint16_t)(ax + size) : ax;
-    (void)lodsw(si); // the release value cannot be set
+    uint16_t value = lodsw(src);
+    uint16_t start = (int16_t)value < 0 ? (uint16_t)(value + size) : value;
+    value = lodsw(src);
+    uint16_t end = (value == 0 || (int16_t)value < 0) ? (uint16_t)(value + size) : value;
+    (void)lodsw(src); // the release value cannot be set
 
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv != NULL) {
@@ -2227,24 +2228,24 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
     }
 #else
     // PCMDRV.ASM:317 The offsets are relative to the voice's start or stop.
-    uint16_t ax = lodsw(si);
-    if ((int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
-    else ax = (uint16_t)(ax + pmd->pcmstart);
-    pmd->pcmrepeat1 = ax;
+    uint16_t value = lodsw(src);
+    if ((int16_t)value < 0) value = (uint16_t)(value + pmd->pcmstop);
+    else value = (uint16_t)(value + pmd->pcmstart);
+    pmd->pcmrepeat1 = value;
 
-    ax = lodsw(si);
-    if (ax == 0 || (int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
-    else ax = (uint16_t)(ax + pmd->pcmstart);
-    pmd->pcmrepeat2 = ax;
+    value = lodsw(src);
+    if (value == 0 || (int16_t)value < 0) value = (uint16_t)(value + pmd->pcmstop);
+    else value = (uint16_t)(value + pmd->pcmstart);
+    pmd->pcmrepeat2 = value;
 
-    ax = lodsw(si);
+    value = lodsw(src);
     // PCMDRV.ASM:340 A third value of 8000h disables the release but is still
     // stored.
-    if (ax != 0x8000) {
-        if ((int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
-        else ax = (uint16_t)(ax + pmd->pcmstart);
+    if (value != 0x8000) {
+        if ((int16_t)value < 0) value = (uint16_t)(value + pmd->pcmstop);
+        else value = (uint16_t)(value + pmd->pcmstart);
     }
-    pmd->pcmrelease = ax;
+    pmd->pcmrelease = value;
 #endif
     return PMD_CMD_RETURN;
 }
@@ -2252,70 +2253,70 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
 // PCMDRV.ASM:355, PCMDRVE.ASM:359
 // Portamento for the PCM parts.
 #if !pcm
-static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (di->partmask != 0) {
-        (*si)++; // the first pitch byte is skipped while masked
+static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (part->partmask != 0) {
+        (*src)++; // the first pitch byte is skipped while masked
         return PMD_CMD_RETURN;
     }
 
-    uint8_t al = lodsb(si);
-    al = lfoinitp(pmd, di, al);
-    al = oshift(di, al);
-    fnumsetm(pmd, di, al);
+    uint8_t note = lodsb(src);
+    note = lfoinitp(pmd, part, note);
+    note = oshift(part, note);
+    fnumsetm(pmd, part, note);
 
-    uint16_t fnum = di->fnum;
-    uint8_t onkai = di->onkai;
+    uint16_t from_fnum = part->fnum;
+    uint8_t from_note = part->onkai;
 
-    al = lodsb(si);
-    al = oshift(di, al);
-    fnumsetm(pmd, di, al);
-    uint16_t ax = di->fnum;
+    note = lodsb(src);
+    note = oshift(part, note);
+    fnumsetm(pmd, part, note);
+    uint16_t to_fnum = part->fnum;
 
-    di->onkai = onkai;
-    di->fnum = fnum;
-    ax = (uint16_t)(ax - fnum);
+    part->onkai = from_note;
+    part->fnum = from_fnum;
+    to_fnum = (uint16_t)(to_fnum - from_fnum);
 
-    di->leng = lodsb(si);
-    calc_q(pmd, di, si);
+    part->leng = lodsb(src);
+    calc_q(pmd, part, src);
 
-    int16_t n = (int16_t)ax;
-    di->porta_num2 = (int16_t)(n / (int16_t)di->leng);
-    di->porta_num3 = (int16_t)(n % (int16_t)di->leng);
-    di->lfoswi |= 8; // portamento on
+    int16_t step = (int16_t)to_fnum;
+    part->porta_num2 = (int16_t)(step / (int16_t)part->leng);
+    part->porta_num3 = (int16_t)(step % (int16_t)part->leng);
+    part->lfoswi |= 8; // portamento on
     return PMD_CMD_PORTA_RETURNM;
 }
 #endif
 
 // PCMDRV.ASM:401, PCMDRVE.ASM:405, PCMDRV86.ASM:426
-static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)si;
-    unsigned sum = di->volume + 16;
-    di->volume = sum > 0xff ? 255 : (uint8_t)sum;
+    (void)src;
+    unsigned sum = part->volume + 16;
+    part->volume = sum > 0xff ? 255 : (uint8_t)sum;
     return PMD_CMD_RETURN;
 }
 
 // PCMDRV.ASM:411, PCMDRVE.ASM:415, PCMDRV86.ASM:436
-static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    unsigned sum = lodsb(si) + di->volume;
-    di->volume = sum > 0xff ? 255 : (uint8_t)sum;
+    unsigned sum = lodsb(src) + part->volume;
+    part->volume = sum > 0xff ? 255 : (uint8_t)sum;
     return PMD_CMD_RETURN;
 }
 
 // PCMDRV.ASM:418, PCMDRVE.ASM:422, PCMDRV86.ASM:444
-static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)si;
-    di->volume = di->volume < 16 ? 0 : (uint8_t)(di->volume - 16);
+    (void)src;
+    part->volume = part->volume < 16 ? 0 : (uint8_t)(part->volume - 16);
     return PMD_CMD_RETURN;
 }
 
 // PCMDRV.ASM:425, PCMDRVE.ASM:429, PCMDRV86.ASM:451
-static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    di->volume = di->volume < al ? 0 : (uint8_t)(di->volume - al);
+    uint8_t amount = lodsb(src);
+    part->volume = part->volume < amount ? 0 : (uint8_t)(part->volume - amount);
     return PMD_CMD_RETURN;
 }
 
@@ -2328,36 +2329,36 @@ static const uint8_t pcm_pan_data[] = {0, 9, 1, 5};
 // Panning for the PCM parts. The YM2608 stores the pan in the top two bits of
 // register B4h, PPZ8's emulation uses a 0-9 value, and the PCM86 a 0..127
 // balance with a reversed-phase flag.
-static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t sel = lodsb(src);
 #if pcm
     // PCMDRV86.ASM:467 p0 reversed phase, p1 right, p2 left, p3 centre.
     uint8_t pan = 0;
     uint8_t rev = 0;
-    if (al == 1) {
+    if (sel == 1) {
         pan = 0x7f;
-    } else if (al == 2) {
+    } else if (sel == 2) {
         pan = 0x80;
-    } else if (al != 3) {
+    } else if (sel != 3) {
         rev = 1;
     }
-    set_pcm_pan(pmd, di, pan, rev);
+    set_pcm_pan(pmd, part, pan, rev);
 #elif ademu
     // PCMDRVE.ASM:441 The value is masked and rotated into bits 6-7.
-    al &= 3;
-    di->fmpan = (uint8_t)(al << 6);
+    sel &= 3;
+    part->fmpan = (uint8_t)(sel << 6);
     // The pan value goes straight to PPZ8 unless the ADPCM emulation already
     // took channel 7.
-    uint8_t dl = al;
-    if (pmd->adpcm_emulate != 1) dl = pcm_pan_data[al];
+    uint8_t ppz_pan = sel;
+    if (pmd->adpcm_emulate != 1) ppz_pan = pcm_pan_data[sel];
     {
         const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-        if (drv != NULL) drv->set_pan(7, dl, pmd->user_data);
+        if (drv != NULL) drv->set_pan(7, ppz_pan, pmd->user_data);
     }
 #else
     // PCMDRV.ASM:441 rotates first, so the mask keeps bits 6-7 only.
-    al = (uint8_t)(((al << 6) | (al >> 2)) & 0xc0);
-    di->fmpan = al;
+    sel = (uint8_t)(((sel << 6) | (sel >> 2)) & 0xc0);
+    part->fmpan = sel;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
@@ -2365,23 +2366,23 @@ static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t *
 
 // PCMDRV.ASM:449, PCMDRVE.ASM:465, PCMDRV86.ASM:491
 // Pan setting extend: px -127..+127 plus the reversed-phase flag (0c3h).
-static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t pan = lodsb(src);
 #if pcm
-    set_pcm_pan(pmd, di, al, *(*si)++);
+    set_pcm_pan(pmd, part, pan, *(*src)++);
 #else
-    (*si)++; // the reversed-phase flag is skipped
+    (*src)++; // the reversed-phase flag is skipped
     // PCMDRV.ASM:449 The extended value is reduced to left, right, or centre.
-    if (al == 0) al = 3;
-    else if ((int8_t)al < 0) al = 1;
-    else al = 2;
-    al &= 3;
-    di->fmpan = (uint8_t)(al << 6);
+    if (pan == 0) pan = 3;
+    else if ((int8_t)pan < 0) pan = 1;
+    else pan = 2;
+    pan &= 3;
+    part->fmpan = (uint8_t)(pan << 6);
 #if ademu
-    uint8_t dl = al;
-    if (pmd->adpcm_emulate != 1) dl = pcm_pan_data[al];
+    uint8_t ppz_pan = pan;
+    if (pmd->adpcm_emulate != 1) ppz_pan = pcm_pan_data[pan];
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-    if (drv != NULL) drv->set_pan(7, dl, pmd->user_data);
+    if (drv != NULL) drv->set_pan(7, ppz_pan, pmd->user_data);
 #else
     (void)pmd;
 #endif
@@ -2393,38 +2394,38 @@ static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *di, uint8_
 // PCMDRV86.ASM:495
 // Sets the PCM86 pan from a signed 0..127 balance plus the reversed-phase
 // flag.
-static void set_pcm_pan(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah) {
-    di->fmpan = al;
-    pmd->revpan = ah;
-    set_pcm_pan2(pmd, al, ah);
+static void set_pcm_pan(struct pmd *pmd, struct pmd_qq *part, uint8_t pan, uint8_t rev) {
+    part->fmpan = pan;
+    pmd->revpan = rev;
+    set_pcm_pan2(pmd, pan, rev);
 }
 
 // PCMDRV86.ASM:498
 // The balance half of set_pcm_pan, which the PCM effect also uses directly.
-static void set_pcm_pan2(struct pmd *pmd, uint8_t al, uint8_t ah) {
-    if ((int8_t)al < 0) {
+static void set_pcm_pan2(struct pmd *pmd, uint8_t pan, uint8_t rev) {
+    if ((int8_t)pan < 0) {
         pmd->pcm86_pan_flag = 1; // left
-        al = (uint8_t)((al + 0x80) & 0x7f);
-    } else if (al == 0) {
+        pan = (uint8_t)((pan + 0x80) & 0x7f);
+    } else if (pan == 0) {
         pmd->pcm86_pan_flag = 3; // middle
     } else {
         pmd->pcm86_pan_flag = 2; // right
-        al = (uint8_t)(~al & 0x7f);
+        pan = (uint8_t)(~pan & 0x7f);
     }
-    pmd->pcm86_pan_dat = al;
-    if ((ah & 1) != 0) pmd->pcm86_pan_flag |= 4; // reversed phase
+    pmd->pcm86_pan_dat = pan;
+    if ((rev & 1) != 0) pmd->pcm86_pan_flag |= 4; // reversed phase
 }
 #endif
 
 // PCMDRV.ASM:467, PCMDRVE.ASM:483, PCMDRV86.ASM:531
 // Voice change for the PCM parts.
-static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t voice = lodsb(src);
 #if pcm
-    di->voicenum = al;
-    neiro_set(pmd, al);
+    part->voicenum = voice;
+    neiro_set(pmd, voice);
 #elif ademu
-    di->voicenum = al;
+    part->voicenum = voice;
     if (pmd->adpcm_emulate == 1) return PMD_CMD_RETURN;
     pmd->adpcm_emulate = 1;
     {
@@ -2432,19 +2433,19 @@ static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t 
         if (drv != NULL) drv->set_adpcm_emulation(true, pmd->user_data);
     }
 #if ppz
-    di->voicenum |= 0x80;
+    part->voicenum |= 0x80;
     pmd->partb = 7; // the PCM part's PPZ8 channel, left as-is by the original
-    ppz_neiro_reset(pmd, di);
-    di->voicenum &= 0x7f;
+    ppz_neiro_reset(pmd, part);
+    part->voicenum &= 0x7f;
 
     pmd->parts[part10h].partmask |= 0x10;
-    di->partmask &= 0xef;
-    if (di->partmask == 0) return PMD_CMD_MP1M; // the part is revived
+    part->partmask &= 0xef;
+    if (part->partmask == 0) return PMD_CMD_MP1M; // the part is revived
 #endif
 #else
-    di->voicenum = al;
+    part->voicenum = voice;
     {
-        const struct pmd_pcm_adpcm_voice *v = &pmd->pcm_table.adpcm_data.pcmadrs[al];
+        const struct pmd_pcm_adpcm_voice *v = &pmd->pcm_table.adpcm_data.pcmadrs[voice];
         pmd->pcmstart = v->start;
         pmd->pcmstop = v->stop;
     }
@@ -2456,33 +2457,33 @@ static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t 
 }
 
 // PCMDRV.ASM:489, PCMDRVE.ASM:512, PCMDRV86.ASM:564
-static void volsetm(struct pmd *pmd, struct pmd_qq *di) {
+static void volsetm(struct pmd *pmd, struct pmd_qq *part) {
 #if pcm
-    uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, false);
-    pcm86_vol_out(pmd, al);
+    uint8_t volume = pcm_vol_calc(pmd, part, pmd->pcm_voldown, false);
+    pcm86_vol_out(pmd, volume);
 #elif ademu
     // PCMDRVE.ASM:604 squares the fadeout like PCMDRV.ASM:514.
-    uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, true);
+    uint8_t volume = pcm_vol_calc(pmd, part, pmd->pcm_voldown, true);
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-    if (drv != NULL) drv->set_volume(7, al, pmd->user_data);
+    if (drv != NULL) drv->set_volume(7, volume, pmd->user_data);
 #else
     // PCMDRV.ASM:596 The YM2608 ADPCM volume write, with PCMDRV.ASM:514's
     // squared fadeout.
-    uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, true);
-    opnset46(pmd, (uint16_t)((0x0b << 8) | al));
+    uint8_t volume = pcm_vol_calc(pmd, part, pmd->pcm_voldown, true);
+    opnset46(pmd, (uint16_t)((0x0b << 8) | volume));
 #endif
 }
 
 // PCMDRV.ASM:606, PCMDRVE.ASM:630, PCMDRV86.ASM:707
-static void keyonm(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->onkai == 0xff) return; // a rest
+static void keyonm(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->onkai == 0xff) return; // a rest
 #if pcm
     play_86pcm(pmd);
 #elif ademu
     // PCMDRVE.ASM:640 Voice with bit 15 set (the PPZ8 bank select).
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv != NULL) {
-        drv->keyon(7, (uint16_t)(0x8080 | di->voicenum), pmd->user_data);
+        drv->keyon(7, (uint16_t)(0x8080 | part->voicenum), pmd->user_data);
     }
 #else
     opnset46(pmd, 0x0102); // PAN=0, x8 bit mode
@@ -2494,12 +2495,12 @@ static void keyonm(struct pmd *pmd, struct pmd_qq *di) {
 
     if ((pmd->pcmrepeat1 | pmd->pcmrepeat2) == 0) {
         opnset46(pmd, 0x00a0); // play once
-        opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(di->fmpan | 2)));
+        opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(part->fmpan | 2)));
         return;
     }
 
     opnset46(pmd, 0x00b0); // repeat
-    opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(di->fmpan | 2)));
+    opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(part->fmpan | 2)));
     opnset46(pmd, (uint16_t)((0x02 << 8) | (uint8_t)pmd->pcmrepeat1));
     opnset46(pmd, (uint16_t)((0x03 << 8) | (uint8_t)(pmd->pcmrepeat1 >> 8)));
     opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->pcmrepeat2));
@@ -2508,7 +2509,7 @@ static void keyonm(struct pmd *pmd, struct pmd_qq *di) {
 }
 
 // PCMDRV.ASM:676, PCMDRVE.ASM:650, PCMDRV86.ASM:722
-static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
+static void keyoffm(struct pmd *pmd, struct pmd_qq *part) {
 #if pcm
     if (pmd->release_flag1 == 1) {
         // PCMDRV86.ASM:723 The release range replaces the playback range.
@@ -2519,17 +2520,17 @@ static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
         pmd->release_flag2 = 1;
     }
 #endif
-    if (di->envf == 0xff) {
-        if (di->eenv_count == 4) return;
-    } else if (di->envf == 2) {
+    if (part->envf == 0xff) {
+        if (part->eenv_count == 4) return;
+    } else if (part->envf == 2) {
         return;
     }
 #if pcm || ademu
-    keyoffp(pmd, di);
+    keyoffp(pmd, part);
 #else
     // PCMDRV.ASM:687 An explicit release address restarts the ADPCM at it.
     if (pmd->pcmrelease == 0x8000) {
-        keyoffp(pmd, di);
+        keyoffp(pmd, part);
         return;
     }
     opnset46(pmd, 0x0021); // PCM reset
@@ -2538,78 +2539,78 @@ static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
     opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->pcmstop));
     opnset46(pmd, (uint16_t)((0x05 << 8) | (uint8_t)(pmd->pcmstop >> 8)));
     opnset46(pmd, 0x00a0); // play once
-    keyoffp(pmd, di);
+    keyoffp(pmd, part);
 #endif
 }
 
 // PCMDRV.ASM:718, PCMDRVE.ASM:665, PCMDRV86.ASM:752
 // Sets the PCM pitch from the fnum, portamento, LFO, and detune.
-static void otodasim(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->fnum == 0) return;
+static void otodasim(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->fnum == 0) return;
 #if pcm
     // PCMDRV86.ASM:752 The PCM86 keeps the fractional pitch in fnum2 and
     // scales the detune by it.
-    uint16_t ax = di->fnum2;
-    uint16_t bx = di->fnum;
-    if (pmd->pcm86_vol != 1 && di->detune != 0) {
-        uint16_t cx = ax;
-        uint16_t dx = bx;
+    uint16_t frac = part->fnum2;
+    uint16_t pitch = part->fnum;
+    if (pmd->pcm86_vol != 1 && part->detune != 0) {
+        uint16_t scaled = frac;
+        uint16_t pitch_shift = pitch;
         for (int i = 0; i < 5; i++) {
-            dx >>= 1;
-            cx = (uint16_t)((cx >> 1) | ((dx & 1) << 15));
+            pitch_shift >>= 1;
+            scaled = (uint16_t)((scaled >> 1) | ((pitch_shift & 1) << 15));
         }
-        int16_t det = di->detune;
+        int16_t det = part->detune;
         if (det < 0) {
-            uint16_t sum = (uint16_t)(cx + (uint16_t)det);
+            uint16_t sum = (uint16_t)(scaled + (uint16_t)det);
             if (sum == 0) {
-                cx = 1;
-            } else if ((unsigned)cx >= (unsigned)(-(int)det)) {
-                cx = sum;
+                scaled = 1;
+            } else if ((unsigned)scaled >= (unsigned)(-(int)det)) {
+                scaled = sum;
             } else {
-                cx = 1; // the result must not underflow to zero
+                scaled = 1; // the result must not underflow to zero
             }
         } else {
-            uint16_t sum = (uint16_t)(cx + (uint16_t)det);
-            cx = sum < cx ? 0xffff : sum;
+            uint16_t sum = (uint16_t)(scaled + (uint16_t)det);
+            scaled = sum < scaled ? 0xffff : sum;
         }
         uint16_t high = 0;
         for (int i = 0; i < 5; i++) {
-            high = (uint16_t)((high << 1) | (cx >> 15));
-            cx = (uint16_t)(cx << 1);
+            high = (uint16_t)((high << 1) | (scaled >> 15));
+            scaled = (uint16_t)(scaled << 1);
         }
-        bx = (uint16_t)((bx & 0xffe0) | high);
-        ax = (uint16_t)((ax & 0x001f) | cx);
+        pitch = (uint16_t)((pitch & 0xffe0) | high);
+        frac = (uint16_t)((frac & 0x001f) | scaled);
     }
-    tone_set2(pmd, ax, (uint8_t)bx);
+    tone_set2(pmd, frac, (uint8_t)pitch);
 #else
-    uint16_t bx = di->fnum;
-    bx = (uint16_t)(bx + di->porta_num);
+    uint16_t pitch = part->fnum;
+    pitch = (uint16_t)(pitch + part->porta_num);
 
-    int16_t dx = 0;
-    if ((di->lfoswi & 0x11) != 0) {
-        if ((di->lfoswi & 1) != 0) dx = di->lfodat;
-        if ((di->lfoswi & 0x10) != 0) dx = (int16_t)(dx + di->_lfodat);
+    int16_t delta = 0;
+    if ((part->lfoswi & 0x11) != 0) {
+        if ((part->lfoswi & 1) != 0) delta = part->lfodat;
+        if ((part->lfoswi & 0x10) != 0) delta = (int16_t)(delta + part->_lfodat);
         // PCM LFO depth is applied four times (PCMDRV.ASM:740).
-        dx = (int16_t)(dx + dx);
-        dx = (int16_t)(dx + dx);
+        delta = (int16_t)(delta + delta);
+        delta = (int16_t)(delta + delta);
     }
-    dx = (int16_t)(dx + di->detune);
+    delta = (int16_t)(delta + part->detune);
 
-    if (dx < 0) {
+    if (delta < 0) {
         // PCMDRV.ASM:752 A borrow clears the tone; the original branches on
         // the carry of the 16-bit add.
-        unsigned sum = (unsigned)bx + (unsigned)(uint16_t)dx;
-        bx = sum > 0xffff ? (uint16_t)sum : 0;
+        unsigned sum = (unsigned)pitch + (unsigned)(uint16_t)delta;
+        pitch = sum > 0xffff ? (uint16_t)sum : 0;
     } else {
-        unsigned sum = (unsigned)bx + (unsigned)dx;
-        bx = sum > 0xffff ? 0xffff : (uint16_t)sum;
+        unsigned sum = (unsigned)pitch + (unsigned)delta;
+        pitch = sum > 0xffff ? 0xffff : (uint16_t)sum;
     }
 #if ademu
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-    if (drv != NULL) drv->set_tone(7, bx, pmd->user_data);
+    if (drv != NULL) drv->set_tone(7, pitch, pmd->user_data);
 #else
-    opnset46(pmd, (uint16_t)((0x09 << 8) | (uint8_t)bx));
-    opnset46(pmd, (uint16_t)((0x0a << 8) | (uint8_t)(bx >> 8)));
+    opnset46(pmd, (uint16_t)((0x09 << 8) | (uint8_t)pitch));
+    opnset46(pmd, (uint16_t)((0x0a << 8) | (uint8_t)(pitch >> 8)));
 #endif
 #endif
 }
@@ -2622,64 +2623,64 @@ static const uint16_t pcm_adpcm_tune_data[12] = {
 };
 
 // PCMDRV.ASM:771, PCMDRVE.ASM:711
-// Sets the ADPCM pitch from the note in al.
-static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+// Sets the ADPCM pitch from `note`.
+static void fnumsetm(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
     (void)pmd;
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) {
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0f) {
         // PCMDRV.ASM:775, PCMDRVE.ASM:715 a rest
-        di->onkai = 0xff;
-        if ((di->lfoswi & 0x11) != 0) return;
-        di->fnum = 0;
+        part->onkai = 0xff;
+        if ((part->lfoswi & 0x11) != 0) return;
+        part->fnum = 0;
         return;
     }
-    di->onkai = al;
+    part->onkai = note;
 
-    uint8_t cl = (uint8_t)(al >> 4);
-    uint8_t ch = cl;
-    uint8_t shift = cl <= 5 ? (uint8_t)(5 - cl) : 0;
+    uint8_t octave = (uint8_t)(note >> 4);
+    uint8_t block = octave;
+    uint8_t shift = octave <= 5 ? (uint8_t)(5 - octave) : 0;
 
-    uint16_t ax = pcm_adpcm_tune_data[ah];
-    if (ch >= 6) {
+    uint16_t fnum = pcm_adpcm_tune_data[pitch_class];
+    if (block >= 6) {
         // o7 and above: double the entry when it does not overflow.
-        uint8_t octave = 0x50;
-        if ((int16_t)ax >= 0) {
-            ax = (uint16_t)(ax << 1);
-            octave = 0x60;
+        uint8_t high_nibble = 0x50;
+        if ((int16_t)fnum >= 0) {
+            fnum = (uint16_t)(fnum << 1);
+            high_nibble = 0x60;
         }
-        di->onkai = (uint8_t)((di->onkai & 0x0f) | octave);
+        part->onkai = (uint8_t)((part->onkai & 0x0f) | high_nibble);
     } else {
-        ax = (uint16_t)(ax >> shift);
+        fnum = (uint16_t)(fnum >> shift);
     }
-    di->fnum = ax;
+    part->fnum = fnum;
 }
 #else
 // PCMDRV86.ASM:817
-// Sets the PCM86 pitch from the note in al: fnum holds the integer part and
+// Sets the PCM86 pitch from `note`: fnum holds the integer part and
 // fnum2 the fraction, both taken from the frequency table.
-static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) {
+static void fnumsetm(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0f) {
         // PCMDRV86.ASM:821 a rest
-        di->onkai = 0xff;
-        if ((di->lfoswi & 0x11) != 0) return;
+        part->onkai = 0xff;
+        if ((part->lfoswi & 0x11) != 0) return;
         // PMD.ASM:4296 fnrest clears fnum only; fnum2 keeps its old value.
-        di->fnum = 0;
+        part->fnum = 0;
         return;
     }
 
-    if (pmd->pcm86_vol == 1 && al >= 0x65) {
+    if (pmd->pcm86_vol == 1 && note >= 0x65) {
         // PCMDRV86.ASM:823 /S plays everything from 65h up one octave lower.
-        al = ah < 5 ? 0x60 : 0x50;
-        al |= ah;
+        note = pitch_class < 5 ? 0x60 : 0x50;
+        note |= pitch_class;
     }
 
-    di->onkai = al;
-    uint8_t bl = (uint8_t)((al & 0xf0) >> 1);
-    bl = (uint8_t)(bl + ((al & 0xf0) >> 2) + ah);
-    const uint8_t *entry = pmd->p86_freqtable + (unsigned)bl * 3;
-    di->fnum = (uint16_t)(0xff00 | entry[0]);
-    di->fnum2 = (uint16_t)(entry[1] | (entry[2] << 8));
+    part->onkai = note;
+    uint8_t index = (uint8_t)((note & 0xf0) >> 1);
+    index = (uint8_t)(index + ((note & 0xf0) >> 2) + pitch_class);
+    const uint8_t *entry = pmd->p86_freqtable + (unsigned)index * 3;
+    part->fnum = (uint16_t)(0xff00 | entry[0]);
+    part->fnum2 = (uint16_t)(entry[1] | (entry[2] << 8));
 }
 #endif
 
@@ -2688,65 +2689,65 @@ static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 // voldown, fadeout, envelope, and volume LFO. `square_fade` selects the YM2608
 // ADPCM drivers (PCMDRV.ASM:514, PCMDRVE.ASM:604), which square the fade before
 // applying it.
-static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t voldown, bool square_fade) {
-    uint8_t al = di->volpush;
-    if (al == 0) al = di->volume;
-    uint8_t dl = al;
+static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *part, uint8_t voldown, bool square_fade) {
+    uint8_t volume = part->volpush;
+    if (volume == 0) volume = part->volume;
+    uint8_t value = volume;
 
     if (voldown != 0) {
-        dl = (uint8_t)(((uint16_t)dl * (uint8_t)(-voldown)) >> 8);
+        value = (uint8_t)(((uint16_t)value * (uint8_t)(-voldown)) >> 8);
     }
 
     uint8_t fade = pmd->fadeout_volume;
     if (fade != 0) {
         uint8_t neg = (uint8_t)(-fade);
         if (square_fade) neg = (uint8_t)(((uint16_t)neg * neg) >> 8);
-        dl = (uint8_t)(((uint16_t)dl * neg) >> 8);
+        value = (uint8_t)(((uint16_t)value * neg) >> 8);
     }
 
-    al = dl;
-    if (al == 0) return 0;
+    volume = value;
+    if (volume == 0) return 0;
 
-    if (di->envf == 0xff) {
+    if (part->envf == 0xff) {
         // PPZDRV.ASM:609, PCMDRV.ASM:529, PCMDRVE.ASM:552, PCMDRV86.ASM:602
         // The extended envelope scales by (volume + 1) / 16 and rounds up on
         // the bit the fourth shift drops.
-        uint8_t v = di->eenv_volume;
+        uint8_t v = part->eenv_volume;
         if (v == 0) return 0;
-        uint16_t product = (uint16_t)al * (uint8_t)(v + 1);
-        al = (uint8_t)(product >> 4);
-        if ((product & 0x08) != 0) al++;
+        uint16_t product = (uint16_t)volume * (uint8_t)(v + 1);
+        volume = (uint8_t)(product >> 4);
+        if ((product & 0x08) != 0) volume++;
     } else {
-        int8_t penv = (int8_t)di->penv;
+        int8_t penv = (int8_t)part->penv;
         if (penv < 0) {
             uint8_t m = (uint8_t)((uint8_t)(-penv) * 16);
-            if (al < m) return 0;
-            al = (uint8_t)(al - m);
+            if (volume < m) return 0;
+            volume = (uint8_t)(volume - m);
         } else {
             uint8_t m = (uint8_t)((uint8_t)penv * 16);
-            uint8_t sum = (uint8_t)(al + m);
-            al = sum < al ? 255 : sum;
+            uint8_t sum = (uint8_t)(volume + m);
+            volume = sum < volume ? 255 : sum;
         }
     }
 
-    if ((di->lfoswi & 0x22) == 0) return al;
+    if ((part->lfoswi & 0x22) == 0) return volume;
     int16_t delta = 0;
-    if ((di->lfoswi & 2) != 0) delta = di->lfodat;
-    if ((di->lfoswi & 0x20) != 0) delta = (int16_t)(delta + di->_lfodat);
+    if ((part->lfoswi & 2) != 0) delta = part->lfodat;
+    if ((part->lfoswi & 0x20) != 0) delta = (int16_t)(delta + part->_lfodat);
 
     if (delta < 0) {
         // PPZDRV.ASM:670, PCMDRV.ASM:590, PCMDRVE.ASM:613, PCMDRV86.ASM:663
         // A borrow clamps the volume to zero; the original branches on the
         // carry of the 16-bit add.
-        unsigned sum = (unsigned)al + (unsigned)(uint16_t)delta;
-        al = sum > 0xffff ? (uint8_t)sum : 0;
+        unsigned sum = (unsigned)volume + (unsigned)(uint16_t)delta;
+        volume = sum > 0xffff ? (uint8_t)sum : 0;
     } else {
         // PPZDRV.ASM:666, PCMDRV.ASM:586, PCMDRVE.ASM:609, PCMDRV86.ASM:659
         // Any set bit above the low byte clamps to the maximum.
-        unsigned sum = (unsigned)al + (unsigned)delta;
-        al = sum > 0xff ? 255 : (uint8_t)sum;
+        unsigned sum = (unsigned)volume + (unsigned)delta;
+        volume = sum > 0xff ? 255 : (uint8_t)sum;
     }
-    return al;
+    return volume;
 }
 #endif
 
@@ -2786,30 +2787,31 @@ static const struct pmd_drv_ppz8 *ppz8_ops(struct pmd *pmd) {
 
 // PPZDRV.ASM:11
 // The PPZ8 part main loop.
-static void ppzmain(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t *si = di->address;
-    if (si == NULL) return;
+static void ppzmain(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t *src = part->address;
+    if (src == NULL) return;
 
-    if (di->partmask != 0) goto ppzmain_nonplay;
+    if (part->partmask != 0) goto ppzmain_nonplay;
 
-    di->leng--;
-    uint8_t al = di->leng;
+    part->leng--;
+    uint8_t remaining = part->leng;
+    uint8_t cmd;
 
     // PPZDRV.ASM:26 Keyoff when the remaining length reaches Q.
-    if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
-        di->keyoff_flag = 0xff;
-        keyoffz(pmd, di);
+    if ((part->keyoff_flag & 3) == 0 && remaining <= part->qdat) {
+        part->keyoff_flag = 0xff;
+        keyoffz(pmd, part);
     }
-    if (al != 0) goto mpexitz;
+    if (remaining != 0) goto mpexitz;
 
-    di->lfoswi &= 0xf7; // portamento off
+    part->lfoswi &= 0xf7; // portamento off
 
 mp1z:
-    al = lodsb(&si);
-    if (al < 0x80) goto mp2z;
-    if (al == 0x80) goto mp15z;
+    cmd = lodsb(&src);
+    if (cmd < 0x80) goto mp2z;
+    if (cmd == 0x80) goto mp15z;
 
-    switch (commandsz(pmd, di, &si)) {
+    switch (commandsz(pmd, part, &src)) {
     case PMD_CMD_MP1Z: goto mp1z;
     case PMD_CMD_PPZMNP_1: goto ppzmnp_1;
     case PMD_CMD_PORTA_RETURNZ: goto porta_returnz;
@@ -2819,94 +2821,94 @@ mp1z:
 
 mp15z:
     // PPZDRV.ASM:49 End of music, or a loop if "L" was seen.
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) goto mpexitz;
-    si = di->partloop;
-    di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) goto mpexitz;
+    src = part->partloop;
+    part->loopcheck = 1;
     goto mp1z;
 
 mp2z:
     // PPZDRV.ASM:62 Note: set the pitch and gate.
-    al = lfoinitp(pmd, di, al);
-    al = oshift(di, al);
-    fnumsetz(pmd, di, al);
+    cmd = lfoinitp(pmd, part, cmd);
+    cmd = oshift(part, cmd);
+    fnumsetz(pmd, part, cmd);
 
-    al = lodsb(&si);
-    di->leng = al;
-    calc_q(pmd, di, &si);
+    cmd = lodsb(&src);
+    part->leng = cmd;
+    calc_q(pmd, part, &src);
 
 porta_returnz:
     // PPZDRV.ASM:71
-    if (di->volpush == 0) goto mp_newz;
-    if (di->onkai == 0xff) goto mp_newz;
+    if (part->volpush == 0) goto mp_newz;
+    if (part->onkai == 0xff) goto mp_newz;
     pmd->volpush_flag--;
     if (pmd->volpush_flag == 0) goto mp_newz;
     pmd->volpush_flag = 0;
-    di->volpush = 0;
+    part->volpush = 0;
 
 mp_newz:
-    volsetz(pmd, di);
-    otodasiz(pmd, di);
-    if ((di->keyoff_flag & 1) != 0) keyonz(pmd, di);
-    di->keyon_flag++;
+    volsetz(pmd, part);
+    otodasiz(pmd, part);
+    if ((part->keyoff_flag & 1) != 0) keyonz(pmd, part);
+    part->keyon_flag++;
 
-    di->address = si;
+    part->address = src;
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
-    di->keyoff_flag = 0;
-    if (*si == 0xfb) di->keyoff_flag = 2; // '&' immediately follows
-    mnp_ret(pmd, di);
+    part->keyoff_flag = 0;
+    if (*src == 0xfb) part->keyoff_flag = 2; // '&' immediately follows
+    mnp_ret(pmd, part);
     return;
 
 mpexitz:;
     // PPZDRV.ASM:96 LFO, portamento, and fadeout processing.
-    uint8_t cl = di->lfoswi;
-    pmd->lfo_switch = (uint8_t)(cl & 8);
-    if (cl != 0) {
-        if ((cl & 3) != 0) {
-            if (lfo(pmd, di)) pmd->lfo_switch |= cl & 3;
+    uint8_t lfosw = part->lfoswi;
+    pmd->lfo_switch = (uint8_t)(lfosw & 8);
+    if (lfosw != 0) {
+        if ((lfosw & 3) != 0) {
+            if (lfo(pmd, part)) pmd->lfo_switch |= lfosw & 3;
         }
-        if ((cl & 0x30) != 0) {
-            lfo_change(di);
-            if (lfo(pmd, di)) {
-                lfo_change(di);
-                pmd->lfo_switch |= di->lfoswi & 0x30;
+        if ((lfosw & 0x30) != 0) {
+            lfo_change(part);
+            if (lfo(pmd, part)) {
+                lfo_change(part);
+                pmd->lfo_switch |= part->lfoswi & 0x30;
             } else {
-                lfo_change(di);
+                lfo_change(part);
             }
         }
         if ((pmd->lfo_switch & 0x19) != 0) {
-            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, di);
-            otodasiz(pmd, di);
+            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, part);
+            otodasiz(pmd, part);
         }
     }
     // PPZDRV.ASM:136 volsz
-    if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+    if (!soft_env(pmd, part) && (pmd->lfo_switch & 0x22) == 0 &&
         pmd->fadeout_speed == 0) {
-        mnp_ret(pmd, di);
+        mnp_ret(pmd, part);
         return;
     }
-    volsetz(pmd, di);
-    mnp_ret(pmd, di);
+    volsetz(pmd, part);
+    mnp_ret(pmd, part);
     return;
 
 ppzmain_nonplay:
     // PPZDRV.ASM:149
-    di->keyoff_flag = 0xff;
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
+    part->keyoff_flag = 0xff;
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
         return;
     }
 
 ppzmnp_1:
-    al = lodsb(&si);
-    if (al == 0x80) goto ppzmnp_2;
-    if (al < 0x80) goto ppzmnp_3;
-    switch (commandsz(pmd, di, &si)) {
+    cmd = lodsb(&src);
+    if (cmd == 0x80) goto ppzmnp_2;
+    if (cmd < 0x80) goto ppzmnp_3;
+    switch (commandsz(pmd, part, &src)) {
     case PMD_CMD_MP1Z: goto mp1z;
     case PMD_CMD_PPZMNP_1: goto ppzmnp_1;
     case PMD_CMD_PORTA_RETURNZ: goto porta_returnz;
@@ -2916,27 +2918,27 @@ ppzmnp_1:
 
 ppzmnp_2:
     // PPZDRV.ASM:163 End of music, or a loop if "L" was seen.
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) {
-        fmmnp_4(pmd, di);
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) {
+        fmmnp_4(pmd, part);
         return;
     }
-    si = di->partloop;
-    di->loopcheck = 1;
+    src = part->partloop;
+    part->loopcheck = 1;
     goto ppzmnp_1;
 
 ppzmnp_3:
     // PPZDRV.ASM:178 A rest goes through the shared rest-note path.
-    di->fnum2 = 0;
-    rest_note(pmd, di, &si);
+    part->fnum2 = 0;
+    rest_note(pmd, part, &src);
 }
 
 // PPZDRV.ASM:185
-static enum pmd_cmd_result commandsz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return command00(pmd, di, si, cmdtblz);
+static enum pmd_cmd_result commandsz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return command00(pmd, part, src, cmdtblz);
 }
 
 // PPZDRV.ASM:188
@@ -3026,38 +3028,38 @@ static const pmd_cmd_fn cmdtblz[0xff - 0xb1 + 1] = {
 // PPZDRV.ASM:287
 // Sets the extended PPZ8 parts (0b4h). Each 16-bit value is an offset into the
 // module data; a zero leaves the part untouched.
-static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
     for (int i = 0; i < 8; i++) {
-        uint16_t ax = lodsw(si);
-        if (ax == 0) continue;
-        struct pmd_qq *part = &pmd->parts[part10a + i];
-        part->address = pmd->mmlbuf + ax;
-        part->leng = 1; // starts on the next count
-        part->keyoff_flag = 0xff; // currently keyed off
-        part->mdc = 0xff; // M depth counter (infinite)
-        part->mdc2 = 0xff;
-        part->_mdc = 0xff;
-        part->_mdc2 = 0xff;
-        part->onkai = 0xff; // rest
-        part->volume = 128; // PCM volume default
-        part->fmpan = 5; // centre
+        uint16_t offset = lodsw(src);
+        if (offset == 0) continue;
+        struct pmd_qq *ext = &pmd->parts[part10a + i];
+        ext->address = pmd->mmlbuf + offset;
+        ext->leng = 1; // starts on the next count
+        ext->keyoff_flag = 0xff; // currently keyed off
+        ext->mdc = 0xff; // M depth counter (infinite)
+        ext->mdc2 = 0xff;
+        ext->_mdc = 0xff;
+        ext->_mdc2 = 0xff;
+        ext->onkai = 0xff; // rest
+        ext->volume = 128; // PCM volume default
+        ext->fmpan = 5; // centre
     }
     return PMD_CMD_RETURN;
 }
 
 // PPZDRV.ASM:320
-static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (al >= 2) return special_0c0h(pmd, di, si, al);
-    if (al == 0) {
-        di->partmask &= 0xbf;
-        if (di->partmask != 0) return PMD_CMD_PPZMNP_1;
+static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src);
+    if (mask >= 2) return special_0c0h(pmd, part, src, mask);
+    if (mask == 0) {
+        part->partmask &= 0xbf;
+        if (part->partmask != 0) return PMD_CMD_PPZMNP_1;
         return PMD_CMD_MP1Z; // the part is revived
     }
 
-    di->partmask |= 0x40;
-    if (di->partmask != 0x40) return PMD_CMD_PPZMNP_1;
+    part->partmask |= 0x40;
+    if (part->partmask != 0x40) return PMD_CMD_PPZMNP_1;
 #if ademu
     // PPZDRV.ASM:330 While the PCM part plays through PPZ8's ADPCM emulation,
     // channel 7 is the PCM part's, not this part's.
@@ -3070,117 +3072,117 @@ static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di,
 
 // PPZDRV.ASM:352
 // Sets the part's loop range from the PPZ8 voice table.
-static enum pmd_cmd_result ppzrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result ppzrepeat_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-    const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, di);
+    const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, part);
     if (drv != NULL && voice != NULL) {
         uint32_t size = voice->size;
         // Each parameter is an absolute offset unless it is negative, in which
         // case it counts back from the end of the data.
-        const uint8_t *p = *si;
+        const uint8_t *p = *src;
         uint32_t start = 0;
         uint32_t end = 0;
         for (int i = 0; i < 2; i++) {
-            uint16_t ax = (uint16_t)(p[0] | (p[1] << 8));
+            uint16_t param = (uint16_t)(p[0] | (p[1] << 8));
             p += 2;
             // PPZDRV.ASM:376 get_loop_ppz8 offsets a negative value by the
             // whole data size and leaves a positive one as it is.
-            uint32_t value = ax;
-            if ((int16_t)ax < 0) value = (uint32_t)(int32_t)(int16_t)ax + size;
+            uint32_t value = param;
+            if ((int16_t)param < 0) value = (uint32_t)(int32_t)(int16_t)param + size;
             if (i == 0) start = value;
             else end = value;
         }
         drv->set_loop(pmd->partb, start, end, pmd->user_data);
     }
-    *si += 6;
+    *src += 6;
     return PMD_CMD_RETURN;
 }
 
 // PPZDRV.ASM:392
 // Returns the part's PPZ8 voice table entry, or NULL when the voice is not
 // loaded.
-static const struct pmd_ppz8_voice *ppz_voicetable_calc(struct pmd *pmd, struct pmd_qq *di) {
+static const struct pmd_ppz8_voice *ppz_voicetable_calc(struct pmd *pmd, struct pmd_qq *part) {
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv == NULL) return NULL;
-    return drv->get_voice(di->voicenum, pmd->user_data);
+    return drv->get_voice(part->voicenum, pmd->user_data);
 }
 
 // PPZDRV.ASM:415
 // Portamento for the PPZ8 parts (0dah).
-static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (di->partmask != 0) {
-        (*si)++; // the first pitch byte is skipped while masked
+static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (part->partmask != 0) {
+        (*src)++; // the first pitch byte is skipped while masked
         return PMD_CMD_RETURN;
     }
 
-    uint8_t al = lodsb(si);
-    al = lfoinitp(pmd, di, al);
-    al = oshift(di, al);
-    fnumsetz(pmd, di, al);
+    uint8_t note = lodsb(src);
+    note = lfoinitp(pmd, part, note);
+    note = oshift(part, note);
+    fnumsetz(pmd, part, note);
 
-    uint32_t fnum = ((uint32_t)di->fnum2 << 16) | di->fnum;
-    uint8_t onkai = di->onkai;
+    uint32_t from_fnum = ((uint32_t)part->fnum2 << 16) | part->fnum;
+    uint8_t from_note = part->onkai;
 
-    al = lodsb(si);
-    al = oshift(di, al);
-    fnumsetz(pmd, di, al);
-    uint32_t target = ((uint32_t)di->fnum2 << 16) | di->fnum;
+    note = lodsb(src);
+    note = oshift(part, note);
+    fnumsetz(pmd, part, note);
+    uint32_t to_fnum = ((uint32_t)part->fnum2 << 16) | part->fnum;
 
-    di->onkai = onkai;
-    di->fnum = (uint16_t)fnum;
-    di->fnum2 = (uint16_t)(fnum >> 16);
+    part->onkai = from_note;
+    part->fnum = (uint16_t)from_fnum;
+    part->fnum2 = (uint16_t)(from_fnum >> 16);
 
-    int32_t delta = (int32_t)(target - fnum) >> 4;
-    di->leng = lodsb(si);
-    calc_q(pmd, di, si);
+    int32_t delta = (int32_t)(to_fnum - from_fnum) >> 4;
+    part->leng = lodsb(src);
+    calc_q(pmd, part, src);
 
-    int16_t n = (int16_t)(uint16_t)delta;
-    di->porta_num2 = (int16_t)(n / (int16_t)di->leng);
-    di->porta_num3 = (int16_t)(n % (int16_t)di->leng);
-    di->lfoswi |= 8; // portamento on
+    int16_t step = (int16_t)(uint16_t)delta;
+    part->porta_num2 = (int16_t)(step / (int16_t)part->leng);
+    part->porta_num3 = (int16_t)(step % (int16_t)part->leng);
+    part->lfoswi |= 8; // portamento on
     return PMD_CMD_PORTA_RETURNZ;
 }
 
 // PPZDRV.ASM:475
-static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    al = ppzpandata[al & 3];
-    di->fmpan = al;
+static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t pan = lodsb(src);
+    pan = ppzpandata[pan & 3];
+    part->fmpan = pan;
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-    if (drv != NULL) drv->set_pan(pmd->partb, al, pmd->user_data);
+    if (drv != NULL) drv->set_pan(pmd->partb, pan, pmd->user_data);
     return PMD_CMD_RETURN;
 }
 
 // PPZDRV.ASM:494
 // Pan setting extend: px -4..+4 (0c3h), mapped onto PPZ8's 1..9.
-static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    (*si)++; // the reversed-phase flag is skipped
-    if ((int8_t)al >= 0) {
-        if (al >= 5) al = 4;
-    } else if ((int8_t)al < -4) {
-        al = (uint8_t)-4;
+static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t pan = lodsb(src);
+    (*src)++; // the reversed-phase flag is skipped
+    if ((int8_t)pan >= 0) {
+        if (pan >= 5) pan = 4;
+    } else if ((int8_t)pan < -4) {
+        pan = (uint8_t)-4;
     }
-    al = (uint8_t)(al + 5);
-    di->fmpan = al;
+    pan = (uint8_t)(pan + 5);
+    part->fmpan = pan;
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-    if (drv != NULL) drv->set_pan(pmd->partb, al, pmd->user_data);
+    if (drv != NULL) drv->set_pan(pmd->partb, pan, pmd->user_data);
     return PMD_CMD_RETURN;
 }
 
 // PPZDRV.ASM:514
-static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t voice = lodsb(src);
 #if ademu
     bool revive = false;
     if (pmd->adpcm_emulate == 1) {
         // PPZDRV.ASM:521 Voices 128-255 cannot be emulated; they fall back to
         // 127.
-        if ((int8_t)al < 0) al = 127;
+        if ((int8_t)voice < 0) voice = 127;
         if (pmd->partb == 7) {
             pmd->parts[part10].partmask |= 0x10;
-            di->partmask &= 0xef;
-            revive = di->partmask == 0;
+            part->partmask &= 0xef;
+            revive = part->partmask == 0;
             pmd->adpcm_emulate = 0;
             const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
             if (drv != NULL) {
@@ -3189,8 +3191,8 @@ static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t 
         }
     }
 #endif
-    di->voicenum = al;
-    ppz_neiro_reset(pmd, di);
+    part->voicenum = voice;
+    ppz_neiro_reset(pmd, part);
 #if ademu
     if (revive) return PMD_CMD_MP1Z;
 #endif
@@ -3199,69 +3201,69 @@ static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t 
 
 // PPZDRV.ASM:542
 // Loads the voice's loop range and source rate into PPZ8.
-static void ppz_neiro_reset(struct pmd *pmd, struct pmd_qq *di) {
+static void ppz_neiro_reset(struct pmd *pmd, struct pmd_qq *part) {
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv == NULL) return;
-    const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, di);
+    const struct pmd_ppz8_voice *voice = ppz_voicetable_calc(pmd, part);
     if (voice == NULL) return;
     drv->set_loop(pmd->partb, voice->loop_start, voice->loop_end, pmd->user_data);
     drv->set_source_rate(pmd->partb, voice->rate, pmd->user_data);
 }
 
 // PPZDRV.ASM:571
-static void volsetz(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t al = pcm_vol_calc(pmd, di, pmd->ppz_voldown, false);
+static void volsetz(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t volume = pcm_vol_calc(pmd, part, pmd->ppz_voldown, false);
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv == NULL) return;
-    if (al == 0) {
+    if (volume == 0) {
         drv->keyoff(pmd->partb, pmd->user_data); // volume 0 is a keyoff
         return;
     }
-    drv->set_volume(pmd->partb, (uint8_t)(al >> 4), pmd->user_data);
+    drv->set_volume(pmd->partb, (uint8_t)(volume >> 4), pmd->user_data);
 }
 
 // PPZDRV.ASM:699
-static void keyonz(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->onkai == 0xff) return;
+static void keyonz(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->onkai == 0xff) return;
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv == NULL) return;
     // PPZDRV.ASM:710 DX = the voice number with bit 7 moved to bit 15 (the
     // bank select).
-    uint8_t num = di->voicenum;
+    uint8_t num = part->voicenum;
     uint16_t voice = (uint16_t)((num & 0x7f) | ((uint16_t)(num & 0x80) << 8));
     drv->keyon(pmd->partb, voice, pmd->user_data);
 }
 
 // PPZDRV.ASM:720
-static void keyoffz(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->envf == 0xff) {
-        if (di->eenv_count == 4) return;
-    } else if (di->envf == 2) {
+static void keyoffz(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->envf == 0xff) {
+        if (part->eenv_count == 4) return;
+    } else if (part->envf == 2) {
         return;
     }
-    keyoffp(pmd, di);
+    keyoffp(pmd, part);
 }
 
 // PPZDRV.ASM:735
 // Sets the PPZ8 tone from the fnum, portamento, LFO, and detune.
-static void otodasiz(struct pmd *pmd, struct pmd_qq *di) {
-    uint32_t value = ((uint32_t)di->fnum2 << 16) | di->fnum;
+static void otodasiz(struct pmd *pmd, struct pmd_qq *part) {
+    uint32_t value = ((uint32_t)part->fnum2 << 16) | part->fnum;
     if (value == 0) return;
 
-    if (di->porta_num != 0) value += (uint32_t)((int32_t)di->porta_num * 16);
+    if (part->porta_num != 0) value += (uint32_t)((int32_t)part->porta_num * 16);
 
-    int16_t ax = 0;
-    if ((di->lfoswi & 0x11) != 0) {
-        if ((di->lfoswi & 1) != 0) ax = (int16_t)(ax + di->lfodat);
-        if ((di->lfoswi & 0x10) != 0) ax = (int16_t)(ax + di->_lfodat);
+    int16_t delta = 0;
+    if ((part->lfoswi & 0x11) != 0) {
+        if ((part->lfoswi & 1) != 0) delta = (int16_t)(delta + part->lfodat);
+        if ((part->lfoswi & 0x10) != 0) delta = (int16_t)(delta + part->_lfodat);
     }
-    ax = (int16_t)(ax + di->detune);
+    delta = (int16_t)(delta + part->detune);
 
     // PPZDRV.ASM:771 DX = the high bytes of both halves, the pitch the delta
     // scales by.
     int16_t scale = (int16_t)((uint16_t)((value >> 8) & 0xff) |
                               (uint16_t)(((value >> 24) & 0xff) << 8));
-    int32_t product = (int32_t)ax * scale;
+    int32_t product = (int32_t)delta * scale;
     uint32_t sum = value + (uint32_t)product;
     if ((product >> 16) < 0) {
         if (sum < value) value = sum;
@@ -3278,37 +3280,37 @@ static void otodasiz(struct pmd *pmd, struct pmd_qq *di) {
 }
 
 // PPZDRV.ASM:801
-// Sets the PPZ8 pitch from the note in al.
-static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+// Sets the PPZ8 pitch from `note`.
+static void fnumsetz(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
     (void)pmd;
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) {
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0f) {
         // PPZDRV.ASM:805 a rest
-        di->onkai = 0xff;
-        if ((di->lfoswi & 0x11) != 0) return;
-        di->fnum = 0;
-        di->fnum2 = 0;
+        part->onkai = 0xff;
+        if ((part->lfoswi & 0x11) != 0) return;
+        part->fnum = 0;
+        part->fnum2 = 0;
         return;
     }
-    di->onkai = al;
+    part->onkai = note;
 
-    uint16_t ax = ppz_tune_data[ah];
-    uint16_t dx = 0;
+    uint16_t fnum = ppz_tune_data[pitch_class];
+    uint16_t frac = 0;
 
-    uint8_t cl = (uint8_t)((al >> 4) & 0x0f); // the octave
-    if (cl < 4) {
+    uint8_t octave = (uint8_t)((note >> 4) & 0x0f); // the octave
+    if (octave < 4) {
         // PPZDRV.ASM:824 shr ax,cl
-        ax = (uint16_t)(ax >> (4 - cl));
+        fnum = (uint16_t)(fnum >> (4 - octave));
     } else {
         // PPZDRV.ASM:830 ppz_over_o5_loop
-        for (cl -= 4; cl != 0; cl--) {
-            dx = (uint16_t)((dx << 1) | (ax >> 15));
-            ax = (uint16_t)(ax << 1);
+        for (octave -= 4; octave != 0; octave--) {
+            frac = (uint16_t)((frac << 1) | (fnum >> 15));
+            fnum = (uint16_t)(fnum << 1);
         }
     }
     // PPZDRV.ASM:835 ppz_fnumset
-    di->fnum = ax;
-    di->fnum2 = dx;
+    part->fnum = fnum;
+    part->fnum2 = frac;
 }
 #endif
 
@@ -3316,9 +3318,9 @@ static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 #if pcm
 // PCMDRV86.ASM:412
 // The /S option scales every explicit size and offset by 32.
-static uint16_t pcm86vol_chk(struct pmd *pmd, uint16_t ax) {
-    if (pmd->pcm86_vol == 0) return ax;
-    unsigned scaled = (unsigned)ax << 5;
+static uint16_t pcm86vol_chk(struct pmd *pmd, uint16_t value) {
+    if (pmd->pcm86_vol == 0) return value;
+    unsigned scaled = (unsigned)value << 5;
     return (uint16_t)scaled;
 }
 
@@ -3333,24 +3335,24 @@ static const uint8_t *get_data_offset(struct pmd *pmd) {
 
 // PCMDRV86.ASM:789
 // Writes the PCM86 frequency register from the addsize values.
-static void tone_set2(struct pmd *pmd, uint16_t ax, uint8_t bl) {
-    pmd->addsize2 = ax;
-    pmd->addsize1 = (uint8_t)(bl & 0x1f);
+static void tone_set2(struct pmd *pmd, uint16_t freq, uint8_t rate) {
+    pmd->addsize2 = freq;
+    pmd->addsize1 = (uint8_t)(rate & 0x1f);
     // PCMDRV86.ASM:796 Bits 5-7 of BL become the slowest three rate bits,
     // inverted.
-    bl = (uint8_t)(((bl << 3) | (bl >> 5)) & 0x07);
-    bl ^= 7;
-    uint8_t al = inb(pmd, 0xa468);
-    outb(pmd, 0x5f, al);
-    al &= 0xf8;
-    al |= bl;
-    outb(pmd, 0xa468, al);
+    rate = (uint8_t)(((rate << 3) | (rate >> 5)) & 0x07);
+    rate ^= 7;
+    uint8_t flags = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, flags);
+    flags &= 0xf8;
+    flags |= rate;
+    outb(pmd, 0xa468, flags);
 }
 
 // PCMDRV86.ASM:534
 // Loads a PCM86 voice's data range from the voice table.
-static void neiro_set(struct pmd *pmd, uint8_t al) {
-    const struct pmd_pcm86_voice *v = &pmd->pcm_table.pcm86.pcmadrs[al];
+static void neiro_set(struct pmd *pmd, uint8_t voice) {
+    const struct pmd_pcm86_voice *v = &pmd->pcm_table.pcm86.pcmadrs[voice];
     pmd->_start_ofs = (uint16_t)v->offset;
     pmd->_start_ofs2 = (uint16_t)(v->offset >> 16);
     pmd->_size1 = (uint16_t)v->size;
@@ -3361,31 +3363,31 @@ static void neiro_set(struct pmd *pmd, uint8_t al) {
 
 // PCMDRV86.ASM:671
 // Writes a 0..255 volume to the PCM86 volume register.
-static void pcm86_vol_out(struct pmd *pmd, uint8_t al) {
+static void pcm86_vol_out(struct pmd *pmd, uint8_t volume) {
     if (pmd->pcm86_vol != 0) {
         // PCMDRV86.ASM:676 SPB-style volume: the register takes roughly
-        // sqrt(al).
-        uint8_t ah = al;
+        // sqrt(volume).
+        uint8_t rem = volume;
         uint8_t sq = 0;
         bool carry = true;
         for (;;) {
-            unsigned sub = (unsigned)ah - sq - (carry ? 1 : 0);
+            unsigned sub = (unsigned)rem - sq - (carry ? 1 : 0);
             carry = sub > 0xff;
-            ah = (uint8_t)sub;
+            rem = (uint8_t)sub;
             if (carry) break;
-            sub = (unsigned)ah - sq;
+            sub = (unsigned)rem - sq;
             carry = sub > 0xff;
-            ah = (uint8_t)sub;
+            rem = (uint8_t)sub;
             if (carry) break;
             sq++;
             if (sq == 15) break;
         }
-        al = sq;
+        volume = sq;
     } else {
-        al >>= 4;
+        volume >>= 4;
     }
-    al = (uint8_t)((al & 0x0f) ^ 0x0f);
-    outb(pmd, 0xa466, (uint8_t)(al | 0xa0));
+    volume = (uint8_t)((volume & 0x0f) ^ 0x0f);
+    outb(pmd, 0xa466, (uint8_t)(volume | 0xa0));
 }
 #endif
 
@@ -3434,11 +3436,11 @@ static void pcm86_out_sample(struct pmd *pmd, uint8_t data) {
 struct pcm_transfer {
     // DS:SI: the mapped sample data and the offset within it.
     const uint8_t *base;
-    uint16_t si;
+    uint16_t src;
     // DI: the remaining size's low word.
-    uint16_t di;
+    uint16_t size;
     // BP: the bytes written since the last remap.
-    uint16_t bp;
+    uint16_t written;
 };
 
 // PCMDRV86.ASM:1094
@@ -3450,26 +3452,26 @@ static bool add_address(struct pmd *pmd, struct pcm_transfer *t) {
     pmd->addsizew = sum;
 
     uint16_t add = pmd->addsize1;
-    t->bp = (uint16_t)(t->bp + add + (carry ? 1 : 0));
-    t->si = (uint16_t)(t->si + add + (carry ? 1 : 0));
+    t->written = (uint16_t)(t->written + add + (carry ? 1 : 0));
+    t->src = (uint16_t)(t->src + add + (carry ? 1 : 0));
 
-    if (t->si >= 0x4000) {
+    if (t->src >= 0x4000) {
         // The 16 KB EMS window is exhausted: advance and remap.
         uint32_t offset = ((uint32_t)pmd->start_ofs2 << 16) | pmd->start_ofs;
-        offset += t->bp;
+        offset += t->written;
         pmd->start_ofs = (uint16_t)offset;
         pmd->start_ofs2 = (uint16_t)(offset >> 16);
-        t->bp = 0;
+        t->written = 0;
         t->base = get_data_offset(pmd);
-        t->si = 0;
+        t->src = 0;
     }
 
-    unsigned di = (unsigned)t->di - add - (carry ? 1 : 0);
-    bool borrow = di > 0xffff;
-    t->di = (uint16_t)di;
+    unsigned remaining = (unsigned)t->size - add - (carry ? 1 : 0);
+    bool borrow = remaining > 0xffff;
+    t->size = (uint16_t)remaining;
 
     if (!borrow) {
-        if (t->di != 0) return false;
+        if (t->size != 0) return false;
         if (pmd->size2 != 0) return false;
     } else {
         if (pmd->size2 != 0) {
@@ -3483,12 +3485,12 @@ static bool add_address(struct pmd *pmd, struct pcm_transfer *t) {
     if (pmd->release_flag2 == 1) return true;
 
     pmd->size2 = pmd->repeat_size2;
-    t->di = pmd->repeat_size1;
+    t->size = pmd->repeat_size1;
     pmd->start_ofs2 = pmd->repeat_ofs2;
     pmd->start_ofs = pmd->repeat_ofs;
-    t->bp = 0;
+    t->written = 0;
     t->base = get_data_offset(pmd);
-    t->si = 0;
+    t->src = 0;
     return false;
 }
 
@@ -3515,9 +3517,9 @@ static void pcm_trans(struct pmd *pmd, uint16_t count) {
     {
         struct pcm_transfer t = {
             .base = get_data_offset(pmd),
-            .si = 0,
-            .di = pmd->size1,
-            .bp = 0,
+            .src = 0,
+            .size = pmd->size1,
+            .written = 0,
         };
         uint16_t remaining = count;
         bool finished = false;
@@ -3526,7 +3528,7 @@ static void pcm_trans(struct pmd *pmd, uint16_t count) {
                 finished = true;
                 break;
             }
-            pcm86_out_sample(pmd, t.base[t.si]);
+            pcm86_out_sample(pmd, t.base[t.src]);
             if (add_address(pmd, &t)) {
                 finished = true;
                 break;
@@ -3548,10 +3550,10 @@ static void pcm_trans(struct pmd *pmd, uint16_t count) {
         } else {
             // PCMDRV86.ASM:977 trans_exit
             uint32_t offset = ((uint32_t)pmd->start_ofs2 << 16) | pmd->start_ofs;
-            offset += t.bp;
+            offset += t.written;
             pmd->start_ofs = (uint16_t)offset;
             pmd->start_ofs2 = (uint16_t)(offset >> 16);
-            pmd->size1 = t.di;
+            pmd->size1 = t.size;
         }
     }
     pmd->p86->pop_ems(pmd->user_data);
@@ -3572,38 +3574,38 @@ static void fifo_main(struct pmd *pmd) {
     }
 
     // PCMDRV86.ASM:894 Reset the FIFO interrupt flag and release it.
-    uint8_t al = inb(pmd, 0xa468);
-    outb(pmd, 0x5f, al);
-    al &= 0xef;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al |= 0x10;
-    outb(pmd, 0xa468, al);
+    uint8_t value = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, value);
+    value &= 0xef;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value |= 0x10;
+    outb(pmd, 0xa468, value);
 }
 
 // PCMDRV86.ASM:1205
 static void play_86pcm(struct pmd *pmd) {
     // PCMDRV86.ASM:1209 Stop playback, select the CPU-to-FIFO mode, and reset
     // the FIFO.
-    uint8_t al = inb(pmd, 0xa468);
-    outb(pmd, 0x5f, al);
-    al &= 0x7f;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al &= 0xbf;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al |= 0x08;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al &= 0xf7;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al &= 0xdf;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al &= 0xef;
-    outb(pmd, 0xa468, al);
+    uint8_t value = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, value);
+    value &= 0x7f;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value &= 0xbf;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value |= 0x08;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value &= 0xf7;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value &= 0xdf;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value &= 0xef;
+    outb(pmd, 0xa468, value);
     outb(pmd, 0xa46a, 0xf2); // pan: 8-bit left and right
 
     // PCMDRV86.ASM:1249 The first buffer comes from the voice's start.
@@ -3616,20 +3618,20 @@ static void play_86pcm(struct pmd *pmd) {
     pcm_trans(pmd, trans_size);
 
     // PCMDRV86.ASM:1265 Enable the FIFO interrupt at trans_size bytes.
-    al = inb(pmd, 0xa468);
-    outb(pmd, 0x5f, al);
-    al |= 0x10;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al |= 0x20;
-    outb(pmd, 0xa468, al);
+    value = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, value);
+    value |= 0x10;
+    outb(pmd, 0xa468, value);
+    outb(pmd, 0x5f, value);
+    value |= 0x20;
+    outb(pmd, 0xa468, value);
     outb(pmd, 0xa46a, (uint8_t)(trans_size / 128 - 1));
 
     // PCMDRV86.ASM:1285 Start playback.
-    al = inb(pmd, 0xa468);
-    outb(pmd, 0x5f, al);
-    al |= 0x80;
-    outb(pmd, 0xa468, al);
+    value = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, value);
+    value |= 0x80;
+    outb(pmd, 0xa468, value);
 
     pmd->play86_flag = 1;
     pmd->trans_flag = 1;
@@ -3638,28 +3640,28 @@ static void play_86pcm(struct pmd *pmd) {
 // PCMDRV86.ASM:1300
 // Stops PCM86 playback and leaves the FIFO interrupt disabled.
 static void stop_86pcm(struct pmd *pmd) {
-    uint8_t al = inb(pmd, 0xa468);
-    outb(pmd, 0x5f, al);
-    al &= 0x7f;
-    outb(pmd, 0xa468, al);
+    uint8_t efcnum = inb(pmd, 0xa468);
+    outb(pmd, 0x5f, efcnum);
+    efcnum &= 0x7f;
+    outb(pmd, 0xa468, efcnum);
 
-    outb(pmd, 0x5f, al);
-    al |= 0x08;
-    outb(pmd, 0xa468, al); // FIFO reset
-    outb(pmd, 0x5f, al);
-    al &= 0xf7;
-    outb(pmd, 0xa468, al); // reset released
+    outb(pmd, 0x5f, efcnum);
+    efcnum |= 0x08;
+    outb(pmd, 0xa468, efcnum); // FIFO reset
+    outb(pmd, 0x5f, efcnum);
+    efcnum &= 0xf7;
+    outb(pmd, 0xa468, efcnum); // reset released
 
-    outb(pmd, 0x5f, al);
-    al &= 0xdf;
-    outb(pmd, 0xa468, al); // FIFO interrupt disabled
+    outb(pmd, 0x5f, efcnum);
+    efcnum &= 0xdf;
+    outb(pmd, 0xa468, efcnum); // FIFO interrupt disabled
 
-    outb(pmd, 0x5f, al);
-    al &= 0xef;
-    outb(pmd, 0xa468, al);
-    outb(pmd, 0x5f, al);
-    al |= 0x10;
-    outb(pmd, 0xa468, al);
+    outb(pmd, 0x5f, efcnum);
+    efcnum &= 0xef;
+    outb(pmd, 0xa468, efcnum);
+    outb(pmd, 0x5f, efcnum);
+    efcnum |= 0x10;
+    outb(pmd, 0xa468, efcnum);
 
     pmd->play86_flag = 0;
     pmd->trans_flag = 0;
@@ -3668,16 +3670,16 @@ static void stop_86pcm(struct pmd *pmd) {
 
 #if pcm
 // PCMDRV86.ASM:1347
-// Plays a PCM effect: AL is the effect number, DX the DeltaN, CH the pan, and
-// CL the volume.
-static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
-                       uint8_t cl) {
+// Plays a PCM effect: `efcnum` is the effect number, `deltan` the DeltaN, `pan`
+// the pan, and `volume` the volume.
+static void pcm_effect(struct pmd *pmd, uint8_t efcnum, uint16_t deltan, uint8_t pan,
+                       uint8_t volume) {
     pmd->parts[part10].partmask |= 2;
     pmd->pcmflag = 1;
-    pmd->pcm_effec_num = al;
-    pmd->_voice_delta_n = dx;
-    pmd->_pcm_volume = cl;
-    pmd->_pcmpan = ch;
+    pmd->pcm_effec_num = efcnum;
+    pmd->_voice_delta_n = deltan;
+    pmd->_pcm_volume = volume;
+    pmd->_pcmpan = pan;
 
     stop_86pcm(pmd);
 
@@ -3688,43 +3690,43 @@ static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
     // becomes the rate and the low byte the fraction.
     uint8_t lo = (uint8_t)pmd->_voice_delta_n;
     uint8_t hi = (uint8_t)(pmd->_voice_delta_n >> 8);
-    uint8_t bl = (uint8_t)((hi & 0x0f) | ((hi & 0x70) << 1));
-    tone_set2(pmd, (uint16_t)(lo << 8), bl);
+    uint8_t rate = (uint8_t)((hi & 0x0f) | ((hi & 0x70) << 1));
+    tone_set2(pmd, (uint16_t)(lo << 8), rate);
     pcm86_vol_out(pmd, pmd->_pcm_volume);
     play_86pcm(pmd);
 }
 #elif ademu
 // PCMDRVE.ASM:761 The PPZ8 emulation has no interrupt PCM effect.
-static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
-                       uint8_t cl) {
+static void pcm_effect(struct pmd *pmd, uint8_t efcnum, uint16_t deltan, uint8_t pan,
+                       uint8_t volume) {
     (void)pmd;
-    (void)al;
-    (void)dx;
-    (void)ch;
-    (void)cl;
+    (void)efcnum;
+    (void)deltan;
+    (void)pan;
+    (void)volume;
 }
 #else
 // PCMDRV.ASM:821
-static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
-                       uint8_t cl) {
+static void pcm_effect(struct pmd *pmd, uint8_t efcnum, uint16_t deltan, uint8_t pan,
+                       uint8_t volume) {
     if (pmd->pcm_gs_flag == 1) return; // the ADPCM is not available
 
     pmd->parts[part10].partmask |= 2;
     pmd->pcmflag = 1;
-    pmd->pcm_effec_num = al;
-    pmd->_voice_delta_n = dx;
-    pmd->_pcm_volume = cl;
-    pmd->_pcmpan = ch;
+    pmd->pcm_effec_num = efcnum;
+    pmd->_voice_delta_n = deltan;
+    pmd->_pcm_volume = volume;
+    pmd->_pcmpan = pan;
 
     {
-        const struct pmd_pcm_adpcm_voice *v = &pmd->pcm_table.adpcm_data.pcmadrs[al];
+        const struct pmd_pcm_adpcm_voice *v = &pmd->pcm_table.adpcm_data.pcmadrs[efcnum];
         pmd->_pcmstart = v->start;
         pmd->_pcmstop = v->stop;
     }
     opnset46(pmd, (uint16_t)((0x0b << 8) | pmd->_pcm_volume));
-    uint16_t bx = pmd->_voice_delta_n;
-    opnset46(pmd, (uint16_t)((0x09 << 8) | (uint8_t)bx));
-    opnset46(pmd, (uint16_t)((0x0a << 8) | (uint8_t)(bx >> 8)));
+    uint16_t tone = pmd->_voice_delta_n;
+    opnset46(pmd, (uint16_t)((0x09 << 8) | (uint8_t)tone));
+    opnset46(pmd, (uint16_t)((0x0a << 8) | (uint8_t)(tone >> 8)));
 
     // PCMDRV.ASM:884 pcm_keyon
     opnset46(pmd, 0x0102); // x8 bit mode
@@ -3750,30 +3752,30 @@ enum {
 // EFCDRV.ASM:9
 // Plays a rhythm effect through PPSDRV when its voice differs from the one
 // played last, then starts the SSG effect with pitch and volume correction.
-static void effgo(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static void effgo(struct pmd *pmd, struct pmd_qq *part, uint8_t efcnum) {
     if (pmd->ppsdrv_flag != 0) {
-        al |= 0x80;
-        bool same = pmd->last_shot_data == al;
-        pmd->last_shot_data = al;
+        efcnum |= 0x80;
+        bool same = pmd->last_shot_data == efcnum;
+        pmd->last_shot_data = efcnum;
         if (same && pmd->pps != NULL) pmd->pps->keyoff(pmd->user_data);
     }
     pmd->hosei_flag = 3; // pitch and volume correction (the rhythm part)
-    eff_main(pmd, di, al);
+    eff_main(pmd, part, efcnum);
 }
 
 // EFCDRV.ASM:22
 // The 'n' command's entry: it corrects the pitch only.
-static void eff_on2(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static void eff_on2(struct pmd *pmd, struct pmd_qq *part, uint8_t efcnum) {
     pmd->hosei_flag = 1;
-    eff_main(pmd, di, al);
+    eff_main(pmd, part, efcnum);
 }
 
 // EFCDRV.ASM:25
 // The INT 60h entry to eff_main, which it reaches with no pitch or volume
 // correction.
-static void eff_on(struct pmd *pmd, uint8_t al) {
+static void eff_on(struct pmd *pmd, uint8_t efcnum) {
     pmd->hosei_flag = 0;
-    eff_main(pmd, NULL, al);
+    eff_main(pmd, NULL, efcnum);
 }
 
 // EFCDRV.ASM:25
@@ -3784,41 +3786,41 @@ void pmd_eff_on(struct pmd *pmd, uint8_t efcnum) {
 }
 
 // EFCDRV.ASM:27
-// Starts the effect named by al. A negative effect number goes to PPSDRV when
+// Starts the effect named by efcnum. A negative effect number goes to PPSDRV when
 // PPSDRV is resident and the effect driver is off; everything else uses the
 // SSG effect table.
-static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static void eff_main(struct pmd *pmd, struct pmd_qq *part, uint8_t efcnum) {
     if (pmd->effflag != 0) return; // the effects are disabled
 
-    if (pmd->ppsdrv_flag != 0 && (int8_t)al < 0) {
+    if (pmd->ppsdrv_flag != 0 && (int8_t)efcnum < 0) {
         // EFCDRV.ASM:40 ppsdrv
         if (pmd->effon >= 2) return; // an ordinary effect is sounding
         pmd->parts[part9].partmask |= 2;
         pmd->effon = 1; // priority 1 (ppsdrv)
-        pmd->psgefcnum = al;
+        pmd->psgefcnum = efcnum;
 
-        uint8_t bh = 0;
-        uint8_t bl = 15;
+        uint8_t detune = 0;
+        uint8_t volume = 15;
         if ((pmd->hosei_flag & 1) != 0) {
             // BH = the low byte of the part's detune
-            bh = (uint8_t)di->detune;
-            bl = 15;
+            detune = (uint8_t)part->detune;
+            volume = 15;
         }
         if ((pmd->hosei_flag & 2) != 0) {
-            if (di->volume < 15) bl = di->volume;
+            if (part->volume < 15) volume = part->volume;
             uint8_t fade = pmd->fadeout_volume;
             if (fade != 0) {
-                uint16_t product = (uint16_t)bl * (uint8_t)(-fade);
-                bl = (uint8_t)(product >> 8);
+                uint16_t product = (uint16_t)volume * (uint8_t)(-fade);
+                volume = (uint8_t)(product >> 8);
             }
         }
-        if (bl == 0) return;
-        bl ^= 0x0f;
+        if (volume == 0) return;
+        volume ^= 0x0f;
         if (pmd->pps != NULL) {
             struct pmd_pps_keyon keyon = {
-                .num = (uint8_t)(al & 0x7f),
-                .detune = bh,
-                .volume = bl,
+                .num = (uint8_t)(efcnum & 0x7f),
+                .detune = detune,
+                .volume = volume,
             };
             pmd->pps->keyon(keyon, pmd->user_data);
         }
@@ -3826,18 +3828,18 @@ static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     }
 
     // EFCDRV.ASM:84 eg_nonppsdrv
-    pmd->psgefcnum = al;
-    if (al >= eff_count) return; // no such effect; the original reads past the table
-    const uint8_t *bx = &efftbl[(unsigned)al * 3];
-    if (pmd->effon > bx[0]) return; // a higher-priority effect is sounding
+    pmd->psgefcnum = efcnum;
+    if (efcnum >= eff_count) return; // no such effect; the original reads past the table
+    const uint8_t *entry = &efftbl[(unsigned)efcnum * 3];
+    if (pmd->effon > entry[0]) return; // a higher-priority effect is sounding
 
     if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL) {
         pmd->pps->keyoff(pmd->user_data);
     }
-    const uint8_t *si = &efftbl[(unsigned)(bx[1] | (bx[2] << 8))];
-    uint8_t priority = bx[0];
+    const uint8_t *src = &efftbl[(unsigned)(entry[1] | (entry[2] << 8))];
+    uint8_t priority = entry[0];
     pmd->parts[part9].partmask |= 2;
-    efffor(pmd, &si); // the first frame
+    efffor(pmd, &src); // the first frame
     pmd->effon = priority;
 }
 
@@ -3848,62 +3850,62 @@ static void effplay(struct pmd *pmd) {
         effsweep(pmd);
         return;
     }
-    const uint8_t *si = pmd->effadr;
-    efffor(pmd, &si);
+    const uint8_t *src = pmd->effadr;
+    efffor(pmd, &src);
 }
 
 // EFCDRV.ASM:178
-// Reads one data byte and writes it to the register in dh, then steps dh.
-static void efsnd(struct pmd *pmd, const uint8_t **si, uint8_t *dh,
-                  uint8_t *dl) {
-    *dl = *(*si)++;
-    opnset44(pmd, (uint16_t)((*dh << 8) | *dl));
-    (*dh)++;
+// Reads one data byte and writes it to the register in reg, then steps reg.
+static void efsnd(struct pmd *pmd, const uint8_t **src, uint8_t *reg,
+                  uint8_t *value) {
+    *value = *(*src)++;
+    opnset44(pmd, (uint16_t)((*reg << 8) | *value));
+    (*reg)++;
 }
 
 // EFCDRV.ASM:125
-// Plays one effect frame from si and stores the cursor for the sweep ticks.
-static void efffor(struct pmd *pmd, const uint8_t **si) {
-    uint8_t dh;
-    uint8_t dl;
+// Plays one effect frame from src and stores the cursor for the sweep ticks.
+static void efffor(struct pmd *pmd, const uint8_t **src) {
+    uint8_t reg;
+    uint8_t value;
 
-    uint8_t al = *(*si)++;
-    if (al == 0xff) {
+    uint8_t data = *(*src)++;
+    if (data == 0xff) {
         effend(pmd);
         return;
     }
-    pmd->effcnt = al;
+    pmd->effcnt = data;
 
-    dh = 4; // tone frequency
-    efsnd(pmd, si, &dh, &dl);
-    uint8_t cl = dl;
-    efsnd(pmd, si, &dh, &dl);
-    uint8_t ch = dl;
-    pmd->eswthz = (uint16_t)((ch << 8) | cl);
+    reg = 4; // tone frequency
+    efsnd(pmd, src, &reg, &value);
+    uint8_t low = value;
+    efsnd(pmd, src, &reg, &value);
+    uint8_t high = value;
+    pmd->eswthz = (uint16_t)((high << 8) | low);
 
-    pmd->eswnhz = **si;
-    dh = 6; // noise frequency
-    efsnd(pmd, si, &dh, &dl);
-    pmd->psnoi_last = dl;
+    pmd->eswnhz = **src;
+    reg = 6; // noise frequency
+    efsnd(pmd, src, &reg, &value);
+    pmd->psnoi_last = value;
 
     // The mix data byte: bit 3 is the tone and bit 5 the noise enable.
-    al = *(*si)++;
-    dl = (uint8_t)(((al << 2) | (al >> 6)) & 0x24);
+    data = *(*src)++;
+    value = (uint8_t)(((data << 2) | (data >> 6)) & 0x24);
     uint8_t reg07 = get07(pmd);
-    dl = (uint8_t)(dl | (reg07 & 0xdb));
-    opnset44(pmd, (uint16_t)((7 << 8) | dl));
+    value = (uint8_t)(value | (reg07 & 0xdb));
+    opnset44(pmd, (uint16_t)((7 << 8) | value));
 
-    dh = 10; // volume, envelope frequency (two bytes), and envelope pattern
-    efsnd(pmd, si, &dh, &dl);
-    efsnd(pmd, si, &dh, &dl);
-    efsnd(pmd, si, &dh, &dl);
-    efsnd(pmd, si, &dh, &dl);
+    reg = 10; // volume, envelope frequency (two bytes), and envelope pattern
+    efsnd(pmd, src, &reg, &value);
+    efsnd(pmd, src, &reg, &value);
+    efsnd(pmd, src, &reg, &value);
+    efsnd(pmd, src, &reg, &value);
 
-    pmd->eswtst = (uint16_t)(int16_t)(int8_t)*(*si)++;
-    al = *(*si)++;
-    pmd->eswnst = al;
-    pmd->eswnct = al & 0x0f;
-    pmd->effadr = *si;
+    pmd->eswtst = (uint16_t)(int16_t)(int8_t)*(*src)++;
+    data = *(*src)++;
+    pmd->eswnst = data;
+    pmd->eswnct = data & 0x0f;
+    pmd->effadr = *src;
 }
 
 // EFCDRV.ASM:184
@@ -3922,9 +3924,9 @@ static void effend(struct pmd *pmd) {
         pmd->pps->keyoff(pmd->user_data);
     }
     opnset44(pmd, 0x0a00); // volume min
-    uint8_t dl = get07(pmd);
-    dl = (uint8_t)((dl & 0xdb) | 0x24);
-    opnset44(pmd, (uint16_t)((7 << 8) | dl));
+    uint8_t value = get07(pmd);
+    value = (uint8_t)((value & 0xdb) | 0x24);
+    opnset44(pmd, (uint16_t)((7 << 8) | value));
     pmd->effon = 0;
     pmd->psgefcnum = 0xff;
 }
@@ -3932,24 +3934,24 @@ static void effend(struct pmd *pmd) {
 // EFCDRV.ASM:210
 // Applies the tone and noise sweeps of the current effect frame.
 static void effsweep(struct pmd *pmd) {
-    uint16_t ax = (uint16_t)(pmd->eswthz + pmd->eswtst);
-    pmd->eswthz = ax;
-    opnset44(pmd, (uint16_t)((4 << 8) | (uint8_t)ax));
-    opnset44(pmd, (uint16_t)((5 << 8) | (uint8_t)(ax >> 8)));
+    uint16_t tone = (uint16_t)(pmd->eswthz + pmd->eswtst);
+    pmd->eswthz = tone;
+    opnset44(pmd, (uint16_t)((4 << 8) | (uint8_t)tone));
+    opnset44(pmd, (uint16_t)((5 << 8) | (uint8_t)(tone >> 8)));
     // The original rewrites the mix register with its own contents.
     opnset44(pmd, (uint16_t)((7 << 8) | get07(pmd)));
 
-    uint8_t dl = pmd->eswnst;
-    if (dl == 0) return; // no noise sweep
+    uint8_t value = pmd->eswnst;
+    if (value == 0) return; // no noise sweep
 
     if (--pmd->eswnct != 0) return;
-    pmd->eswnct = dl & 0x0f;
+    pmd->eswnct = value & 0x0f;
 
-    dl = (uint8_t)((int8_t)dl >> 4);
-    pmd->eswnhz = (uint8_t)(pmd->eswnhz + dl);
-    dl = pmd->eswnhz;
-    opnset44(pmd, (uint16_t)((6 << 8) | dl));
-    pmd->psnoi_last = dl;
+    value = (uint8_t)((int8_t)value >> 4);
+    pmd->eswnhz = (uint8_t)(pmd->eswnhz + value);
+    value = pmd->eswnhz;
+    opnset44(pmd, (uint16_t)((6 << 8) | value));
+    pmd->psnoi_last = value;
 }
 
 // :392
@@ -3957,7 +3959,7 @@ static void effsweep(struct pmd *pmd) {
 static void fm_efcplay(struct pmd *pmd) {
     pmd->prgdat_adr2 = pmd->efcdat + (pmd->efcdat[254] | (pmd->efcdat[255] << 8));
 
-    struct pmd_qq *di = &pmd->part_e;
+    struct pmd_qq *part = &pmd->part_e;
 #if board2
     uint16_t port1 = pmd->fm_port1;
     uint16_t port2 = pmd->fm_port2;
@@ -3965,7 +3967,7 @@ static void fm_efcplay(struct pmd *pmd) {
     uint8_t fmsel = pmd->fmsel;
     pmd->partb = 3;
     sel46(pmd); // the handler must stay on the FM2 bank even if mmain runs
-    uint8_t *si = fmmain(pmd, di);
+    uint8_t *src = fmmain(pmd, part);
     pmd->partb = partb;
     pmd->fmsel = fmsel;
     pmd->fm_port1 = port1;
@@ -3973,18 +3975,18 @@ static void fm_efcplay(struct pmd *pmd) {
 #else
     uint8_t partb = pmd->partb;
     pmd->partb = 3;
-    uint8_t *si = fmmain(pmd, di);
+    uint8_t *src = fmmain(pmd, part);
     pmd->partb = partb;
 #endif
-    if (*si == 0x80 && di->leng == 0) fm_effect_off(pmd);
+    if (*src == 0x80 && part->leng == 0) fm_effect_off(pmd);
 }
 
 // :377
 uint16_t pmd_get_ss(struct pmd *pmd) {
     int60_enter(pmd, 0x05);
-    uint16_t ax = pmd->board != 0 ? pmd->syousetu : PMD_NO_BOARD;
+    uint16_t bar = pmd->board != 0 ? pmd->syousetu : PMD_NO_BOARD;
     int60_exit(pmd);
-    return ax;
+    return bar;
 }
 
 // :381
@@ -4078,78 +4080,78 @@ static void mstart(struct pmd *pmd) {
 // :505
 // Initializes each part's start address and defaults.
 static void play_init(struct pmd *pmd) {
-    uint8_t *si = pmd->mmlbuf;
-    pmd->x68_flg = si[-1];
+    uint8_t *src = pmd->mmlbuf;
+    pmd->x68_flg = src[-1];
 
     // :510 The first word of the module is 2 * (max_part2 + 1) for an empty
     // module, in which case there is no program-change area.
-    if (si[0] != 2 * (max_part2 + 1)) {
-        uint16_t offset = (uint16_t)(si[2 * (max_part2 + 1)] |
-                                     (si[2 * (max_part2 + 1) + 1] << 8));
-        pmd->prgdat_adr = si + offset;
+    if (src[0] != 2 * (max_part2 + 1)) {
+        uint16_t offset = (uint16_t)(src[2 * (max_part2 + 1)] |
+                                     (src[2 * (max_part2 + 1) + 1] << 8));
+        pmd->prgdat_adr = src + offset;
         pmd->prg_flg = 1;
     } else {
         pmd->prg_flg = 0;
     }
 
     // :520
-    for (unsigned dl = 0; dl < max_part2; dl++) {
-        struct pmd_qq *di = pmd->part_data_table[dl];
-        uint16_t offset = (uint16_t)(si[0] | (si[1] << 8));
-        si += 2;
+    for (unsigned i = 0; i < max_part2; i++) {
+        struct pmd_qq *part = pmd->part_data_table[i];
+        uint16_t offset = (uint16_t)(src[0] | (src[1] << 8));
+        src += 2;
         uint8_t *address = pmd->mmlbuf + offset;
         if (*address == 0x80) address = NULL;
-        di->address = address;
-        di->leng = 1;
-        di->keyoff_flag = 0xff;
-        di->mdc = 0xff;
-        di->mdc2 = 0xff;
-        di->_mdc = 0xff;
-        di->_mdc2 = 0xff;
-        di->onkai = 0xff;
-        di->onkai_def = 0xff;
+        part->address = address;
+        part->leng = 1;
+        part->keyoff_flag = 0xff;
+        part->mdc = 0xff;
+        part->mdc2 = 0xff;
+        part->_mdc = 0xff;
+        part->_mdc2 = 0xff;
+        part->onkai = 0xff;
+        part->onkai_def = 0xff;
 
-        if (dl < 6) {
+        if (i < 6) {
             // :544 FM1-FM6.
-            di->volume = 108;
-            di->fmpan = 0xc0;
+            part->volume = 108;
+            part->fmpan = 0xc0;
 #if board2
-            di->slotmask = 0xf0;
-            di->neiromask = 0xff;
+            part->slotmask = 0xf0;
+            part->neiromask = 0xff;
 #else
-            if (dl < 3) {
-                di->slotmask = 0xf0;
-                di->neiromask = 0xff;
+            if (i < 3) {
+                part->slotmask = 0xf0;
+                part->neiromask = 0xff;
             } else {
-                di->partmask |= 0x20; // s0
+                part->partmask |= 0x20; // s0
             }
 #endif
-        } else if (dl < 9) {
+        } else if (i < 9) {
             // :563 PSG1-PSG3.
-            di->volume = 8;
-            di->psgpat = 7;
-            di->envf = 3;
-        } else if (dl == 9) {
+            part->volume = 8;
+            part->psgpat = 7;
+            part->envf = 3;
+        } else if (i == 9) {
 #if board2
             // :575 Part 9 (OPNA/ADPCM or PCM).
-            di->volume = 128;
+            part->volume = 128;
 #if adpcm
-            di->fmpan = 0xc0;
+            part->fmpan = 0xc0;
 #endif
 #if pcm
-            di->fmpan = 0;
+            part->fmpan = 0;
             pmd->pcm86_pan_flag = 0;
             pmd->revpan = 0;
 #endif
 #endif
-        } else if (dl == 10) {
+        } else if (i == 10) {
             // :597 Part 10 (rhythm).
-            di->volume = 15;
+            part->volume = 15;
         }
     }
 
     // :605
-    uint16_t offset = (uint16_t)(si[0] | (si[1] << 8));
+    uint16_t offset = (uint16_t)(src[0] | (src[1] << 8));
     pmd->radtbl = pmd->mmlbuf + offset;
     pmd->rhyadr = &pmd->rhydmy;
 }
@@ -4171,14 +4173,14 @@ static void data_init(struct pmd *pmd) {
 // without resetting the fadeout fields.
 static void data_init2(struct pmd *pmd) {
     for (int i = 0; i < max_part1; i++) {
-        struct pmd_qq *di = &pmd->parts[i];
-        uint8_t dh = di->partmask;
-        uint8_t dl = di->keyon_flag;
-        memset(di, 0, sizeof(*di));
-        di->partmask = dh & 0x0f;
-        di->keyon_flag = dl;
-        di->onkai = 0xff;
-        di->onkai_def = 0xff;
+        struct pmd_qq *part = &pmd->parts[i];
+        uint8_t mask = part->partmask;
+        uint8_t keyon = part->keyon_flag;
+        memset(part, 0, sizeof(*part));
+        part->partmask = mask & 0x0f;
+        part->keyon_flag = keyon;
+        part->onkai = 0xff;
+        part->onkai_def = 0xff;
     }
 
     // :665
@@ -4241,7 +4243,7 @@ static void data_init2(struct pmd *pmd) {
 // :718
 // Initializes the OPN registers for playback.
 static void opn_init(struct pmd *pmd) {
-    uint16_t dx;
+    uint16_t reg;
 
     opnset44(pmd, 0x2983);
 
@@ -4254,26 +4256,26 @@ static void opn_init(struct pmd *pmd) {
     // :729 SSG-EG reset.
 #if board2
     sel44(pmd);
-    for (unsigned bx = 2; bx != 0; bx--) {
-        uint8_t cl = 15;
-        dx = 0x9000; // SSG-EG registers
+    for (unsigned bank = 2; bank != 0; bank--) {
+        uint8_t n = 15;
+        reg = 0x9000; // SSG-EG registers
         do {
-            if ((cl & 3) != 0) opnset(pmd, dx);
-            dx = (uint16_t)(dx + 0x0100);
-            cl--;
-        } while (cl != 0);
+            if ((n & 3) != 0) opnset(pmd, reg);
+            reg = (uint16_t)(reg + 0x0100);
+            n--;
+        } while (n != 0);
         sel46(pmd);
     }
     sel44(pmd);
 #else
     {
-        uint8_t cl = 15;
-        dx = 0x9000; // SSG-EG registers
+        uint8_t n = 15;
+        reg = 0x9000; // SSG-EG registers
         do {
-            if ((cl & 3) != 0) opnset(pmd, dx);
-            dx = (uint16_t)(dx + 0x0100);
-            cl--;
-        } while (cl != 0);
+            if ((n & 3) != 0) opnset(pmd, reg);
+            reg = (uint16_t)(reg + 0x0100);
+            n--;
+        } while (n != 0);
     }
 #endif
 
@@ -4284,37 +4286,37 @@ static void opn_init(struct pmd *pmd) {
 
     // :753 PAN and hard LFO defaults for the YM2608.
 #if board2
-    for (unsigned bx = 2; bx != 0; bx--) {
+    for (unsigned bank = 2; bank != 0; bank--) {
         // The original assumes mmain cannot interrupt here and skips the
         // initial sel44.
-        dx = 0xb4c0;
-        uint8_t cx = 3;
+        reg = 0xb4c0;
+        uint8_t chan = 3;
         do {
-            bool skip = pmd->fm_effec_flag != 0 && cx == 1 && bx == 1;
-            if (!skip) opnset(pmd, dx);
-            dx = (uint16_t)(dx + 0x0100);
-            cx--;
-        } while (cx != 0);
+            bool skip = pmd->fm_effec_flag != 0 && chan == 1 && bank == 1;
+            if (!skip) opnset(pmd, reg);
+            reg = (uint16_t)(reg + 0x0100);
+            chan--;
+        } while (chan != 0);
         sel46(pmd);
     }
     sel44(pmd);
 #else
-    dx = 0xb4c0;
+    reg = 0xb4c0;
     {
-        uint8_t cx = 3;
+        uint8_t chan = 3;
         do {
-            bool skip = pmd->fm_effec_flag != 0 && cx == 1;
-            if (!skip) opnset(pmd, dx);
-            dx = (uint16_t)(dx + 0x0100);
-            cx--;
-        } while (cx != 0);
+            bool skip = pmd->fm_effec_flag != 0 && chan == 1;
+            if (!skip) opnset(pmd, reg);
+            reg = (uint16_t)(reg + 0x0100);
+            chan--;
+        } while (chan != 0);
     }
 #endif
 
     // :795
-    dx = 0x2200;
-    pmd->port22h = (uint8_t)dx;
-    opnset44(pmd, dx);
+    reg = 0x2200;
+    pmd->port22h = (uint8_t)reg;
+    opnset44(pmd, reg);
 
 #if board2
     // :801 Rhythm defaults: pan middle, volume 15.
@@ -4322,17 +4324,17 @@ static void opn_init(struct pmd *pmd) {
     opnset44(pmd, 0x10ff); // rhythm all dump
 
     // :811 Rhythm total level.
-    uint8_t dl = 48;
-    uint8_t al = pmd->rhythm_voldown;
-    if (al != 0) {
-        dl = (uint8_t)(dl << 2);
-        uint16_t product = (uint16_t)(uint8_t)(-al) * dl;
-        dl = (uint8_t)(product >> 8);
-        dl >>= 1;
-        dl >>= 1;
+    uint8_t volume = 48;
+    uint8_t voldown = pmd->rhythm_voldown;
+    if (voldown != 0) {
+        volume = (uint8_t)(volume << 2);
+        uint16_t product = (uint16_t)(uint8_t)(-voldown) * volume;
+        volume = (uint8_t)(product >> 8);
+        volume >>= 1;
+        volume >>= 1;
     }
-    pmd->rhyvol = dl;
-    opnset44(pmd, (uint16_t)((0x11 << 8) | dl));
+    pmd->rhyvol = volume;
+    opnset44(pmd, (uint16_t)((0x11 << 8) | volume));
 
 #if !ademu
     // :826 PCM reset and limit.
@@ -4346,8 +4348,8 @@ static void opn_init(struct pmd *pmd) {
     {
         const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
         if (drv != NULL) {
-            for (uint8_t ch = 8; ch != 0; ch--) {
-                drv->set_pan((uint8_t)(ch - 1), 5, pmd->user_data);
+            for (uint8_t chan = 8; chan != 0; chan--) {
+                drv->set_pan((uint8_t)(chan - 1), 5, pmd->user_data);
             }
         }
     }
@@ -4457,9 +4459,9 @@ static void mmain(struct pmd *pmd) {
 
     // :999
     for (int i = 0; i < max_part1; i++) {
-        struct pmd_qq *di = pmd->part_data_table[i];
-        if (di->loopcheck == 3) continue;
-        di->loopcheck = 0;
+        struct pmd_qq *part = pmd->part_data_table[i];
+        if (part->loopcheck == 3) continue;
+        part->loopcheck = 0;
     }
 
     if (pmd->loop_work == 3) {
@@ -4490,36 +4492,37 @@ static void sel44(struct pmd *pmd) {
 #endif
 
 // :1053
-// The FM part main loop. SI is the part's data cursor and DI its work area;
-// the cursor is returned for fm_efcplay, whose end-of-effect test reads the
-// live SI (:407).
-static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t *si = di->address;
-    if (si == NULL) return si;
+// The FM part main loop. `src` is the part's data cursor and `part` its work
+// area; the cursor is returned for fm_efcplay, whose end-of-effect test reads
+// the live cursor (:407).
+static uint8_t *fmmain(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t *src = part->address;
+    if (src == NULL) return src;
 
-    if (di->partmask != 0) goto fmmain_nonplay;
+    if (part->partmask != 0) goto fmmain_nonplay;
 
     // :1058
-    di->leng--;
-    uint8_t al = di->leng;
+    part->leng--;
+    uint8_t remaining = part->leng;
+    uint8_t cmd;
 
     // :1062 Keyoff when the remaining length reaches Q.
-    if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
-        keyoff(pmd, di);
-        di->keyoff_flag = 0xff;
+    if ((part->keyoff_flag & 3) == 0 && remaining <= part->qdat) {
+        keyoff(pmd, part);
+        part->keyoff_flag = 0xff;
     }
 
-    if (al != 0) goto mpexit;
+    if (remaining != 0) goto mpexit;
 
 mp10:
-    di->lfoswi &= 0xf7; // portamento off
+    part->lfoswi &= 0xf7; // portamento off
 
 mp1:
-    al = lodsb(&si);
-    if (al < 0x80) goto mp2;
-    if (al == 0x80) goto mp15;
+    cmd = lodsb(&src);
+    if (cmd < 0x80) goto mp2;
+    if (cmd == 0x80) goto mp15;
 
-    switch (commands(pmd, di, &si)) {
+    switch (commands(pmd, part, &src)) {
     case PMD_CMD_MP1: goto mp1;
     case PMD_CMD_FMMNP_1: goto fmmnp_1;
     case PMD_CMD_PORTA_RETURN: goto porta_return;
@@ -4529,114 +4532,114 @@ mp1:
 
 mp15:
     // :1089 End of music, or a loop if "L" was seen.
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) goto mpexit;
-    si = di->partloop;
-    di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) goto mpexit;
+    src = part->partloop;
+    part->loopcheck = 1;
     goto mp1;
 
 mp2:
     // :1101 Note: set the pitch and gate.
-    al = lfoinit(pmd, di, al);
-    al = oshift(di, al);
-    fnumset(pmd, di, al);
+    cmd = lfoinit(pmd, part, cmd);
+    cmd = oshift(part, cmd);
+    fnumset(pmd, part, cmd);
 
-    al = lodsb(&si);
-    di->leng = al;
-    calc_q(pmd, di, &si);
+    cmd = lodsb(&src);
+    part->leng = cmd;
+    calc_q(pmd, part, &src);
 
 porta_return:
     // :1110
-    if (di->volpush == 0) goto mp_new;
-    if (di->onkai == 0xff) goto mp_new;
+    if (part->volpush == 0) goto mp_new;
+    if (part->onkai == 0xff) goto mp_new;
     pmd->volpush_flag--;
     if (pmd->volpush_flag == 0) goto mp_new;
     pmd->volpush_flag = 0;
-    di->volpush = 0;
+    part->volpush = 0;
 
 mp_new:
-    volset(pmd, di);
-    otodasi(pmd, di);
-    keyon(pmd, di);
-    di->keyon_flag++;
+    volset(pmd, part);
+    otodasi(pmd, part);
+    keyon(pmd, part);
+    part->keyon_flag++;
 
-    di->address = si;
+    part->address = src;
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
-    di->keyoff_flag = 0;
-    if (*si == 0xfb) di->keyoff_flag = 2; // '&' immediately follows
-    mnp_ret(pmd, di);
-    return si;
+    part->keyoff_flag = 0;
+    if (*src == 0xfb) part->keyoff_flag = 2; // '&' immediately follows
+    mnp_ret(pmd, part);
+    return src;
 
 mpexit:
     // :1134 LFO, portamento, and fadeout processing.
 #if board2
-    if (di->hldelay_c != 0) {
-        di->hldelay_c--;
-        if (di->hldelay_c == 0) {
-            opnset(pmd, (uint16_t)(((pmd->partb + 0xb3) << 8) | di->fmpan));
+    if (part->hldelay_c != 0) {
+        part->hldelay_c--;
+        if (part->hldelay_c == 0) {
+            opnset(pmd, (uint16_t)(((pmd->partb + 0xb3) << 8) | part->fmpan));
         }
     }
 #endif
-    if (di->sdelay_c != 0) {
-        di->sdelay_c--;
-        if (di->sdelay_c == 0 && (di->keyoff_flag & 1) == 0) keyon(pmd, di);
+    if (part->sdelay_c != 0) {
+        part->sdelay_c--;
+        if (part->sdelay_c == 0 && (part->keyoff_flag & 1) == 0) keyon(pmd, part);
     }
 
-    uint8_t cl = di->lfoswi;
-    pmd->lfo_switch = cl & 8;
-    if (cl != 0) {
-        if ((cl & 3) != 0) {
-            if (lfo(pmd, di)) pmd->lfo_switch |= cl & 3;
+    uint8_t lfosw = part->lfoswi;
+    pmd->lfo_switch = lfosw & 8;
+    if (lfosw != 0) {
+        if ((lfosw & 3) != 0) {
+            if (lfo(pmd, part)) pmd->lfo_switch |= lfosw & 3;
         }
-        if ((cl & 0x30) != 0) {
-            lfo_change(di);
-            if (lfo(pmd, di)) {
-                lfo_change(di);
-                pmd->lfo_switch |= di->lfoswi & 0x30;
+        if ((lfosw & 0x30) != 0) {
+            lfo_change(part);
+            if (lfo(pmd, part)) {
+                lfo_change(part);
+                pmd->lfo_switch |= part->lfoswi & 0x30;
             } else {
-                lfo_change(di);
+                lfo_change(part);
             }
         }
         if ((pmd->lfo_switch & 0x19) != 0) {
-            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, di);
-            otodasi(pmd, di);
+            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, part);
+            otodasi(pmd, part);
         }
         if ((pmd->lfo_switch & 0x22) != 0) goto vol_set;
     }
     if (pmd->fadeout_speed == 0) {
-        mnp_ret(pmd, di);
-        return si;
+        mnp_ret(pmd, part);
+        return src;
     }
 
 vol_set:
-    volset(pmd, di);
+    volset(pmd, part);
 
-    mnp_ret(pmd, di);
-    return si;
+    mnp_ret(pmd, part);
+    return src;
 
 fmmain_nonplay:
     // :1271
-    di->keyoff_flag = 0xff;
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
-        return si;
+    part->keyoff_flag = 0xff;
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
+        return src;
     }
 
-    if ((di->partmask & 2) != 0 && pmd->fm_effec_flag == 0) {
-        di->partmask &= 0xfd;
-        if (di->partmask == 0) goto mp10;
+    if ((part->partmask & 2) != 0 && pmd->fm_effec_flag == 0) {
+        part->partmask &= 0xfd;
+        if (part->partmask == 0) goto mp10;
     }
 
 fmmnp_1:
-    al = lodsb(&si);
-    if (al == 0x80) goto fmmnp_2;
-    if (al < 0x80) goto fmmnp_3;
-    switch (commands(pmd, di, &si)) {
+    cmd = lodsb(&src);
+    if (cmd == 0x80) goto fmmnp_2;
+    if (cmd < 0x80) goto fmmnp_3;
+    switch (commands(pmd, part, &src)) {
     case PMD_CMD_MP1: goto mp1;
     case PMD_CMD_FMMNP_1: goto fmmnp_1;
     case PMD_CMD_PORTA_RETURN: goto porta_return;
@@ -4646,42 +4649,42 @@ fmmnp_1:
 
 fmmnp_2:
     // :1291
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) { fmmnp_4(pmd, di); return si; }
-    si = di->partloop;
-    di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) { fmmnp_4(pmd, part); return src; }
+    src = part->partloop;
+    part->loopcheck = 1;
     goto fmmnp_1;
 
 fmmnp_3:
     // :1306 A rest.
-    rest_note(pmd, di, &si);
-    return si;
+    rest_note(pmd, part, &src);
+    return src;
 }
 
 // :1306
 // The rest-note path. The original shares it with every part loop by jumping
 // into fmmain's fmmnp_3.
-static void rest_note(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    di->fnum = 0;
-    di->onkai = 0xff;
-    di->onkai_def = 0xff;
-    di->leng = lodsb(si);
-    di->keyon_flag++;
-    di->address = *si;
+static void rest_note(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    part->fnum = 0;
+    part->onkai = 0xff;
+    part->onkai_def = 0xff;
+    part->leng = lodsb(src);
+    part->keyon_flag++;
+    part->address = *src;
 
     pmd->volpush_flag--;
     if (pmd->volpush_flag == 0) {
-        fmmnp_4(pmd, di);
+        fmmnp_4(pmd, part);
         return;
     }
-    di->volpush = 0;
+    part->volpush = 0;
 
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
-    mnp_ret(pmd, di);
+    mnp_ret(pmd, part);
 }
 
 #if ppz
@@ -4700,84 +4703,85 @@ static void ppz_int_hook(struct pmd *pmd) { (void)pmd; }
 #endif
 
 // :1204
-static void mnp_ret(struct pmd *pmd, struct pmd_qq *di) {
-    pmd->loop_work &= di->loopcheck;
+static void mnp_ret(struct pmd *pmd, struct pmd_qq *part) {
+    pmd->loop_work &= part->loopcheck;
     ppz_int_hook(pmd);
 }
 
 // :1215
 // Computes the gate time from the Q/QM/QR commands.
-static void calc_q(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (**si == 0xc1) {
-        (*si)++; // slur
-        di->qdat = 0;
+static void calc_q(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (**src == 0xc1) {
+        (*src)++; // slur
+        part->qdat = 0;
         return;
     }
 
-    uint8_t dl = di->qdata;
-    if (di->qdatb != 0) {
-        uint16_t product = (uint16_t)di->leng * di->qdatb;
-        dl = (uint8_t)(dl + (product >> 8));
+    uint8_t q = part->qdata;
+    if (part->qdatb != 0) {
+        uint16_t product = (uint16_t)part->leng * part->qdatb;
+        q = (uint8_t)(q + (product >> 8));
     }
 
-    if (di->qdat3 != 0) {
-        uint16_t max = (uint16_t)((di->qdat3 & 0x7f) + 1);
+    if (part->qdat3 != 0) {
+        uint16_t max = (uint16_t)((part->qdat3 & 0x7f) + 1);
         uint8_t r = rnd(pmd, max);
-        if ((di->qdat3 & 0x80) != 0) {
-            if (dl >= r) {
-                dl -= r;
+        if ((part->qdat3 & 0x80) != 0) {
+            if (q >= r) {
+                q -= r;
             } else {
-                dl = 0;
+                q = 0;
             }
         } else {
-            dl = (uint8_t)(dl + r);
+            q = (uint8_t)(q + r);
         }
     }
 
-    if (di->qdat2 != 0) {
-        uint8_t dh = (uint8_t)(di->leng - di->qdat2);
-        if ((di->leng < di->qdat2)) {
-            di->qdat = 0;
+    if (part->qdat2 != 0) {
+        uint8_t limit = (uint8_t)(part->leng - part->qdat2);
+        if ((part->leng < part->qdat2)) {
+            part->qdat = 0;
             return;
         }
-        if (dl >= dh) dl = dh;
+        if (q >= limit) q = limit;
     }
-    di->qdat = dl;
+    part->qdat = q;
 }
 
 // :1318
-static void fmmnp_4(struct pmd *pmd, struct pmd_qq *di) {
+static void fmmnp_4(struct pmd *pmd, struct pmd_qq *part) {
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
-    mnp_ret(pmd, di);
+    mnp_ret(pmd, part);
 }
 
 // :1329
 // The SSG part main loop.
-static void psgmain(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t *si = di->address;
-    if (si == NULL) return;
+static void psgmain(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t *src = part->address;
+    if (src == NULL) return;
 
-    if (di->partmask != 0) goto psgmain_nonplay;
+    if (part->partmask != 0) goto psgmain_nonplay;
 
-    di->leng--;
-    uint8_t al = di->leng;
+    part->leng--;
+    uint8_t remaining = part->leng;
+    uint8_t cmd;
 
-    if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
-        keyoffp(pmd, di);
-        di->keyoff_flag = 0xff;
+    if ((part->keyoff_flag & 3) == 0 && remaining <= part->qdat) {
+        keyoffp(pmd, part);
+        part->keyoff_flag = 0xff;
     }
 
-    if (al != 0) goto mpexitp;
-    di->lfoswi &= 0xf7;
+    if (remaining != 0) goto mpexitp;
+    part->lfoswi &= 0xf7;
 
 mp1p:
-    al = lodsb(&si);
-    if (al < 0x80) goto mp2p;
-    if (al == 0x80) goto mp15p;
+    cmd = lodsb(&src);
+    if (cmd < 0x80) goto mp2p;
+    if (cmd == 0x80) goto mp15p;
 
 mp1cp:
-    switch (commandsp(pmd, di, &si)) {
+    switch (commandsp(pmd, part, &src)) {
     case PMD_CMD_MP1P: goto mp1p;
     case PMD_CMD_PSGMNP_1: goto psgmnp_1;
     case PMD_CMD_PORTA_RETURNP: goto porta_returnp;
@@ -4786,95 +4790,94 @@ mp1cp:
     goto mp1p;
 
 mp15p:
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) goto mpexitp;
-    si = di->partloop;
-    di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) goto mpexitp;
+    src = part->partloop;
+    part->loopcheck = 1;
     goto mp1p;
 
 mp2p:
-    al = lfoinitp(pmd, di, al);
-    al = oshift(di, al);
-    fnumsetp(pmd, di, al);
+    cmd = lfoinitp(pmd, part, cmd);
+    cmd = oshift(part, cmd);
+    fnumsetp(pmd, part, cmd);
 
-    al = lodsb(&si);
-    di->leng = al;
-    calc_q(pmd, di, &si);
+    cmd = lodsb(&src);
+    part->leng = cmd;
+    calc_q(pmd, part, &src);
 
 porta_returnp:
-    if (di->volpush == 0) goto mp_newp;
-    if (di->onkai == 0xff) goto mp_newp;
+    if (part->volpush == 0) goto mp_newp;
+    if (part->onkai == 0xff) goto mp_newp;
     pmd->volpush_flag--;
     if (pmd->volpush_flag == 0) goto mp_newp;
     pmd->volpush_flag = 0;
-    di->volpush = 0;
+    part->volpush = 0;
 
 mp_newp:
-    volsetp(pmd, di);
-    otodasip(pmd, di);
-    keyonp(pmd, di);
-    di->keyon_flag++;
+    volsetp(pmd, part);
+    otodasip(pmd, part);
+    keyonp(pmd, part);
+    part->keyon_flag++;
 
-    di->address = si;
+    part->address = src;
     pmd->tieflag = 0;
     pmd->volpush_flag = 0;
-    di->keyoff_flag = 0;
-    if (*si == 0xfb) di->keyoff_flag = 2;
-    mnp_ret(pmd, di);
+    part->keyoff_flag = 0;
+    if (*src == 0xfb) part->keyoff_flag = 2;
+    mnp_ret(pmd, part);
     return;
 
 mpexitp:;
     // :1410
-    uint8_t cl = di->lfoswi;
-    al = cl & 8;
-    pmd->lfo_switch = al;
-    if (cl != 0) {
-        if ((cl & 3) != 0) {
-            if (lfo(pmd, di)) pmd->lfo_switch |= cl & 3;
+    uint8_t lfosw = part->lfoswi;
+    pmd->lfo_switch = (uint8_t)(lfosw & 8);
+    if (lfosw != 0) {
+        if ((lfosw & 3) != 0) {
+            if (lfo(pmd, part)) pmd->lfo_switch |= lfosw & 3;
         }
-        if ((cl & 0x30) != 0) {
-            lfo_change(di);
-            if (lfo(pmd, di)) {
-                lfo_change(di);
-                pmd->lfo_switch |= di->lfoswi & 0x30;
+        if ((lfosw & 0x30) != 0) {
+            lfo_change(part);
+            if (lfo(pmd, part)) {
+                lfo_change(part);
+                pmd->lfo_switch |= part->lfoswi & 0x30;
             } else {
-                lfo_change(di);
+                lfo_change(part);
             }
         }
         if ((pmd->lfo_switch & 0x19) != 0) {
-            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, di);
-            otodasip(pmd, di);
+            if ((pmd->lfo_switch & 8) != 0) porta_calc(pmd, part);
+            otodasip(pmd, part);
         }
     }
 
-    if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
+    if (!soft_env(pmd, part) && (pmd->lfo_switch & 0x22) == 0 &&
         pmd->fadeout_speed == 0) {
-        mnp_ret(pmd, di);
+        mnp_ret(pmd, part);
     return;
     }
-    volsetp(pmd, di);
-    mnp_ret(pmd, di);
+    volsetp(pmd, part);
+    mnp_ret(pmd, part);
     return;
 
 psgmain_nonplay:
     // :1463
-    di->keyoff_flag = 0xff;
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
+    part->keyoff_flag = 0xff;
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
         return;
     }
-    di->lfoswi &= 0xf7;
+    part->lfoswi &= 0xf7;
 
 psgmnp_1:
-    al = lodsb(&si);
-    if (al == 0x80) goto psgmnp_2;
-    if (al < 0x80) goto psgmnp_4;
-    if (al == 0xda && ssgdrum_check(pmd, di, al)) goto mp1cp;
-    switch (commandsp(pmd, di, &si)) {
+    cmd = lodsb(&src);
+    if (cmd == 0x80) goto psgmnp_2;
+    if (cmd < 0x80) goto psgmnp_4;
+    if (cmd == 0xda && ssgdrum_check(pmd, part, cmd)) goto mp1cp;
+    switch (commandsp(pmd, part, &src)) {
     case PMD_CMD_MP1P: goto mp1p;
     case PMD_CMD_PSGMNP_1: goto psgmnp_1;
     case PMD_CMD_PORTA_RETURNP: goto porta_returnp;
@@ -4883,96 +4886,96 @@ psgmnp_1:
     goto psgmnp_1;
 
 psgmnp_2:
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    di->onkai = 0xff;
-    if (di->partloop == NULL) { fmmnp_4(pmd, di); return; }
-    si = di->partloop;
-    di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    part->onkai = 0xff;
+    if (part->partloop == NULL) { fmmnp_4(pmd, part); return; }
+    src = part->partloop;
+    part->loopcheck = 1;
     goto psgmnp_1;
 
 psgmnp_4:
-    if (ssgdrum_check(pmd, di, al)) goto mp2p;
-    di->fnum = 0;
-    di->onkai = 0xff;
-    di->onkai_def = 0xff;
-    al = lodsb(&si);
-    di->leng = al;
-    di->keyon_flag++;
-    di->address = si;
+    if (ssgdrum_check(pmd, part, cmd)) goto mp2p;
+    part->fnum = 0;
+    part->onkai = 0xff;
+    part->onkai_def = 0xff;
+    cmd = lodsb(&src);
+    part->leng = cmd;
+    part->keyon_flag++;
+    part->address = src;
     pmd->volpush_flag--;
-    if (pmd->volpush_flag != 0) di->volpush = 0;
-    fmmnp_4(pmd, di);
+    if (pmd->volpush_flag != 0) part->volpush = 0;
+    fmmnp_4(pmd, part);
 }
 
 // :1508
 // Returns true when the SSG drum should be stopped and the SSG part revived.
-static bool ssgdrum_check(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
-    if ((di->partmask & 1) != 0) return false;
-    if ((di->partmask & 2) == 0) return false;
+static bool ssgdrum_check(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
+    if ((part->partmask & 1) != 0) return false;
+    if ((part->partmask & 2) == 0) return false;
     if (pmd->effon >= 2) return false;
-    if ((al & 0x0f) == 0x0f) return false;
+    if ((note & 0x0f) == 0x0f) return false;
     if (pmd->effon == 1) effend(pmd);
-    di->partmask &= 0xfd;
-    if (di->partmask != 0) return false;
+    part->partmask &= 0xfd;
+    if (part->partmask != 0) return false;
     return true;
 }
 
 // :1539
 // The rhythm part main loop.
-static void rhythmmain(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t *si = di->address;
-    uint8_t al;
-    if (si == NULL) return;
-    di->leng--;
-    if (di->leng != 0) {
-        mnp_ret(pmd, di);
+static void rhythmmain(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t *src = part->address;
+    uint8_t cmd;
+    if (src == NULL) return;
+    part->leng--;
+    if (part->leng != 0) {
+        mnp_ret(pmd, part);
         return;
     }
 
 rhyms0:
     {
-        uint8_t *bx = (uint8_t *)pmd->rhyadr;
+        uint8_t *data = (uint8_t *)pmd->rhyadr;
 rhyms00:
-        al = *bx++;
-        if (al == 0xff) goto reom;
-        if ((al & 0x80) != 0) goto rhythmon;
+        cmd = *data++;
+        if (cmd == 0xff) goto reom;
+        if ((cmd & 0x80) != 0) goto rhythmon;
         pmd->kshot_dat = 0;
 rlnset:
-        al = *bx++;
-        pmd->rhyadr = bx;
-        di->leng = al;
-        di->keyon_flag++;
-        { fmmnp_4(pmd, di); return; }
+        cmd = *data++;
+        pmd->rhyadr = data;
+        part->leng = cmd;
+        part->keyon_flag++;
+        { fmmnp_4(pmd, part); return; }
 
 rhythmon:
-        if ((al & 0x40) == 0) goto rhy_shot;
-        uint8_t *save_si = si;
-        si = bx;
-        (void)commandsr(pmd, di, &si);
-        bx = si;
-        si = save_si;
+        if ((cmd & 0x40) == 0) goto rhy_shot;
+        uint8_t *save_src = src;
+        src = data;
+        (void)commandsr(pmd, part, &src);
+        data = src;
+        src = save_src;
         goto rhyms00;
 
 rhy_shot:
-        if (di->partmask == 0) goto r_nonmask;
+        if (part->partmask == 0) goto r_nonmask;
         pmd->kshot_dat = 0;
-        bx++;
+        data++;
         goto rlnset;
 
 r_nonmask:
         {
-            uint8_t ah = al;
-            al = *bx++;
-            uint16_t ax = (uint16_t)(((uint16_t)ah << 8) | al) & 0x3fff;
-            pmd->kshot_dat = ax;
-            if (ax == 0) goto rlnset;
-            pmd->rhyadr = bx;
+            uint8_t high = cmd;
+            cmd = *data++;
+            uint16_t shot = (uint16_t)(((uint16_t)high << 8) | cmd) & 0x3fff;
+            pmd->kshot_dat = shot;
+            if (shot == 0) goto rlnset;
+            pmd->rhyadr = data;
 
 #if board2
             if (pmd->kp_rhythm_flag != 0) {
-                uint16_t bits = ax;
+                uint16_t bits = shot;
                 const uint8_t *entry = &rhydat[0][0];
                 for (unsigned i = 0; i < 11; i++) {
                     if ((bits & 1) != 0) {
@@ -4997,44 +5000,44 @@ rsb200:
             }
 #endif
             {
-                uint16_t bits = ax;
-                uint8_t ch;
+                uint16_t bits = shot;
+                uint8_t inst;
                 if (pmd->fadeout_volume != 0) {
 #if board2
                     if (pmd->kp_rhythm_flag != 0) volset2rf(pmd, pmd->rhyvol);
 #endif
                     if (pmd->ppsdrv_flag == 0) goto roret;
                 }
-                ch = 0xff;
+                inst = 0xff;
 rolop:
-                ch++;
+                inst++;
                 if (bits & 1) goto rhygo;
                 bits >>= 1;
                 goto rolop;
 rhygo:
-                effgo(pmd, di, ch);
+                effgo(pmd, part, inst);
                 if (pmd->ppsdrv_flag == 0) goto roret;
                 bits >>= 1; // the scanned instrument is consumed
                 if (bits == 0) goto roret;
                 goto rolop;
             }
 roret:
-            bx = (uint8_t *)pmd->rhyadr;
+            data = (uint8_t *)pmd->rhyadr;
             goto rlnset;
         }
     }
 
 reom:
-    al = lodsb(&si);
-    if (al == 0x80) goto rfin;
-    if (al < 0x80) goto re00;
-    (void)commandsr(pmd, di, &si);
+    cmd = lodsb(&src);
+    if (cmd == 0x80) goto rfin;
+    if (cmd < 0x80) goto re00;
+    (void)commandsr(pmd, part, &src);
     goto reom;
 
 re00:
-    di->address = si;
+    part->address = src;
     {
-        uint16_t index = (uint16_t)((uint16_t)al * 2);
+        uint16_t index = (uint16_t)((uint16_t)cmd * 2);
         uint16_t offset = (uint16_t)(pmd->radtbl[index] |
                                      (pmd->radtbl[index + 1] << 8));
         pmd->rhyadr = pmd->mmlbuf + offset;
@@ -5042,45 +5045,45 @@ re00:
     }
 
 rfin:
-    si--;
-    di->address = si;
-    di->loopcheck = 3;
-    if (di->partloop != NULL) {
-        si = di->partloop;
-        di->loopcheck = 1;
+    src--;
+    part->address = src;
+    part->loopcheck = 3;
+    if (part->partloop != NULL) {
+        src = part->partloop;
+        part->loopcheck = 1;
         goto reom;
     }
     pmd->rhyadr = &pmd->rhydmy;
-    { fmmnp_4(pmd, di); return; }
+    { fmmnp_4(pmd, part); return; }
 }
 
 // :1713
-static enum pmd_cmd_result commands(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return command00(pmd, di, si, cmdtbl);
+static enum pmd_cmd_result commands(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return command00(pmd, part, src, cmdtbl);
 }
 
 // :1717
-static enum pmd_cmd_result commandsr(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return command00(pmd, di, si, cmdtblr);
+static enum pmd_cmd_result commandsr(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return command00(pmd, part, src, cmdtblr);
 }
 
 // :1721
-static enum pmd_cmd_result commandsp(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return command00(pmd, di, si, cmdtblp);
+static enum pmd_cmd_result commandsp(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return command00(pmd, part, src, cmdtblp);
 }
 
 // :1724
-static enum pmd_cmd_result command00(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, const pmd_cmd_fn *table) {
-    uint8_t al = *(*si - 1);
-    if (al < 0xb1) {
+static enum pmd_cmd_result command00(struct pmd *pmd, struct pmd_qq *part, uint8_t **src, const pmd_cmd_fn *table) {
+    uint8_t cmd = *(*src - 1);
+    if (cmd < 0xb1) {
         // :1739 The original rewinds SI and writes an end marker.
-        (*si)--;
-        **si = 0x80;
+        (*src)--;
+        **src = 0x80;
         return PMD_CMD_RETURN;
     }
     // :1734 PPZ8's FM entry runs before each command handler.
     ppz_int_hook(pmd);
-    return table[0xff - al](pmd, di, si);
+    return table[0xff - cmd](pmd, part, src);
 }
 
 // :1745
@@ -5336,249 +5339,249 @@ static const pmd_cmd_fn cmdtblr[0xff - 0xb1 + 1] = {
 };
 
 // :2035
-static enum pmd_cmd_result jump16(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump16(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    *si += 16;
+    (void)part;
+    *src += 16;
     return PMD_CMD_RETURN;
 }
 
 // :2037
-static enum pmd_cmd_result jump6(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump6(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    *si += 6;
+    (void)part;
+    *src += 6;
     return PMD_CMD_RETURN;
 }
 
 // :2039
-static enum pmd_cmd_result jump5(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump5(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    *si += 5;
+    (void)part;
+    *src += 5;
     return PMD_CMD_RETURN;
 }
 
 // :2041
-static enum pmd_cmd_result jump4(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump4(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    *si += 4;
+    (void)part;
+    *src += 4;
     return PMD_CMD_RETURN;
 }
 
 // :2043
-static enum pmd_cmd_result jump3(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump3(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    *si += 3;
+    (void)part;
+    *src += 3;
     return PMD_CMD_RETURN;
 }
 
 // :2045
-static enum pmd_cmd_result jump2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    *si += 2;
+    (void)part;
+    *src += 2;
     return PMD_CMD_RETURN;
 }
 
 // :2047
-static enum pmd_cmd_result jump1(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump1(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    (*si)++;
+    (void)part;
+    (*src)++;
     return PMD_CMD_RETURN;
 }
 
 // :2049
-static enum pmd_cmd_result jump0(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result jump0(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)di;
-    (void)si;
+    (void)part;
+    (void)src;
     return PMD_CMD_RETURN;
 }
 
 // :2055
-static enum pmd_cmd_result special_0c0h(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, uint8_t al) {
+static enum pmd_cmd_result special_0c0h(struct pmd *pmd, struct pmd_qq *part, uint8_t **src, uint8_t cmd) {
     // The original's f6/f5 entries are unreachable because values below f7
     // are rejected above; they are kept to mirror the original table.
     static const pmd_cmd_fn table[0xff - 0xf5 + 1] = {
         vd_fm, _vd_fm, vd_ssg, _vd_ssg, vd_pcm,
         _vd_pcm, vd_rhythm, _vd_rhythm, pmd86_s, vd_ppz, _vd_ppz,
     };
-    if (al < 0xf7) {
-        (*si)--;
-        **si = 0x80;
+    if (cmd < 0xf7) {
+        (*src)--;
+        **src = 0x80;
         return PMD_CMD_RETURN;
     }
-    return table[0xff - al](pmd, di, si);
+    return table[0xff - cmd](pmd, part, src);
 }
 
 // :2082
-static enum pmd_cmd_result pmd86_s(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    pmd->pcm86_vol = lodsb(si) & 1;
+static enum pmd_cmd_result pmd86_s(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    pmd->pcm86_vol = lodsb(src) & 1;
     return PMD_CMD_RETURN;
 }
 
 // :2091
-static enum pmd_cmd_result vd_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->fm_voldown, &pmd->_fm_voldown, false);
+static enum pmd_cmd_result vd_fm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->fm_voldown, &pmd->_fm_voldown, false);
 }
 
 // :2092
-static enum pmd_cmd_result vd_main(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, uint8_t *vol, uint8_t *base, bool add) {
+static enum pmd_cmd_result vd_main(struct pmd *pmd, struct pmd_qq *part, uint8_t **src, uint8_t *vol, uint8_t *base, bool add) {
     (void)pmd;
-    (void)di;
-    uint8_t al = lodsb(si);
+    (void)part;
+    uint8_t value = lodsb(src);
     if (!add) {
-        *vol = al;
+        *vol = value;
         return PMD_CMD_RETURN;
     }
-    if (al == 0) {
+    if (value == 0) {
         *vol = *base;
         return PMD_CMD_RETURN;
     }
-    if ((al & 0x80) != 0) {
-        unsigned sum = (unsigned)*vol + al;
+    if ((value & 0x80) != 0) {
+        unsigned sum = (unsigned)*vol + value;
         if (sum > 0xff) *vol = (uint8_t)sum;
         else *vol = 0;
     } else {
-        unsigned sum = (unsigned)*vol + al;
+        unsigned sum = (unsigned)*vol + value;
         *vol = sum > 0xff ? 0xff : (uint8_t)sum;
     }
     return PMD_CMD_RETURN;
 }
 
 // :2097
-static enum pmd_cmd_result vd_ssg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->ssg_voldown, &pmd->_ssg_voldown, false);
+static enum pmd_cmd_result vd_ssg(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->ssg_voldown, &pmd->_ssg_voldown, false);
 }
 
 // :2100
-static enum pmd_cmd_result vd_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->pcm_voldown, &pmd->_pcm_voldown, false);
+static enum pmd_cmd_result vd_pcm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->pcm_voldown, &pmd->_pcm_voldown, false);
 }
 
 // :2103
-static enum pmd_cmd_result vd_rhythm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->rhythm_voldown, &pmd->_rhythm_voldown,
+static enum pmd_cmd_result vd_rhythm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->rhythm_voldown, &pmd->_rhythm_voldown,
                    false);
 }
 
 // :2107
-static enum pmd_cmd_result vd_ppz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->ppz_voldown, &pmd->_ppz_voldown, false);
+static enum pmd_cmd_result vd_ppz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->ppz_voldown, &pmd->_ppz_voldown, false);
 }
 
 // :2111
-static enum pmd_cmd_result _vd_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->fm_voldown, &pmd->_fm_voldown, true);
+static enum pmd_cmd_result _vd_fm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->fm_voldown, &pmd->_fm_voldown, true);
 }
 
 // :2136
-static enum pmd_cmd_result _vd_ssg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->ssg_voldown, &pmd->_ssg_voldown, true);
+static enum pmd_cmd_result _vd_ssg(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->ssg_voldown, &pmd->_ssg_voldown, true);
 }
 
 // :2141
-static enum pmd_cmd_result _vd_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->pcm_voldown, &pmd->_pcm_voldown, true);
+static enum pmd_cmd_result _vd_pcm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->pcm_voldown, &pmd->_pcm_voldown, true);
 }
 
 // :2146
-static enum pmd_cmd_result _vd_rhythm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->rhythm_voldown, &pmd->_rhythm_voldown,
+static enum pmd_cmd_result _vd_rhythm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->rhythm_voldown, &pmd->_rhythm_voldown,
                    true);
 }
 
 // :2151
-static enum pmd_cmd_result _vd_ppz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    return vd_main(pmd, di, si, &pmd->ppz_voldown, &pmd->_ppz_voldown, true);
+static enum pmd_cmd_result _vd_ppz(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    return vd_main(pmd, part, src, &pmd->ppz_voldown, &pmd->_ppz_voldown, true);
 }
 
 // :2159
-static enum pmd_cmd_result slot_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result slot_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    di->sdelay_m = (uint8_t)((~(al & 0x0f) & 0x0f) << 4);
-    al = lodsb(si);
-    di->sdelay = al;
-    di->sdelay_c = al;
+    uint8_t mask = lodsb(src);
+    part->sdelay_m = (uint8_t)((~(mask & 0x0f) & 0x0f) << 4);
+    uint8_t delay = lodsb(src);
+    part->sdelay = delay;
+    part->sdelay_c = delay;
     return PMD_CMD_RETURN;
 }
 
 // :2176
-static enum pmd_cmd_result fb_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if ((al & 0x80) != 0) {
-        _fb_set(pmd, di, al);
+static enum pmd_cmd_result fb_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t fb = lodsb(src);
+    if ((fb & 0x80) != 0) {
+        _fb_set(pmd, part, fb);
         return PMD_CMD_RETURN;
     }
-    al = (uint8_t)((al << 3) | (al >> 5)); // rol al,3
-    fb_set3(pmd, di, al);
+    fb = (uint8_t)((fb << 3) | (fb >> 5)); // rol fb,3
+    fb_set3(pmd, part, fb);
     return PMD_CMD_RETURN;
 }
 
 // :2186
-static void fb_set3(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
-    uint8_t dh = (uint8_t)(0xb0 - 1 + pmd->partb);
-    uint8_t dl;
-    if (fm3_active(pmd, di)) {
-        if ((di->slotmask & 0x10) == 0) return;
-        dl = (uint8_t)((pmd->fm3_alg_fb & 7) | al);
-        pmd->fm3_alg_fb = dl;
+static void fb_set3(struct pmd *pmd, struct pmd_qq *part, uint8_t fb) {
+    uint8_t reg = (uint8_t)(0xb0 - 1 + pmd->partb);
+    uint8_t value;
+    if (fm3_active(pmd, part)) {
+        if ((part->slotmask & 0x10) == 0) return;
+        value = (uint8_t)((pmd->fm3_alg_fb & 7) | fb);
+        pmd->fm3_alg_fb = value;
     } else {
-        dl = (uint8_t)((di->alg_fb & 7) | al);
+        value = (uint8_t)((part->alg_fb & 7) | fb);
     }
-    opnset(pmd, (uint16_t)((dh << 8) | dl));
-    di->alg_fb = dl;
+    opnset(pmd, (uint16_t)((reg << 8) | value));
+    part->alg_fb = value;
 }
 
 // :2213
-static void _fb_set(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
-    if ((al & 0x40) == 0) al &= 7;
+static void _fb_set(struct pmd *pmd, struct pmd_qq *part, uint8_t fb) {
+    if ((fb & 0x40) == 0) fb &= 7;
 
-    uint8_t dl;
-    if (fm3_active(pmd, di)) dl = pmd->fm3_alg_fb;
-    else dl = di->alg_fb;
-    dl = (uint8_t)(((dl >> 3) | (dl << 5)) & 7); // ror dl,3
-    al = (uint8_t)(al + dl);
-    if ((al & 0x80) != 0) {
-        al = 0;
-    } else if (al >= 8) {
-        al = 0x38;
+    uint8_t value;
+    if (fm3_active(pmd, part)) value = pmd->fm3_alg_fb;
+    else value = part->alg_fb;
+    value = (uint8_t)(((value >> 3) | (value << 5)) & 7); // ror dl,3
+    fb = (uint8_t)(fb + value);
+    if ((fb & 0x80) != 0) {
+        fb = 0;
+    } else if (fb >= 8) {
+        fb = 0x38;
     } else {
-        al = (uint8_t)((al << 3) | (al >> 5)); // fb_set2's rol al,3
+        fb = (uint8_t)((fb << 3) | (fb >> 5)); // fb_set2's rol fb,3
     }
-    fb_set3(pmd, di, al);
+    fb_set3(pmd, part, fb);
 }
 
 // :2248
-static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t dh = (uint8_t)(0x40 - 1 + pmd->partb);
-    uint8_t al = lodsb(si);
-    uint8_t ah = al & 0x0f;
-    uint8_t ch = (uint8_t)(((di->slotmask >> 4) | (di->slotmask << 4)));
-    ah &= ch;
-    uint8_t dl = lodsb(si);
-    bool write = di->partmask == 0;
+static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t reg = (uint8_t)(0x40 - 1 + pmd->partb);
+    uint8_t mask = lodsb(src);
+    uint8_t slots = mask & 0x0f;
+    uint8_t swapped = (uint8_t)(((part->slotmask >> 4) | (part->slotmask << 4)));
+    slots &= swapped;
+    uint8_t delta = lodsb(src);
+    bool write = part->partmask == 0;
 
-    if ((al & 0x80) == 0) dl &= 0x7f;
+    if ((mask & 0x80) == 0) delta &= 0x7f;
 
-    uint8_t *slot[4] = {&di->slot1, &di->slot2, &di->slot3, &di->slot4};
-    uint8_t regs[4] = {dh, (uint8_t)(dh + 8), (uint8_t)(dh + 4),
-                       (uint8_t)(dh + 12)};
+    uint8_t *slot[4] = {&part->slot1, &part->slot2, &part->slot3, &part->slot4};
+    uint8_t regs[4] = {reg, (uint8_t)(reg + 8), (uint8_t)(reg + 4),
+                       (uint8_t)(reg + 12)};
     for (int i = 0; i < 4; i++) {
-        if ((ah & (1u << i)) == 0) continue;
+        if ((slots & (1u << i)) == 0) continue;
         uint8_t value;
-        if ((al & 0x80) == 0) {
-            value = dl;
+        if ((mask & 0x80) == 0) {
+            value = delta;
         } else {
-            value = (uint8_t)(*slot[i] + dl);
+            value = (uint8_t)(*slot[i] + delta);
             if ((value & 0x80) != 0) {
-                if ((dl & 0x80) != 0) value = 0;
+                if ((delta & 0x80) != 0) value = 0;
                 else value = 127;
             }
         }
@@ -5589,142 +5592,142 @@ static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 }
 
 // :2357
-static enum pmd_cmd_result fm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (al >= 2) return special_0c0h(pmd, di, si, al);
-    if (al == 0) {
-        di->partmask &= 0xbf;
-        if (di->partmask != 0) return PMD_CMD_FMMNP_1;
-        neiro_reset(pmd, di);
+static enum pmd_cmd_result fm_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src);
+    if (mask >= 2) return special_0c0h(pmd, part, src, mask);
+    if (mask == 0) {
+        part->partmask &= 0xbf;
+        if (part->partmask != 0) return PMD_CMD_FMMNP_1;
+        neiro_reset(pmd, part);
         return PMD_CMD_MP1;
     }
-    di->partmask |= 0x40;
-    if (di->partmask == 0x40) silence_fmpart(pmd, di);
+    part->partmask |= 0x40;
+    if (part->partmask == 0x40) silence_fmpart(pmd, part);
     return PMD_CMD_FMMNP_1;
 }
 
 // :2378
-static enum pmd_cmd_result ssg_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (al >= 2) return special_0c0h(pmd, di, si, al);
-    if (al == 0) {
-        di->partmask &= 0xbf;
-        if (di->partmask != 0) return PMD_CMD_PSGMNP_1;
+static enum pmd_cmd_result ssg_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src);
+    if (mask >= 2) return special_0c0h(pmd, part, src, mask);
+    if (mask == 0) {
+        part->partmask &= 0xbf;
+        if (part->partmask != 0) return PMD_CMD_PSGMNP_1;
         return PMD_CMD_MP1P;
     }
-    di->partmask |= 0x40;
-    if (di->partmask == 0x40) {
+    part->partmask |= 0x40;
+    if (part->partmask == 0x40) {
         uint8_t read, mask;
         psgmsk(pmd, &read, &mask);
-        uint8_t dl = (uint8_t)(read | mask);
-        opnset44(pmd, (uint16_t)((7 << 8) | dl));
+        uint8_t value = (uint8_t)(read | mask);
+        opnset44(pmd, (uint16_t)((7 << 8) | value));
     }
     return PMD_CMD_PSGMNP_1;
 }
 
 // :2402
-static enum pmd_cmd_result rhythm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (al >= 2) return special_0c0h(pmd, di, si, al);
-    if (al == 0) di->partmask &= 0xbf;
-    else di->partmask |= 0x40;
+static enum pmd_cmd_result rhythm_mml_part_mask(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src);
+    if (mask >= 2) return special_0c0h(pmd, part, src, mask);
+    if (mask == 0) part->partmask &= 0xbf;
+    else part->partmask |= 0x40;
     return PMD_CMD_RETURN;
 }
 
 // :2417
-static void neiro_reset(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->neiromask == 0) return;
+static void neiro_reset(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->neiromask == 0) return;
 
-    uint8_t dl = di->voicenum;
-    uint16_t slot1 = (uint16_t)(di->slot1 | (di->slot3 << 8));
-    uint16_t slot2 = (uint16_t)(di->slot2 | (di->slot4 << 8));
+    uint8_t voice = part->voicenum;
+    uint16_t slot1 = (uint16_t)(part->slot1 | (part->slot3 << 8));
+    uint16_t slot2 = (uint16_t)(part->slot2 | (part->slot4 << 8));
     pmd->af_check = 1;
-    neiroset(pmd, di, dl);
+    neiroset(pmd, part, voice);
     pmd->af_check = 0;
-    di->slot1 = (uint8_t)slot1;
-    di->slot3 = (uint8_t)(slot1 >> 8);
-    di->slot2 = (uint8_t)slot2;
-    di->slot4 = (uint8_t)(slot2 >> 8);
+    part->slot1 = (uint8_t)slot1;
+    part->slot3 = (uint8_t)(slot1 >> 8);
+    part->slot2 = (uint8_t)slot2;
+    part->slot4 = (uint8_t)(slot2 >> 8);
 
-    uint8_t al = (uint8_t)(~di->carrier & di->slotmask);
-    if (al != 0) {
-        uint8_t dh = (uint8_t)(0x4c - 1 + pmd->partb);
-        al = (uint8_t)((al << 1) | (al >> 7)); // rol al,1
-        if (al & 1) opnset(pmd, (uint16_t)((dh << 8) | di->slot4));
-        dh -= 8;
-        al = (uint8_t)((al << 1) | (al >> 7));
-        if (al & 1) opnset(pmd, (uint16_t)((dh << 8) | di->slot3));
-        dh += 4;
-        al = (uint8_t)((al << 1) | (al >> 7));
-        if (al & 1) opnset(pmd, (uint16_t)((dh << 8) | di->slot2));
-        dh -= 8;
-        al = (uint8_t)((al << 1) | (al >> 7));
-        if (al & 1) opnset(pmd, (uint16_t)((dh << 8) | di->slot1));
+    uint8_t mask = (uint8_t)(~part->carrier & part->slotmask);
+    if (mask != 0) {
+        uint8_t reg = (uint8_t)(0x4c - 1 + pmd->partb);
+        mask = (uint8_t)((mask << 1) | (mask >> 7)); // rol mask,1
+        if (mask & 1) opnset(pmd, (uint16_t)((reg << 8) | part->slot4));
+        reg -= 8;
+        mask = (uint8_t)((mask << 1) | (mask >> 7));
+        if (mask & 1) opnset(pmd, (uint16_t)((reg << 8) | part->slot3));
+        reg += 4;
+        mask = (uint8_t)((mask << 1) | (mask >> 7));
+        if (mask & 1) opnset(pmd, (uint16_t)((reg << 8) | part->slot2));
+        reg -= 8;
+        mask = (uint8_t)((mask << 1) | (mask >> 7));
+        if (mask & 1) opnset(pmd, (uint16_t)((reg << 8) | part->slot1));
     }
 
     // :2465 nr_exit
 #if board2
     {
-        uint8_t dh = (uint8_t)(pmd->partb + 0xb3);
+        uint8_t reg = (uint8_t)(pmd->partb + 0xb3);
         uint8_t pan;
-        calc_panout(pmd, di, &pan);
-        opnset(pmd, (uint16_t)((dh << 8) | pan));
+        calc_panout(pmd, part, &pan);
+        opnset(pmd, (uint16_t)((reg << 8) | pan));
     }
 #endif
 }
 
 // :2478
-static enum pmd_cmd_result pdrswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result pdrswitch(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    uint8_t value = lodsb(src);
     if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL &&
         pmd->pps->pdr_switch != NULL) {
-        pmd->pps->pdr_switch(al, pmd->user_data);
+        pmd->pps->pdr_switch(value, pmd->user_data);
     }
     return PMD_CMD_RETURN;
 }
 
 // :2493
-static enum pmd_cmd_result volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si) & 0x0f;
-    if (al == 0) {
-        al = di->carrier;
+static enum pmd_cmd_result volmask_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src) & 0x0f;
+    if (mask == 0) {
+        mask = part->carrier;
     } else {
-        al = (uint8_t)((al << 4) | (al >> 4));
-        al |= 0x0f;
+        mask = (uint8_t)((mask << 4) | (mask >> 4));
+        mask |= 0x0f;
     }
-    di->volmask = al;
-    ch3_setting(pmd, di);
+    part->volmask = mask;
+    ch3_setting(pmd, part);
     return PMD_CMD_RETURN;
 }
 
 // :2510
-static enum pmd_cmd_result _volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si) & 0x0f;
-    if (al == 0) {
-        al = di->carrier;
+static enum pmd_cmd_result _volmask_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t mask = lodsb(src) & 0x0f;
+    if (mask == 0) {
+        mask = part->carrier;
     } else {
-        al = (uint8_t)((al << 4) | (al >> 4));
-        al |= 0x0f;
+        mask = (uint8_t)((mask << 4) | (mask >> 4));
+        mask |= 0x0f;
     }
-    di->_volmask = al;
-    ch3_setting(pmd, di);
+    part->_volmask = mask;
+    ch3_setting(pmd, part);
     return PMD_CMD_RETURN;
 }
 
 // :2528
-static bool ch3_setting(struct pmd *pmd, struct pmd_qq *di) {
-    if (!fm3_active(pmd, di)) return false;
-    ch3mode_set(pmd, di);
+static bool ch3_setting(struct pmd *pmd, struct pmd_qq *part) {
+    if (!fm3_active(pmd, part)) return false;
+    ch3mode_set(pmd, part);
     return true;
 }
 
 // :2549
-static enum pmd_cmd_result fm3_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result fm3_extpartset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
     static const int slots[3] = {part3b, part3c, part3d};
     for (int i = 0; i < 3; i++) {
-        uint16_t offset = lodsw(si);
+        uint16_t offset = lodsw(src);
         if (offset == 0) continue;
         fm3_partinit(pmd, &pmd->parts[slots[i]], pmd->mmlbuf + offset);
     }
@@ -5732,85 +5735,85 @@ static enum pmd_cmd_result fm3_extpartset(struct pmd *pmd, struct pmd_qq *di, ui
 }
 
 // :2576
-static void fm3_partinit(struct pmd *pmd, struct pmd_qq *di, uint8_t *address) {
-    di->address = address;
-    di->leng = 1;
-    di->keyoff_flag = 0xff;
-    di->mdc = 0xff;
-    di->mdc2 = 0xff;
-    di->_mdc = 0xff;
-    di->_mdc2 = 0xff;
-    di->onkai = 0xff;
-    di->onkai_def = 0xff;
-    di->volume = 108;
-    di->fmpan = pmd->parts[part3].fmpan;
-    di->partmask |= 0x20;
+static void fm3_partinit(struct pmd *pmd, struct pmd_qq *part, uint8_t *address) {
+    part->address = address;
+    part->leng = 1;
+    part->keyoff_flag = 0xff;
+    part->mdc = 0xff;
+    part->mdc2 = 0xff;
+    part->_mdc = 0xff;
+    part->_mdc2 = 0xff;
+    part->onkai = 0xff;
+    part->onkai_def = 0xff;
+    part->volume = 108;
+    part->fmpan = pmd->parts[part3].fmpan;
+    part->partmask |= 0x20;
 }
 
 // :2597
-static enum pmd_cmd_result detune_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result detune_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si) & 1;
-    di->extendmode = (uint8_t)((di->extendmode & 0xfe) | al);
+    uint8_t flag = lodsb(src) & 1;
+    part->extendmode = (uint8_t)((part->extendmode & 0xfe) | flag);
     return PMD_CMD_RETURN;
 }
 
 // :2607
-static enum pmd_cmd_result lfo_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result lfo_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)((lodsb(si) & 1) << 1);
-    di->extendmode = (uint8_t)((di->extendmode & 0xfd) | al);
+    uint8_t flag = (uint8_t)((lodsb(src) & 1) << 1);
+    part->extendmode = (uint8_t)((part->extendmode & 0xfd) | flag);
     return PMD_CMD_RETURN;
 }
 
 // :2618
-static enum pmd_cmd_result envelope_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result envelope_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)((lodsb(si) & 1) << 2);
-    di->extendmode = (uint8_t)((di->extendmode & 0xfb) | al);
+    uint8_t flag = (uint8_t)((lodsb(src) & 1) << 2);
+    part->extendmode = (uint8_t)((part->extendmode & 0xfb) | flag);
     return PMD_CMD_RETURN;
 }
 
 // :2630
-static enum pmd_cmd_result lfowave_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result lfowave_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->lfo_wave = lodsb(si);
+    part->lfo_wave = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :2638
-static enum pmd_cmd_result extend_psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result extend_psgenvset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->eenv_ar = lodsb(si) & 0x1f;
-    di->eenv_dr = lodsb(si) & 0x1f;
-    di->eenv_sr = lodsb(si) & 0x1f;
-    uint8_t ah = lodsb(si);
-    di->eenv_rr = ah & 0x0f;
-    ah = (uint8_t)((ah << 4) | (ah >> 4)); // rol ah,4
-    ah &= 0x0f;
-    di->eenv_sl = (uint8_t)(~ah & 0x0f);
-    di->eenv_al = lodsb(si) & 0x0f;
+    part->eenv_ar = lodsb(src) & 0x1f;
+    part->eenv_dr = lodsb(src) & 0x1f;
+    part->eenv_sr = lodsb(src) & 0x1f;
+    uint8_t value = lodsb(src);
+    part->eenv_rr = value & 0x0f;
+    value = (uint8_t)((value << 4) | (value >> 4)); // rol al,4
+    value &= 0x0f;
+    part->eenv_sl = (uint8_t)(~value & 0x0f);
+    part->eenv_al = lodsb(src) & 0x0f;
 
-    if (di->envf != 0xff) {
-        di->envf = 0xff;
-        di->eenv_count = 4;
-        di->eenv_volume = 0;
+    if (part->envf != 0xff) {
+        part->envf = 0xff;
+        part->eenv_count = 4;
+        part->eenv_volume = 0;
     }
     return PMD_CMD_RETURN;
 }
 
 // :2674
-static enum pmd_cmd_result slotdetune_set2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (!fm3_active(pmd, di)) {
-        *si += 3;
+static enum pmd_cmd_result slotdetune_set2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (!fm3_active(pmd, part)) {
+        *src += 3;
         return PMD_CMD_RETURN;
     }
-    uint8_t bl = lodsb(si);
-    uint16_t ax = lodsw(si);
-    if (bl & 1) pmd->slot_detune1 = (uint16_t)(pmd->slot_detune1 + ax);
-    if (bl & 2) pmd->slot_detune2 = (uint16_t)(pmd->slot_detune2 + ax);
-    if (bl & 4) pmd->slot_detune3 = (uint16_t)(pmd->slot_detune3 + ax);
-    if (bl & 8) pmd->slot_detune4 = (uint16_t)(pmd->slot_detune4 + ax);
+    uint8_t mask = lodsb(src);
+    uint16_t detune = lodsw(src);
+    if (mask & 1) pmd->slot_detune1 = (uint16_t)(pmd->slot_detune1 + detune);
+    if (mask & 2) pmd->slot_detune2 = (uint16_t)(pmd->slot_detune2 + detune);
+    if (mask & 4) pmd->slot_detune3 = (uint16_t)(pmd->slot_detune3 + detune);
+    if (mask & 8) pmd->slot_detune4 = (uint16_t)(pmd->slot_detune4 + detune);
     pmd->slotdetune_flag =
         (pmd->slot_detune1 | pmd->slot_detune2 | pmd->slot_detune3 |
          pmd->slot_detune4) != 0;
@@ -5818,17 +5821,17 @@ static enum pmd_cmd_result slotdetune_set2(struct pmd *pmd, struct pmd_qq *di, u
 }
 
 // :2704
-static enum pmd_cmd_result slotdetune_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (!fm3_active(pmd, di)) {
-        *si += 3;
+static enum pmd_cmd_result slotdetune_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (!fm3_active(pmd, part)) {
+        *src += 3;
         return PMD_CMD_RETURN;
     }
-    uint8_t bl = lodsb(si);
-    uint16_t ax = lodsw(si);
-    if (bl & 1) pmd->slot_detune1 = ax;
-    if (bl & 2) pmd->slot_detune2 = ax;
-    if (bl & 4) pmd->slot_detune3 = ax;
-    if (bl & 8) pmd->slot_detune4 = ax;
+    uint8_t mask = lodsb(src);
+    uint16_t detune = lodsw(src);
+    if (mask & 1) pmd->slot_detune1 = detune;
+    if (mask & 2) pmd->slot_detune2 = detune;
+    if (mask & 4) pmd->slot_detune3 = detune;
+    if (mask & 8) pmd->slot_detune4 = detune;
     pmd->slotdetune_flag =
         (pmd->slot_detune1 | pmd->slot_detune2 | pmd->slot_detune3 |
          pmd->slot_detune4) != 0;
@@ -5836,92 +5839,92 @@ static enum pmd_cmd_result slotdetune_set(struct pmd *pmd, struct pmd_qq *di, ui
 }
 
 // :2745
-static void ch3mode_set(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t al;
-    if (di == &pmd->parts[part3]) al = 1;
-    else if (di == &pmd->parts[part3b]) al = 2;
-    else if (di == &pmd->parts[part3c]) al = 4;
-    else al = 8;
+static void ch3mode_set(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t slot;
+    if (part == &pmd->parts[part3]) slot = 1;
+    else if (part == &pmd->parts[part3b]) slot = 2;
+    else if (part == &pmd->parts[part3c]) slot = 4;
+    else slot = 8;
 
     // :2756 cmset_00: a part with no masked slot, or one whose mask the LFOs
     // drive, leaves CSM/window mode clear.
     bool clear;
-    if ((di->slotmask & 0xf0) == 0) clear = true;
-    else if ((di->slotmask & 0xf0) != 0xf0) clear = false;
-    else if ((di->volmask & 0x0f) == 0) clear = true;
-    else if ((di->lfoswi & 1) != 0) clear = false;
-    else if ((di->_volmask & 0x0f) == 0) clear = true;
-    else clear = (di->lfoswi & 0x10) == 0;
+    if ((part->slotmask & 0xf0) == 0) clear = true;
+    else if ((part->slotmask & 0xf0) != 0xf0) clear = false;
+    else if ((part->volmask & 0x0f) == 0) clear = true;
+    else if ((part->lfoswi & 1) != 0) clear = false;
+    else if ((part->_volmask & 0x0f) == 0) clear = true;
+    else clear = (part->lfoswi & 0x10) == 0;
 
-    uint8_t ah;
+    uint8_t mode;
     if (clear) {
         // :2770 cm_clear
-        al = (uint8_t)~al;
-        pmd->slot3_flag &= al;
-        if (pmd->slot3_flag != 0 || pmd->slotdetune_flag == 1) ah = 0x7f; // :2781 cm_set2
-        else ah = 0x3f;
+        slot = (uint8_t)~slot;
+        pmd->slot3_flag &= slot;
+        if (pmd->slot3_flag != 0 || pmd->slotdetune_flag == 1) mode = 0x7f; // :2781 cm_set2
+        else mode = 0x3f;
     } else {
         // :2779 cm_set
-        pmd->slot3_flag |= al;
-        ah = 0x7f;
+        pmd->slot3_flag |= slot;
+        mode = 0x7f;
     }
 
     // :2783 cm_set_main
 #if !board2
-    if ((di->partmask & 2) != 0) {
-        pmd->ch3mode_push = ah;
+    if ((part->partmask & 2) != 0) {
+        pmd->ch3mode_push = mode;
         return;
     }
 #endif
-    if (ah == pmd->ch3mode) return;
-    pmd->ch3mode = ah;
-    opnset44(pmd, (uint16_t)((0x27 << 8) | (ah & 0xcf)));
+    if (mode == pmd->ch3mode) return;
+    pmd->ch3mode = mode;
+    opnset44(pmd, (uint16_t)((0x27 << 8) | (mode & 0xcf)));
 
-    if (ah == 0x3f) return;
-    if (di == &pmd->parts[part3]) return;
+    if (mode == 0x3f) return;
+    if (part == &pmd->parts[part3]) return;
     otodasi_cm(pmd, &pmd->parts[part3]);
-    if (di == &pmd->parts[part3b]) return;
+    if (part == &pmd->parts[part3b]) return;
     otodasi_cm(pmd, &pmd->parts[part3b]);
-    if (di == &pmd->parts[part3c]) return;
+    if (part == &pmd->parts[part3c]) return;
     otodasi_cm(pmd, &pmd->parts[part3c]);
 }
 
 // :2823
-static void otodasi_cm(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->partmask != 0) return;
-    otodasi(pmd, di);
+static void otodasi_cm(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->partmask != 0) return;
+    otodasi(pmd, part);
 }
 
 // :2839
-static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    uint8_t ah = al;
-    al &= 0x0f;
-    if (al != 0) {
-        di->carrier = (uint8_t)((al << 4) | (al >> 4));
+static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t carrier = lodsb(src);
+    uint8_t mask = carrier;
+    carrier &= 0x0f;
+    if (carrier != 0) {
+        part->carrier = (uint8_t)((carrier << 4) | (carrier >> 4));
     } else {
         // :2851 sm_not_car
-        uint8_t bl;
-        if (fm3_active(pmd, di)) {
-            bl = pmd->fm3_alg_fb;
+        uint8_t alg;
+        if (fm3_active(pmd, part)) {
+            alg = pmd->fm3_alg_fb;
         } else {
-            uint8_t *bx;
-            toneadr_calc(pmd, di, di->voicenum, &bx);
-            bl = bx[24];
+            uint8_t *tone;
+            toneadr_calc(pmd, part, part->voicenum, &tone);
+            alg = tone[24];
         }
-        bl &= 7;
-        di->carrier = carrier_table[bl];
+        alg &= 7;
+        part->carrier = carrier_table[alg];
     }
 
     // :2877 sm_set
-    ah &= 0xf0;
-    if (di->slotmask == ah) return PMD_CMD_RETURN;
-    di->slotmask = ah;
-    if ((ah & 0xf0) != 0) di->partmask &= 0xdf;
-    else di->partmask |= 0x20;
+    mask &= 0xf0;
+    if (part->slotmask == mask) return PMD_CMD_RETURN;
+    part->slotmask = mask;
+    if ((mask & 0xf0) != 0) part->partmask &= 0xdf;
+    else part->partmask |= 0x20;
 
     // :2889 sms_ns
-    if (ch3_setting(pmd, di)) {
+    if (ch3_setting(pmd, part)) {
         // :2892 The earlier channel-3 parts are keyed before the jump to
         // sm_exit.
         struct pmd_qq *const ch3[] = {
@@ -5929,35 +5932,35 @@ static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *di, uint
             &pmd->parts[part3b],
             &pmd->parts[part3c],
         };
-        for (int i = 0; i < 3 && di != ch3[i]; i++) keyon_sm(pmd, ch3[i]);
+        for (int i = 0; i < 3 && part != ch3[i]; i++) keyon_sm(pmd, ch3[i]);
     }
 
     // :2914 sm_exit
-    ah = 0;
-    al = di->slotmask;
-    if (al & 0x80) ah |= 0x11;
-    if (al & 0x40) ah |= 0x44;
-    if (al & 0x20) ah |= 0x22;
-    if (al & 0x10) ah |= 0x88;
-    di->neiromask = ah;
+    mask = 0;
+    carrier = part->slotmask;
+    if (carrier & 0x80) mask |= 0x11;
+    if (carrier & 0x40) mask |= 0x44;
+    if (carrier & 0x20) mask |= 0x22;
+    if (carrier & 0x10) mask |= 0x88;
+    part->neiromask = mask;
 
-    if (di->partmask == 0) return PMD_CMD_MP1;
+    if (part->partmask == 0) return PMD_CMD_MP1;
     return PMD_CMD_FMMNP_1;
 }
 
 // :2945
-static void keyon_sm(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->partmask != 0) return;
-    if ((di->keyoff_flag & 1) != 0) return;
-    keyon(pmd, di);
+static void keyon_sm(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->partmask != 0) return;
+    if ((part->keyoff_flag & 1) != 0) return;
+    keyon(pmd, part);
 }
 
 // :2957
-static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (di->partmask != 0) return PMD_CMD_RETURN;
-    if (al != 0) {
-        eff_on2(pmd, di, al);
+static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t efcnum = lodsb(src);
+    if (part->partmask != 0) return PMD_CMD_RETURN;
+    if (efcnum != 0) {
+        eff_on2(pmd, part, efcnum);
     } else {
         effend(pmd);
     }
@@ -5965,15 +5968,15 @@ static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint
 }
 
 // :2981
-static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (di->partmask != 0) return PMD_CMD_RETURN;
+static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t efcnum = lodsb(src);
+    if (part->partmask != 0) return PMD_CMD_RETURN;
 #if board2
     uint8_t fmsel = pmd->fmsel;
 #endif
     uint8_t partb = pmd->partb;
-    if (al != 0) {
-        fm_effect_on(pmd, al);
+    if (efcnum != 0) {
+        fm_effect_on(pmd, efcnum);
     } else {
         fm_effect_off(pmd);
     }
@@ -5986,337 +5989,336 @@ static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8
 }
 
 // :3029
-static enum pmd_cmd_result fade_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result fade_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
     pmd->fadeout_flag = 1;
-    pmd->fadeout_speed = lodsb(si); // fout
+    pmd->fadeout_speed = lodsb(src); // fout
     return PMD_CMD_RETURN;
 }
 
 // :3037
-static enum pmd_cmd_result mdepth_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result mdepth_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    di->mdspd = al;
-    di->mdspd2 = al;
-    di->mdepth = lodsb(si);
+    uint8_t speed = lodsb(src);
+    part->mdspd = speed;
+    part->mdspd2 = speed;
+    part->mdepth = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3045
-static enum pmd_cmd_result mdepth_count(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result mdepth_count(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    if ((al & 0x80) != 0) {
-        al &= 0x7f;
-        if (al == 0) al--;
-        di->_mdc = al;
-        di->_mdc2 = al;
+    uint8_t count = lodsb(src);
+    if ((count & 0x80) != 0) {
+        count &= 0x7f;
+        if (count == 0) count--;
+        part->_mdc = count;
+        part->_mdc2 = count;
     } else {
-        if (al == 0) al--;
-        di->mdc = al;
-        di->mdc2 = al;
+        if (count == 0) count--;
+        part->mdc = count;
+        part->mdc2 = count;
     }
     return PMD_CMD_RETURN;
 }
 
 // :3067
-static void porta_calc(struct pmd *pmd, struct pmd_qq *di) {
+static void porta_calc(struct pmd *pmd, struct pmd_qq *part) {
     (void)pmd;
-    di->porta_num = (uint16_t)(di->porta_num + di->porta_num2);
-    if (di->porta_num3 == 0) return;
-    if (di->porta_num3 < 0) {
-        di->porta_num3++;
-        di->porta_num--;
+    part->porta_num = (uint16_t)(part->porta_num + part->porta_num2);
+    if (part->porta_num3 == 0) return;
+    if (part->porta_num3 < 0) {
+        part->porta_num3++;
+        part->porta_num--;
     } else {
-        di->porta_num3--;
-        di->porta_num++;
+        part->porta_num3--;
+        part->porta_num++;
     }
 }
 
 // :3085
-static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (di->partmask != 0) {
-        lodsb(si);
+static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (part->partmask != 0) {
+        lodsb(src);
         return PMD_CMD_RETURN;
     }
-    uint8_t al = lodsb(si);
-    al = lfoinit(pmd, di, al);
-    al = oshift(di, al);
-    fnumset(pmd, di, al);
+    uint8_t note = lodsb(src);
+    note = lfoinit(pmd, part, note);
+    note = oshift(part, note);
+    fnumset(pmd, part, note);
 
-    uint16_t fnum = di->fnum;
-    uint8_t onkai = di->onkai;
+    uint16_t from_fnum = part->fnum;
+    uint8_t from_note = part->onkai;
 
-    al = lodsb(si);
-    al = oshift(di, al);
-    fnumset(pmd, di, al);
-    uint16_t bx = di->fnum;
+    note = lodsb(src);
+    note = oshift(part, note);
+    fnumset(pmd, part, note);
+    uint16_t to_fnum = part->fnum;
 
-    di->onkai = onkai;
-    di->fnum = fnum;
+    part->onkai = from_note;
+    part->fnum = from_fnum;
 
-    // The block bits sit in the high byte of the f-number; BH/CH alias them.
-    uint16_t cx = fnum;
-    uint16_t ax = 0;
-    uint8_t bh = (uint8_t)((bx >> 8) & 0x38);
-    uint8_t ch = (uint8_t)((cx >> 8) & 0x38);
-    uint8_t diff = (uint8_t)(bh - ch);
-    if (diff != 0) {
+    // The block bits sit in the high byte of the f-number.
+    uint16_t from = from_fnum;
+    uint16_t delta = 0;
+    uint8_t to_block = (uint8_t)((to_fnum >> 8) & 0x38);
+    uint8_t from_block = (uint8_t)((from >> 8) & 0x38);
+    uint8_t block_diff = (uint8_t)(to_block - from_block);
+    if (block_diff != 0) {
         // Both are 0x38-masked, so the original's three sar steps are an exact
         // division.
-        int8_t octaves = (int8_t)((int8_t)diff / 8);
-        ax = (uint16_t)(int16_t)octaves;
-        ax = (uint16_t)((int16_t)ax * 0x26a);
+        int8_t octaves = (int8_t)((int8_t)block_diff / 8);
+        delta = (uint16_t)(int16_t)octaves;
+        delta = (uint16_t)((int16_t)delta * 0x26a);
     }
-    cx &= 0x7ff;
-    bx &= 0x7ff;
-    bx = (uint16_t)(bx - cx);
-    ax = (uint16_t)(ax + bx);
+    from &= 0x7ff;
+    to_fnum &= 0x7ff;
+    to_fnum = (uint16_t)(to_fnum - from);
+    delta = (uint16_t)(delta + to_fnum);
 
-    di->leng = lodsb(si);
-    calc_q(pmd, di, si);
+    part->leng = lodsb(src);
+    calc_q(pmd, part, src);
 
     {
-        int32_t n = (int16_t)ax;
-        int32_t d = di->leng;
-        di->porta_num2 = (int16_t)(n / d);
-        di->porta_num3 = (int16_t)(n % d);
+        int32_t n = (int16_t)delta;
+        int32_t d = part->leng;
+        part->porta_num2 = (int16_t)(n / d);
+        part->porta_num3 = (int16_t)(n % d);
     }
-    di->lfoswi |= 8;
+    part->lfoswi |= 8;
     return PMD_CMD_PORTA_RETURN;
 }
 
 // :3155
-static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    if (di->partmask != 0) {
-        lodsb(si);
+static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    if (part->partmask != 0) {
+        lodsb(src);
         return PMD_CMD_RETURN;
     }
-    uint8_t al = lodsb(si);
-    al = lfoinitp(pmd, di, al);
-    al = oshift(di, al);
-    fnumsetp(pmd, di, al);
+    uint8_t note = lodsb(src);
+    note = lfoinitp(pmd, part, note);
+    note = oshift(part, note);
+    fnumsetp(pmd, part, note);
 
-    uint16_t fnum = di->fnum;
-    uint8_t onkai = di->onkai;
+    uint16_t from_fnum = part->fnum;
+    uint8_t from_note = part->onkai;
 
-    al = lodsb(si);
-    al = oshift(di, al);
-    fnumsetp(pmd, di, al);
-    uint16_t ax = di->fnum;
+    note = lodsb(src);
+    note = oshift(part, note);
+    fnumsetp(pmd, part, note);
+    uint16_t to_fnum = part->fnum;
 
-    di->onkai = onkai;
-    di->fnum = fnum;
-    ax = (uint16_t)(ax - fnum);
+    part->onkai = from_note;
+    part->fnum = from_fnum;
+    to_fnum = (uint16_t)(to_fnum - from_fnum);
 
-    di->leng = lodsb(si);
-    calc_q(pmd, di, si);
+    part->leng = lodsb(src);
+    calc_q(pmd, part, src);
 
     {
-        int32_t n = (int16_t)ax;
-        int32_t d = di->leng;
-        di->porta_num2 = (int16_t)(n / d);
-        di->porta_num3 = (int16_t)(n % d);
+        int32_t n = (int16_t)to_fnum;
+        int32_t d = part->leng;
+        part->porta_num2 = (int16_t)(n / d);
+        part->porta_num3 = (int16_t)(n % d);
     }
-    di->lfoswi |= 8;
+    part->lfoswi |= 8;
     return PMD_CMD_PORTA_RETURNP;
 }
 
 // :3200
-static enum pmd_cmd_result status_write(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    pmd->status = lodsb(si);
+static enum pmd_cmd_result status_write(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    pmd->status = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3208
-static enum pmd_cmd_result status_add(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    pmd->status = (uint8_t)(pmd->status + lodsb(si));
+static enum pmd_cmd_result status_add(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    pmd->status = (uint8_t)(pmd->status + lodsb(src));
     return PMD_CMD_RETURN;
 }
 
 // :3218
-static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
-    if (al >= 128) al = 127;
-    di->volpush = (uint8_t)(al + 1);
+    uint8_t volume = (uint8_t)(lodsb(src) + part->volume);
+    if (volume >= 128) volume = 127;
+    part->volpush = (uint8_t)(volume + 1);
     pmd->volpush_flag = 1;
     return PMD_CMD_RETURN;
 }
 
 // :3229
-static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
-    if (al >= 16) al = 15;
-    di->volpush = (uint8_t)(al + 1);
+    uint8_t volume = (uint8_t)(lodsb(src) + part->volume);
+    if (volume >= 16) volume = 15;
+    part->volpush = (uint8_t)(volume + 1);
     pmd->volpush_flag = 1;
     return PMD_CMD_RETURN;
 }
 
 #if (board2 && (pcm || adpcm)) || ppz
 // :3237
-static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    unsigned sum = (unsigned)lodsb(si) + di->volume;
-    uint8_t al;
-    if (sum > 0xff) al = 254;
-    else if (sum < 255) al = (uint8_t)sum;
-    else al = 254;
-    di->volpush = (uint8_t)(al + 1);
+    unsigned sum = (unsigned)lodsb(src) + part->volume;
+    uint8_t volume;
+    if (sum > 0xff) volume = 254;
+    else if (sum < 255) volume = (uint8_t)sum;
+    else volume = 254;
+    part->volpush = (uint8_t)(volume + 1);
     pmd->volpush_flag = 1;
     return PMD_CMD_RETURN;
 }
 #endif
 
 // :3248
-static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t ah = lodsb(si);
-    uint8_t al = di->volume;
-    if (al < ah) al = 0;
-    else if (al - ah >= 255) al = 254;
-    else al = (uint8_t)(al - ah);
-    di->volpush = (uint8_t)(al + 1);
+    uint8_t amount = lodsb(src);
+    uint8_t volume = part->volume;
+    if (volume < amount) volume = 0;
+    else if (volume - amount >= 255) volume = 254;
+    else volume = (uint8_t)(volume - amount);
+    part->volpush = (uint8_t)(volume + 1);
     pmd->volpush_flag = 1;
     return PMD_CMD_RETURN;
 }
 
 // :3260
-static enum pmd_cmd_result hlfo_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result hlfo_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t panval = lodsb(src);
 #if board2
-    di->fmpan = (uint8_t)((di->fmpan & 0xc0) | al);
-    if (fm3_active(pmd, di)) {
-        pmd->parts[part3].fmpan = di->fmpan;
-        pmd->parts[part3b].fmpan = di->fmpan;
-        pmd->parts[part3c].fmpan = di->fmpan;
-        pmd->parts[part3d].fmpan = di->fmpan;
+    part->fmpan = (uint8_t)((part->fmpan & 0xc0) | panval);
+    if (fm3_active(pmd, part)) {
+        pmd->parts[part3].fmpan = part->fmpan;
+        pmd->parts[part3b].fmpan = part->fmpan;
+        pmd->parts[part3c].fmpan = part->fmpan;
+        pmd->parts[part3d].fmpan = part->fmpan;
     }
-    if (di->partmask == 0) {
+    if (part->partmask == 0) {
         uint8_t pan;
-        calc_panout(pmd, di, &pan);
+        calc_panout(pmd, part, &pan);
         opnset(pmd, (uint16_t)(((pmd->partb + 0xb3) << 8) | pan));
     }
 #else
     (void)pmd;
-    (void)di;
-    (void)al;
+    (void)part;
+    (void)panval;
 #endif
     return PMD_CMD_RETURN;
 }
 
 // :3304
-static enum pmd_cmd_result hlfo_onoff(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result hlfo_onoff(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t value = lodsb(src);
 #if board2
-    pmd->port22h = al;
-    opnset44(pmd, (uint16_t)(0x2200 | al));
+    pmd->port22h = value;
+    opnset44(pmd, (uint16_t)(0x2200 | value));
 #else
     (void)pmd;
 #endif
     (void)pmd;
-    (void)al;
-    (void)di;
+    (void)value;
+    (void)part;
     return PMD_CMD_RETURN;
 }
 
 // :3318
-static enum pmd_cmd_result hlfo_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
+static enum pmd_cmd_result hlfo_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t delay = lodsb(src);
 #if board2
-    di->hldelay = al;
+    part->hldelay = delay;
 #else
     (void)pmd;
 #endif
     (void)pmd;
-    (void)al;
-    (void)di;
+    (void)delay;
+    (void)part;
     return PMD_CMD_RETURN;
 }
 
 // :3328
-static enum pmd_cmd_result syousetu_lng_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    pmd->syousetu_lng = lodsb(si);
+static enum pmd_cmd_result syousetu_lng_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    pmd->syousetu_lng = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3334
-static enum pmd_cmd_result com_at(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    di->voicenum = al;
-    uint8_t dl = al;
-    if (di->partmask == 0) {
-        neiroset(pmd, di, dl);
+static enum pmd_cmd_result com_at(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t voice = lodsb(src);
+    part->voicenum = voice;
+    if (part->partmask == 0) {
+        neiroset(pmd, part, voice);
         return PMD_CMD_RETURN;
     }
 
-    uint8_t *bx;
-    toneadr_calc(pmd, di, dl, &bx);
-    dl = bx[24];
-    di->alg_fb = dl;
-    bx += 4;
-    neiroset_tl(di, bx);
+    uint8_t *tone;
+    toneadr_calc(pmd, part, voice, &tone);
+    uint8_t alg = tone[24];
+    part->alg_fb = alg;
+    tone += 4;
+    neiroset_tl(part, tone);
 
-    if (!fm3_active(pmd, di) || di->neiromask == 0) return PMD_CMD_RETURN;
+    if (!fm3_active(pmd, part) || part->neiromask == 0) return PMD_CMD_RETURN;
 
-    if ((di->slotmask & 0x10) != 0) {
+    if ((part->slotmask & 0x10) != 0) {
         // BUG: the original leaves AL holding the voice number here and stores
         // it as alg_fb. Preserved because it is observable in part state.
-        di->alg_fb = di->voicenum;
+        part->alg_fb = part->voicenum;
     } else {
         uint8_t tmp = (uint8_t)(pmd->fm3_alg_fb & 0x38);
-        dl = (uint8_t)((dl & 7) | tmp);
-        di->alg_fb = tmp;
+        alg = (uint8_t)((alg & 7) | tmp);
+        part->alg_fb = tmp;
     }
-    pmd->fm3_alg_fb = dl;
+    pmd->fm3_alg_fb = alg;
     return PMD_CMD_RETURN;
 }
 
 // :3381
-static enum pmd_cmd_result comq(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comq(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->qdata = lodsb(si);
-    di->qdat3 = 0;
+    part->qdata = lodsb(src);
+    part->qdat3 = 0;
     return PMD_CMD_RETURN;
 }
 
 // :3386
-static enum pmd_cmd_result comq3(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comq3(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->qdat2 = lodsb(si);
+    part->qdat2 = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3390
-static enum pmd_cmd_result comq4(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comq4(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->qdat3 = lodsb(si);
+    part->qdat3 = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3398
-static enum pmd_cmd_result comq2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comq2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->qdatb = lodsb(si);
+    part->qdatb = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3406
-static enum pmd_cmd_result comv(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comv(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->volume = lodsb(si);
+    part->volume = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3417
-static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    uint8_t cmd = lodsb(si);
+static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    uint8_t cmd = lodsb(src);
     if (cmd < 251) {
         pmd->tempo_d = cmd;
         pmd->tempo_d_push = cmd;
@@ -6326,42 +6328,42 @@ static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si
 
     uint8_t a = (uint8_t)(cmd + 1);
     if (a == 0) {
-        uint8_t al = lodsb(si);
-        if (al < 0x18) al = 0x18;
-        pmd->tempo_48 = al;
-        pmd->tempo_48_push = al;
+        uint8_t value = lodsb(src);
+        if (value < 0x18) value = 0x18;
+        pmd->tempo_48 = value;
+        pmd->tempo_48_push = value;
         calc_tempo_tb(pmd);
         return PMD_CMD_RETURN;
     }
 
     {
         uint8_t b = (uint8_t)(a + 1);
-        uint8_t param = lodsb(si);
-        uint8_t al = param;
+        uint8_t param = lodsb(src);
+        uint8_t value = param;
         if (b == 0) {
             // T±: relative tempo_d.
-            uint8_t ah = pmd->tempo_d_push;
-            unsigned sum = (unsigned)ah + al;
-            if ((param & 0x80) != 0) al = sum > 0xff ? (uint8_t)sum : 0;
-            else al = sum > 0xff ? 250 : (uint8_t)sum;
-            if (al >= 251) al = 250;
-            pmd->tempo_d = al;
-            pmd->tempo_d_push = al;
+            uint8_t push = pmd->tempo_d_push;
+            unsigned sum = (unsigned)push + value;
+            if ((param & 0x80) != 0) value = sum > 0xff ? (uint8_t)sum : 0;
+            else value = sum > 0xff ? 250 : (uint8_t)sum;
+            if (value >= 251) value = 250;
+            pmd->tempo_d = value;
+            pmd->tempo_d_push = value;
             calc_tb_tempo(pmd);
             return PMD_CMD_RETURN;
         }
 
         // t±: relative tempo_48.
-        uint8_t ah = pmd->tempo_48_push;
-        unsigned sum = (unsigned)ah + al;
+        uint8_t push = pmd->tempo_48_push;
+        unsigned sum = (unsigned)push + value;
         if ((param & 0x80) != 0) {
-            al = sum > 0xff ? (uint8_t)sum : 0x18;
-            if (al < 0x18) al = 0x18;
+            value = sum > 0xff ? (uint8_t)sum : 0x18;
+            if (value < 0x18) value = 0x18;
         } else {
-            al = sum > 0xff ? 255 : (uint8_t)sum;
+            value = sum > 0xff ? 255 : (uint8_t)sum;
         }
-        pmd->tempo_48 = al;
-        pmd->tempo_48_push = al;
+        pmd->tempo_48 = value;
+        pmd->tempo_48_push = value;
         calc_tempo_tb(pmd);
         return PMD_CMD_RETURN;
     }
@@ -6369,261 +6371,261 @@ static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si
 
 // :3480
 static void calc_tb_tempo(struct pmd *pmd) {
-    uint8_t bl = (uint8_t)(0 - pmd->tempo_d);
-    uint8_t al = 255;
-    if (bl >= 18) {
-        uint8_t quotient = (uint8_t)(0x112c / bl);
-        uint8_t remainder = (uint8_t)(0x112c % bl);
-        al = quotient;
-        if ((remainder & 0x80) != 0) al++;
+    uint8_t divisor = (uint8_t)(0 - pmd->tempo_d);
+    uint8_t tempo = 255;
+    if (divisor >= 18) {
+        uint8_t quotient = (uint8_t)(0x112c / divisor);
+        uint8_t remainder = (uint8_t)(0x112c % divisor);
+        tempo = quotient;
+        if ((remainder & 0x80) != 0) tempo++;
     }
-    pmd->tempo_48 = al;
-    pmd->tempo_48_push = al;
+    pmd->tempo_48 = tempo;
+    pmd->tempo_48_push = tempo;
 }
 
 // :3502
 static void calc_tempo_tb(struct pmd *pmd) {
-    uint8_t bl = pmd->tempo_48;
-    uint8_t al = 0;
-    if (bl >= 18) {
-        uint8_t quotient = (uint8_t)(0x112c / bl);
-        uint8_t remainder = (uint8_t)(0x112c % bl);
-        al = (uint8_t)(0 - quotient);
-        if ((remainder & 0x80) != 0) al--;
+    uint8_t divisor = pmd->tempo_48;
+    uint8_t tempo = 0;
+    if (divisor >= 18) {
+        uint8_t quotient = (uint8_t)(0x112c / divisor);
+        uint8_t remainder = (uint8_t)(0x112c % divisor);
+        tempo = (uint8_t)(0 - quotient);
+        if ((remainder & 0x80) != 0) tempo--;
     }
-    pmd->tempo_d = al;
-    pmd->tempo_d_push = al;
+    pmd->tempo_d = tempo;
+    pmd->tempo_d_push = tempo;
 }
 
 // :3524
-static enum pmd_cmd_result comtie(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    (void)si;
+static enum pmd_cmd_result comtie(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    (void)src;
     pmd->tieflag |= 1;
     return PMD_CMD_RETURN;
 }
 
 // :3531
-static enum pmd_cmd_result comd(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comd(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->detune = (int16_t)lodsw(si);
+    part->detune = (int16_t)lodsw(src);
     return PMD_CMD_RETURN;
 }
 
 // :3538
-static enum pmd_cmd_result comdd(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comdd(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->detune = (int16_t)(di->detune + (int16_t)lodsw(si));
+    part->detune = (int16_t)(part->detune + (int16_t)lodsw(src));
     return PMD_CMD_RETURN;
 }
 
 // :3545
-static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint16_t offset = lodsw(si);
-    uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
+static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint16_t offset = lodsw(src);
+    uint8_t *base = part == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
     base[offset + 1] = 0;
     return PMD_CMD_RETURN;
 }
 
 // :3561
-static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    if (al == 0) {
+static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t count = lodsb(src);
+    if (count == 0) {
         // :3565 muloop, an unconditional loop
-        (*si)++;
-        di->loopcheck = 1;
+        (*src)++;
+        part->loopcheck = 1;
     } else {
-        uint8_t ah = al;
-        (*si)[0]++;
-        al = lodsb(si);
-        if (ah == al) {
-            *si += 2;
+        uint8_t previous = count;
+        (*src)[0]++;
+        count = lodsb(src);
+        if (previous == count) {
+            *src += 2;
             return PMD_CMD_RETURN;
         }
     }
 
     // :3575 reloop
-    uint16_t ax = lodsw(si);
-    ax = (uint16_t)(ax + 2);
-    uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
-    *si = base + ax;
+    uint16_t offset = lodsw(src);
+    offset = (uint16_t)(offset + 2);
+    uint8_t *base = part == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
+    *src = base + offset;
     return PMD_CMD_RETURN;
 }
 
 // :3590
-static enum pmd_cmd_result comexloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint16_t offset = lodsw(si);
-    uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
-    uint8_t *bx = base + offset;
-    uint8_t dl = (uint8_t)(bx[0] - 1);
-    bx++;
-    if (dl == bx[0]) *si = bx + 3;
+static enum pmd_cmd_result comexloop(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint16_t offset = lodsw(src);
+    uint8_t *base = part == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
+    uint8_t *data = base + offset;
+    uint8_t count = (uint8_t)(data[0] - 1);
+    data++;
+    if (count == data[0]) *src = data + 3;
     return PMD_CMD_RETURN;
 }
 
 // :3613
-static enum pmd_cmd_result comlopset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comlopset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->partloop = *si;
+    part->partloop = *src;
     return PMD_CMD_RETURN;
 }
 
 // :3620
-static enum pmd_cmd_result comshift(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comshift(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->shift = (int8_t)lodsb(si);
+    part->shift = (int8_t)lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3628
-static enum pmd_cmd_result comshift2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comshift2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->shift = (int8_t)(di->shift + (int8_t)lodsb(si));
+    part->shift = (int8_t)(part->shift + (int8_t)lodsb(src));
     return PMD_CMD_RETURN;
 }
 
 // :3637
-static enum pmd_cmd_result comshift_master(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comshift_master(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->shift_def = (int8_t)lodsb(si);
+    part->shift_def = (int8_t)lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3646
-static enum pmd_cmd_result comvolup(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvolup(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)si;
-    uint8_t al = (uint8_t)(di->volume + 4);
-    di->volume = al >= 128 ? 127 : al;
+    (void)src;
+    uint8_t volume = (uint8_t)(part->volume + 4);
+    part->volume = volume >= 128 ? 127 : volume;
     return PMD_CMD_RETURN;
 }
 
 // :3657
-static enum pmd_cmd_result comvolup2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvolup2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
-    di->volume = al >= 128 ? 127 : al;
+    uint8_t volume = (uint8_t)(lodsb(src) + part->volume);
+    part->volume = volume >= 128 ? 127 : volume;
     return PMD_CMD_RETURN;
 }
 
 // :3663
-static enum pmd_cmd_result comvolupp(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvolupp(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)si;
-    uint8_t al = (uint8_t)(di->volume + 1);
-    di->volume = al >= 16 ? 15 : al;
+    (void)src;
+    uint8_t volume = (uint8_t)(part->volume + 1);
+    part->volume = volume >= 16 ? 15 : volume;
     return PMD_CMD_RETURN;
 }
 
 // :3673
-static enum pmd_cmd_result comvolupp2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvolupp2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
-    di->volume = al >= 16 ? 15 : al;
+    uint8_t volume = (uint8_t)(lodsb(src) + part->volume);
+    part->volume = volume >= 16 ? 15 : volume;
     return PMD_CMD_RETURN;
 }
 
 // :3682
-static enum pmd_cmd_result comvoldown(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvoldown(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)si;
-    uint8_t al = di->volume;
-    di->volume = al >= 4 ? (uint8_t)(al - 4) : 0;
+    (void)src;
+    uint8_t volume = part->volume;
+    part->volume = volume >= 4 ? (uint8_t)(volume - 4) : 0;
     return PMD_CMD_RETURN;
 }
 
 // :3690
-static enum pmd_cmd_result comvoldown2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvoldown2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t ah = lodsb(si);
-    di->volume = di->volume >= ah ? (uint8_t)(di->volume - ah) : 0;
+    uint8_t amount = lodsb(src);
+    part->volume = part->volume >= amount ? (uint8_t)(part->volume - amount) : 0;
     return PMD_CMD_RETURN;
 }
 
 // :3700
-static enum pmd_cmd_result comvoldownp(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvoldownp(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    (void)si;
-    if (di->volume != 0) di->volume--;
+    (void)src;
+    if (part->volume != 0) part->volume--;
     return PMD_CMD_RETURN;
 }
 
 // :3708
-static enum pmd_cmd_result comvoldownp2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result comvoldownp2(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t ah = lodsb(si);
-    di->volume = di->volume >= ah ? (uint8_t)(di->volume - ah) : 0;
+    uint8_t amount = lodsb(src);
+    part->volume = part->volume >= amount ? (uint8_t)(part->volume - amount) : 0;
     return PMD_CMD_RETURN;
 }
 
 // :3720
-static enum pmd_cmd_result _lfoset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    lfo_change(di);
-    enum pmd_cmd_result r = lfoset(pmd, di, si);
-    lfo_change(di);
+static enum pmd_cmd_result _lfoset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    lfo_change(part);
+    enum pmd_cmd_result r = lfoset(pmd, part, src);
+    lfo_change(part);
     return r;
 }
 
 // :3733
-static enum pmd_cmd_result _mdepth_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    lfo_change(di);
-    enum pmd_cmd_result r = mdepth_set(pmd, di, si);
-    lfo_change(di);
+static enum pmd_cmd_result _mdepth_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    lfo_change(part);
+    enum pmd_cmd_result r = mdepth_set(pmd, part, src);
+    lfo_change(part);
     return r;
 }
 
 // :3737
-static enum pmd_cmd_result _lfowave_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    lfo_change(di);
-    enum pmd_cmd_result r = lfowave_set(pmd, di, si);
-    lfo_change(di);
+static enum pmd_cmd_result _lfowave_set(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    lfo_change(part);
+    enum pmd_cmd_result r = lfowave_set(pmd, part, src);
+    lfo_change(part);
     return r;
 }
 
 // :3741
-static enum pmd_cmd_result _lfo_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    lfo_change(di);
-    enum pmd_cmd_result r = lfo_extend(pmd, di, si);
-    lfo_change(di);
+static enum pmd_cmd_result _lfo_extend(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    lfo_change(part);
+    enum pmd_cmd_result r = lfo_extend(pmd, part, src);
+    lfo_change(part);
     return r;
 }
 
 // :3745
-static enum pmd_cmd_result _lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    lfo_change(di);
-    enum pmd_cmd_result r = lfoset_delay(pmd, di, si);
-    lfo_change(di);
+static enum pmd_cmd_result _lfoset_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    lfo_change(part);
+    enum pmd_cmd_result r = lfoset_delay(pmd, part, src);
+    lfo_change(part);
     return r;
 }
 
 // :3749
-static enum pmd_cmd_result _lfoswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result _lfoswitch(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lodsb(si) & 7);
-    al = (uint8_t)((al << 4) | (al >> 4));
-    di->lfoswi = (uint8_t)((di->lfoswi & 0x8f) | al);
-    lfo_change(di);
-    lfoinit_main(di);
-    lfo_change(di);
+    uint8_t value = (uint8_t)(lodsb(src) & 7);
+    value = (uint8_t)((value << 4) | (value >> 4));
+    part->lfoswi = (uint8_t)((part->lfoswi & 0x8f) | value);
+    lfo_change(part);
+    lfoinit_main(part);
+    lfo_change(part);
     return PMD_CMD_RETURN;
 }
 
 // :3762
-static enum pmd_cmd_result _lfoswitch_f(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    enum pmd_cmd_result r = _lfoswitch(pmd, di, si);
-    ch3_setting(pmd, di);
+static enum pmd_cmd_result _lfoswitch_f(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    enum pmd_cmd_result r = _lfoswitch(pmd, part, src);
+    ch3_setting(pmd, part);
     return r;
 }
 
 // :3769
-static void lfo_change(struct pmd_qq *di) {
-    int16_t ax = di->lfodat;
-    di->lfodat = di->_lfodat;
-    di->_lfodat = ax;
+static void lfo_change(struct pmd_qq *part) {
+    int16_t tmp16 = part->lfodat;
+    part->lfodat = part->_lfodat;
+    part->_lfodat = tmp16;
 
-    di->lfoswi = (uint8_t)((di->lfoswi >> 4) | (di->lfoswi << 4));
-    di->extendmode = (uint8_t)((di->extendmode >> 4) |
-                               (di->extendmode << 4));
+    part->lfoswi = (uint8_t)((part->lfoswi >> 4) | (part->lfoswi << 4));
+    part->extendmode = (uint8_t)((part->extendmode >> 4) |
+                               (part->extendmode << 4));
 
     uint8_t t;
 #define SWAP(a, b)                                                            \
@@ -6632,216 +6634,216 @@ static void lfo_change(struct pmd_qq *di) {
         (a) = (b);                                                            \
         (b) = t;                                                              \
     } while (0)
-    SWAP(di->delay, di->_delay);
-    SWAP(di->speed, di->_speed);
-    SWAP(di->step, di->_step);
-    SWAP(di->time, di->_time);
-    SWAP(di->delay2, di->_delay2);
-    SWAP(di->speed2, di->_speed2);
-    SWAP(di->step2, di->_step2);
-    SWAP(di->time2, di->_time2);
-    SWAP(di->mdepth, di->_mdepth);
-    SWAP(di->mdspd, di->_mdspd);
-    SWAP(di->mdspd2, di->_mdspd2);
-    SWAP(di->lfo_wave, di->_lfo_wave);
-    SWAP(di->mdc, di->_mdc);
-    SWAP(di->mdc2, di->_mdc2);
+    SWAP(part->delay, part->_delay);
+    SWAP(part->speed, part->_speed);
+    SWAP(part->step, part->_step);
+    SWAP(part->time, part->_time);
+    SWAP(part->delay2, part->_delay2);
+    SWAP(part->speed2, part->_speed2);
+    SWAP(part->step2, part->_step2);
+    SWAP(part->time2, part->_time2);
+    SWAP(part->mdepth, part->_mdepth);
+    SWAP(part->mdspd, part->_mdspd);
+    SWAP(part->mdspd2, part->_mdspd2);
+    SWAP(part->lfo_wave, part->_lfo_wave);
+    SWAP(part->mdc, part->_mdc);
+    SWAP(part->mdc2, part->_mdc2);
 #undef SWAP
 }
 
 // :3813
-static enum pmd_cmd_result lfoset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result lfoset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    di->delay = al;
-    di->delay2 = al;
-    al = lodsb(si);
-    di->speed = al;
-    di->speed2 = al;
-    al = lodsb(si);
-    di->step = al;
-    di->step2 = al;
-    al = lodsb(si);
-    di->time = al;
-    di->time2 = al;
-    lfoinit_main(di);
+    uint8_t value = lodsb(src);
+    part->delay = value;
+    part->delay2 = value;
+    value = lodsb(src);
+    part->speed = value;
+    part->speed2 = value;
+    value = lodsb(src);
+    part->step = value;
+    part->step2 = value;
+    value = lodsb(src);
+    part->time = value;
+    part->time2 = value;
+    lfoinit_main(part);
     return PMD_CMD_RETURN;
 }
 
 // :3827
-static enum pmd_cmd_result lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result lfoset_delay(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    di->delay = al;
-    di->delay2 = al;
-    lfoinit_main(di);
+    uint8_t delay = lodsb(src);
+    part->delay = delay;
+    part->delay2 = delay;
+    lfoinit_main(part);
     return PMD_CMD_RETURN;
 }
 
 // :3836
-static enum pmd_cmd_result lfoswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result lfoswitch(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    if ((al & 0xf8) != 0) al = 1;
-    al &= 7;
-    di->lfoswi = (uint8_t)((di->lfoswi & 0xf8) | al);
-    lfoinit_main(di);
+    uint8_t value = lodsb(src);
+    if ((value & 0xf8) != 0) value = 1;
+    value &= 7;
+    part->lfoswi = (uint8_t)((part->lfoswi & 0xf8) | value);
+    lfoinit_main(part);
     return PMD_CMD_RETURN;
 }
 
 // :3847
-static enum pmd_cmd_result lfoswitch_f(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    enum pmd_cmd_result r = lfoswitch(pmd, di, si);
-    ch3_setting(pmd, di);
+static enum pmd_cmd_result lfoswitch_f(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    enum pmd_cmd_result r = lfoswitch(pmd, part, src);
+    ch3_setting(pmd, part);
     return r;
 }
 
 // :3854
-static enum pmd_cmd_result psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result psgenvset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    uint8_t al = lodsb(si);
-    di->pat = al;
-    di->patb = al;
-    di->pv2 = lodsb(si);
-    al = lodsb(si);
-    di->pr1 = al;
-    di->pr1b = al;
-    al = lodsb(si);
-    di->pr2 = al;
-    di->pr2b = al;
-    if (di->envf == 0xff) {
-        di->envf = 2;
-        di->penv = (uint8_t)-15;
+    uint8_t value = lodsb(src);
+    part->pat = value;
+    part->patb = value;
+    part->pv2 = lodsb(src);
+    value = lodsb(src);
+    part->pr1 = value;
+    part->pr1b = value;
+    value = lodsb(src);
+    part->pr2 = value;
+    part->pr2b = value;
+    if (part->envf == 0xff) {
+        part->envf = 2;
+        part->penv = (uint8_t)-15;
     }
     return PMD_CMD_RETURN;
 }
 
 // :3876
-static enum pmd_cmd_result comy(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    uint16_t ax = lodsw(si);
-    uint8_t dh = (uint8_t)ax;       // AL
-    uint8_t dl = (uint8_t)(ax >> 8); // AH
-    opnset(pmd, (uint16_t)((dh << 8) | dl));
+static enum pmd_cmd_result comy(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    uint16_t value = lodsw(src);
+    uint8_t low = (uint8_t)value;
+    uint8_t high = (uint8_t)(value >> 8);
+    opnset(pmd, (uint16_t)((low << 8) | high));
     return PMD_CMD_RETURN;
 }
 
 // :3885
-static enum pmd_cmd_result psgnoise(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    pmd->psnoi = lodsb(si);
+static enum pmd_cmd_result psgnoise(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    pmd->psnoi = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3889
-static enum pmd_cmd_result psgnoise_move(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
-    uint8_t al = (uint8_t)(lodsb(si) + pmd->psnoi);
-    if ((al & 0x80) != 0) al = 0;
-    if (al >= 32) al = 31;
-    pmd->psnoi = al;
+static enum pmd_cmd_result psgnoise_move(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
+    uint8_t noise = (uint8_t)(lodsb(src) + pmd->psnoi);
+    if ((noise & 0x80) != 0) noise = 0;
+    if (noise >= 32) noise = 31;
+    pmd->psnoi = noise;
     return PMD_CMD_RETURN;
 }
 
 // :3906
-static enum pmd_cmd_result psgsel(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
+static enum pmd_cmd_result psgsel(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
     (void)pmd;
-    di->psgpat = lodsb(si);
+    part->psgpat = lodsb(src);
     return PMD_CMD_RETURN;
 }
 
 // :3914
-static enum pmd_cmd_result panset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    panset_main(pmd, di, al);
+static enum pmd_cmd_result panset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t pan = lodsb(src);
+    panset_main(pmd, part, pan);
     return PMD_CMD_RETURN;
 }
 
 // :3917
-static void panset_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static void panset_main(struct pmd *pmd, struct pmd_qq *part, uint8_t pan) {
 #if board2
-    al = (uint8_t)(((al >> 2) | (al << 6)) & 0xc0); // ror al,2
-    uint8_t ah = al;
-    al = (uint8_t)((di->fmpan & 0x3f) | ah);
-    di->fmpan = al;
+    pan = (uint8_t)(((pan >> 2) | (pan << 6)) & 0xc0); // ror al,2
+    uint8_t mask = pan;
+    pan = (uint8_t)((part->fmpan & 0x3f) | mask);
+    part->fmpan = pan;
 
-    if (fm3_active(pmd, di)) {
-        pmd->parts[part3].fmpan = al;
-        pmd->parts[part3b].fmpan = al;
-        pmd->parts[part3c].fmpan = al;
-        pmd->parts[part3d].fmpan = al;
+    if (fm3_active(pmd, part)) {
+        pmd->parts[part3].fmpan = pan;
+        pmd->parts[part3b].fmpan = pan;
+        pmd->parts[part3c].fmpan = pan;
+        pmd->parts[part3d].fmpan = pan;
     }
-    if (di->partmask != 0) return;
+    if (part->partmask != 0) return;
 
-    uint8_t dl = al;
-    uint8_t dh = (uint8_t)(pmd->partb + 0xb3);
-    calc_panout(pmd, di, &dl);
-    opnset(pmd, (uint16_t)((dh << 8) | dl));
+    uint8_t value = pan;
+    uint8_t reg = (uint8_t)(pmd->partb + 0xb3);
+    calc_panout(pmd, part, &value);
+    opnset(pmd, (uint16_t)((reg << 8) | value));
 #else
     (void)pmd;
-    (void)di;
-    (void)al;
+    (void)part;
+    (void)pan;
 #endif
 }
 
 #if board2
 // :3961
-static void calc_panout(struct pmd *pmd, struct pmd_qq *di, uint8_t *dl) {
+static void calc_panout(struct pmd *pmd, struct pmd_qq *part, uint8_t *pan) {
     (void)pmd;
-    *dl = di->fmpan;
-    if (di->hldelay_c != 0) *dl &= 0xc0;
+    *pan = part->fmpan;
+    if (part->hldelay_c != 0) *pan &= 0xc0;
 }
 #endif
 
 // :3972
-static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lodsb(si);
-    (*si)++; // reverse-phase flag
+static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    uint8_t pan = lodsb(src);
+    (*src)++; // reverse-phase flag
 #if board2
-    if (al == 0) al = 3;
-    else if ((al & 0x80) != 0) al = 1;
-    else al = 2;
-    panset_main(pmd, di, al);
+    if (pan == 0) pan = 3;
+    else if ((pan & 0x80) != 0) pan = 1;
+    else pan = 2;
+    panset_main(pmd, part, pan);
 #else
     (void)pmd;
-    (void)di;
-    (void)al;
+    (void)part;
+    (void)pan;
 #endif
     return PMD_CMD_RETURN;
 }
 
 // :3994
-static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if board2
-    uint8_t al = lodsb(si);
-    al &= pmd->rhythmmask;
-    if (al == 0) return PMD_CMD_RETURN;
-    uint8_t dl = al;
+    uint8_t mask = lodsb(src);
+    mask &= pmd->rhythmmask;
+    if (mask == 0) return PMD_CMD_RETURN;
+    uint8_t keys = mask;
 
     if (pmd->fadeout_volume != 0) volset2rf(pmd, pmd->rhyvol);
 
-    if ((dl & 0x80) == 0) {
-        uint8_t bits = dl;
-        uint8_t dh = 0x18;
+    if ((keys & 0x80) == 0) {
+        uint8_t bits = keys;
+        uint8_t reg = 0x18;
         for (int i = 0; i < 6; i++) {
-            if (bits & 1) opnset44(pmd, (uint16_t)((dh << 8) | pmd->rdat[i]));
+            if (bits & 1) opnset44(pmd, (uint16_t)((reg << 8) | pmd->rdat[i]));
             bits >>= 1;
-            dh++;
+            reg++;
         }
     }
 
-    opnset44(pmd, (uint16_t)(0x1000 | dl));
-    if ((dl & 0x80) == 0) {
-        rflag_inc(pmd, dl, &pmd->rshot_bd);
-        pmd->rshot_dat |= dl;
+    opnset44(pmd, (uint16_t)(0x1000 | keys));
+    if ((keys & 0x80) == 0) {
+        rflag_inc(pmd, keys, &pmd->rshot_bd);
+        pmd->rshot_dat |= keys;
     } else {
-        rflag_inc(pmd, (uint8_t)~dl, &pmd->rdump_bd);
-        pmd->rshot_dat &= (uint8_t)~dl;
+        rflag_inc(pmd, (uint8_t)~keys, &pmd->rdump_bd);
+        pmd->rshot_dat &= (uint8_t)~keys;
     }
-    if (**si == 0xeb) _rwait(pmd);
+    if (**src == 0xeb) _rwait(pmd);
 #else
-    (*si)++;
+    (*src)++;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
@@ -6849,25 +6851,25 @@ static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 
 #if board2
 // :4045
-static void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags) {
+static void rflag_inc(struct pmd *pmd, uint8_t mask, uint8_t *flags) {
     (void)pmd;
-    uint8_t al = dl;
+    uint8_t bits = mask;
     for (int i = 0; i < 6; i++) {
-        if (al & 1) flags[i]++;
-        al >>= 1;
+        if (bits & 1) flags[i]++;
+        bits >>= 1;
     }
 }
 #endif
 
 // :4064
-static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if board2
-    uint8_t al = lodsb(si);
-    uint8_t dl = (uint8_t)(0x1f & al);
-    rhyvs_write(pmd, al, dl);
+    uint8_t cmd = lodsb(src);
+    uint8_t volume = (uint8_t)(0x1f & cmd);
+    rhyvs_write(pmd, cmd, volume);
 #else
-    (*si)++;
+    (*src)++;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
@@ -6885,66 +6887,65 @@ static uint8_t *rdat_adr(struct pmd *pmd, uint8_t index) {
 }
 
 // :4064
-static void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl) {
-    uint8_t index = (uint8_t)((al >> 5) & 7);
-    uint8_t dh = (uint8_t)(0x17 + index);
+static void rhyvs_write(struct pmd *pmd, uint8_t cmd, uint8_t volume) {
+    uint8_t index = (uint8_t)((cmd >> 5) & 7);
+    uint8_t reg = (uint8_t)(0x17 + index);
     uint8_t *rdat = rdat_adr(pmd, index);
-    dl = (uint8_t)(dl | (*rdat & 0xc0));
-    *rdat = dl;
-    opnset44(pmd, (uint16_t)((dh << 8) | dl));
+    volume = (uint8_t)(volume | (*rdat & 0xc0));
+    *rdat = volume;
+    opnset44(pmd, (uint16_t)((reg << 8) | volume));
 }
 #endif
 
 // :4097
-static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if board2
-    uint8_t al = lodsb(si);
-    uint8_t index = al;
-    uint8_t dh = (uint8_t)(0x17 + index);
+    uint8_t index = lodsb(src);
+    uint8_t reg = (uint8_t)(0x17 + index);
     uint8_t *rdat = rdat_adr(pmd, index);
-    uint8_t dl = (uint8_t)(*rdat & 0x1f);
-    al = (uint8_t)(lodsb(si) + dl);
-    if (al >= 32) al = (al & 0x80) != 0 ? 0 : 31;
-    dl = (uint8_t)(al & 0x1f);
-    dl |= (uint8_t)(*rdat & 0xe0);
-    *rdat = dl;
-    opnset44(pmd, (uint16_t)((dh << 8) | dl));
+    uint8_t volume = (uint8_t)(*rdat & 0x1f);
+    uint8_t value = (uint8_t)(lodsb(src) + volume);
+    if (value >= 32) value = (value & 0x80) != 0 ? 0 : 31;
+    volume = (uint8_t)(value & 0x1f);
+    volume |= (uint8_t)(*rdat & 0xe0);
+    *rdat = volume;
+    opnset44(pmd, (uint16_t)((reg << 8) | volume));
 #else
-    *si += 2;
+    *src += 2;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
 }
 
 // :4136
-static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if board2
-    uint8_t al = lodsb(si);
-    uint8_t ah = (uint8_t)(al & 3);
-    ah = (uint8_t)(((ah >> 2) | (ah << 6)) & 0xff); // ror ah,2
-    rhyvs_write(pmd, al, ah);
+    uint8_t cmd = lodsb(src);
+    uint8_t pan = (uint8_t)(cmd & 3);
+    pan = (uint8_t)(((pan >> 2) | (pan << 6)) & 0xff); // ror al,2
+    rhyvs_write(pmd, cmd, pan);
 #else
-    (*si)++;
+    (*src)++;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
 }
 
 // :4155
-static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if board2
-    uint8_t dl = lodsb(si);
-    uint8_t al = pmd->rhythm_voldown;
-    if (al != 0) {
-        uint16_t product = (uint16_t)(uint8_t)(-al) * dl;
-        dl = (uint8_t)(product >> 8);
+    uint8_t volume = lodsb(src);
+    uint8_t voldown = pmd->rhythm_voldown;
+    if (voldown != 0) {
+        uint16_t product = (uint16_t)(uint8_t)(-voldown) * volume;
+        volume = (uint8_t)(product >> 8);
     }
-    volset2r(pmd, dl);
+    volset2r(pmd, volume);
 #else
-    (*si)++;
+    (*src)++;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
@@ -6952,135 +6953,133 @@ static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
 
 #if board2
 // :4166
-static void volset2r(struct pmd *pmd, uint8_t dl) {
-    pmd->rhyvol = dl;
-    volset2rf(pmd, dl);
+static void volset2r(struct pmd *pmd, uint8_t volume) {
+    pmd->rhyvol = volume;
+    volset2rf(pmd, volume);
 }
 
 // :4169
-static void volset2rf(struct pmd *pmd, uint8_t dl) {
-    uint8_t al = pmd->fadeout_volume;
-    if (al != 0) {
-        uint16_t product = (uint16_t)(uint8_t)(-al) * dl;
-        dl = (uint8_t)(product >> 8);
+static void volset2rf(struct pmd *pmd, uint8_t volume) {
+    uint8_t fade = pmd->fadeout_volume;
+    if (fade != 0) {
+        uint16_t product = (uint16_t)(uint8_t)(-fade) * volume;
+        volume = (uint8_t)(product >> 8);
     }
-    opnset44(pmd, (uint16_t)((0x11 << 8) | dl));
+    opnset44(pmd, (uint16_t)((0x11 << 8) | volume));
 }
 #endif
 
 // :4184
-static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    (void)di;
+static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *part, uint8_t **src) {
+    (void)part;
 #if board2
-    uint8_t dl = lodsb(si);
-    uint8_t al = (uint8_t)(pmd->rhyvol + dl);
-    if (al >= 64) al = (al & 0x80) != 0 ? 0 : 63;
-    volset2r(pmd, al);
+    uint8_t delta = lodsb(src);
+    uint8_t volume = (uint8_t)(pmd->rhyvol + delta);
+    if (volume >= 64) volume = (volume & 0x80) != 0 ? 0 : 63;
+    volset2r(pmd, volume);
 #else
-    (*si)++;
+    (*src)++;
     (void)pmd;
 #endif
     return PMD_CMD_RETURN;
 }
 
 // :4208
-static uint8_t oshift(struct pmd_qq *di, uint8_t al) {
-    if ((al & 0x0f) == 0x0f) return al; // rest
-    int8_t dl = (int8_t)(di->shift + di->shift_def);
-    if (dl == 0) return al;
+static uint8_t oshift(struct pmd_qq *part, uint8_t note) {
+    if ((note & 0x0f) == 0x0f) return note; // rest
+    int8_t shift = (int8_t)(part->shift + part->shift_def);
+    if (shift == 0) return note;
 
-    uint8_t bl = al & 0x0f;
-    uint8_t bh = (uint8_t)(al >> 4);
+    uint8_t pitch_class = note & 0x0f;
+    uint8_t octave = (uint8_t)(note >> 4);
 
-    if (dl < 0) {
-        unsigned sum = (unsigned)bl + (uint8_t)dl;
+    if (shift < 0) {
+        unsigned sum = (unsigned)pitch_class + (uint8_t)shift;
         bool carry = sum > 0xff;
-        bl = (uint8_t)sum;
+        pitch_class = (uint8_t)sum;
         if (!carry) {
             do {
-                bh--;
-                unsigned s = (unsigned)bl + 12;
-                bl = (uint8_t)s;
+                octave--;
+                unsigned s = (unsigned)pitch_class + 12;
+                pitch_class = (uint8_t)s;
                 if (s > 0xff) break;
             } while (1);
         }
     } else {
-        unsigned sum = (unsigned)bl + (uint8_t)dl;
-        bl = (uint8_t)sum;
-        while (bl >= 12) {
-            bh++;
-            bl = (uint8_t)(bl - 12);
+        unsigned sum = (unsigned)pitch_class + (uint8_t)shift;
+        pitch_class = (uint8_t)sum;
+        while (pitch_class >= 12) {
+            octave++;
+            pitch_class = (uint8_t)(pitch_class - 12);
         }
     }
-    al = (uint8_t)((bh << 4) | (bh >> 4));
-    al |= bl;
-    return al;
+    note = (uint8_t)((octave << 4) | (octave >> 4));
+    note |= pitch_class;
+    return note;
 }
 
 // :4266
-static void fnumset(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static void fnumset(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
     (void)pmd;
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) {
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0f) {
         // :4292 fnrest
-        di->onkai = 0xff;
-        if ((di->lfoswi & 0x11) != 0) return;
-        di->fnum = 0;
+        part->onkai = 0xff;
+        if ((part->lfoswi & 0x11) != 0) return;
+        part->fnum = 0;
         return;
     }
-    di->onkai = al;
+    part->onkai = note;
 
-    uint8_t ch = (uint8_t)(((al >> 1) | (al << 7)) & 0x38);
-    uint8_t bl = al & 0x0f;
-    uint16_t ax = fnum_data[bl];
-    uint8_t ah_out = (uint8_t)((ax >> 8) | ch);
-    di->fnum = (uint16_t)((ah_out << 8) | (uint8_t)ax);
+    uint8_t block = (uint8_t)(((note >> 1) | (note << 7)) & 0x38);
+    uint16_t fnum = fnum_data[pitch_class];
+    uint8_t high = (uint8_t)((fnum >> 8) | block);
+    part->fnum = (uint16_t)((high << 8) | (uint8_t)fnum);
 }
 
 // :4302
-static void fnumsetp(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
+static void fnumsetp(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
     (void)pmd;
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0f) {
-        di->onkai = 0xff;
-        if ((di->lfoswi & 0x11) == 0) di->fnum = 0;
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0f) {
+        part->onkai = 0xff;
+        if ((part->lfoswi & 0x11) == 0) part->fnum = 0;
         return;
     }
-    di->onkai = al;
+    part->onkai = note;
 
-    uint8_t cl = (uint8_t)(al >> 4);
-    uint8_t bl = al & 0x0f;
-    uint16_t ax = psg_tune_data[bl];
-    if (cl != 0) {
-        uint16_t shifted = (uint16_t)(ax >> cl);
-        if (((ax >> (cl - 1)) & 1) != 0) shifted++;
-        ax = shifted;
+    uint8_t octave = (uint8_t)(note >> 4);
+    uint16_t fnum = psg_tune_data[pitch_class];
+    if (octave != 0) {
+        uint16_t shifted = (uint16_t)(fnum >> octave);
+        if (((fnum >> (octave - 1)) & 1) != 0) shifted++;
+        fnum = shifted;
     }
-    di->fnum = ax;
+    part->fnum = fnum;
 }
 
 // :4335
-static void otodasi(struct pmd *pmd, struct pmd_qq *di) {
-    uint16_t ax = di->fnum;
-    if (ax == 0) return;
-    if (di->slotmask == 0) return;
+static void otodasi(struct pmd *pmd, struct pmd_qq *part) {
+    uint16_t fnum = part->fnum;
+    if (fnum == 0) return;
+    if (part->slotmask == 0) return;
 
-    uint16_t cx = ax & 0x3800;
-    ax &= 0x7ff;
-    ax = (uint16_t)(ax + di->porta_num);
-    ax = (uint16_t)(ax + di->detune);
+    uint16_t block = fnum & 0x3800;
+    fnum &= 0x7ff;
+    fnum = (uint16_t)(fnum + part->porta_num);
+    fnum = (uint16_t)(fnum + part->detune);
 
-    uint8_t dh = pmd->partb;
-    if (fm3_active(pmd, di)) {
+    uint8_t reg = pmd->partb;
+    if (fm3_active(pmd, part)) {
         if (pmd->ch3mode != 0x3f) {
             // :4398 ch3_special
-            uint16_t block = cx;
-            uint8_t bl = di->slotmask;
-            uint8_t cl = di->lfoswi;
-            uint8_t bh = di->volmask;
-            if ((bh & 0x0f) == 0) bh = 0xf0;
-            uint8_t ch = di->_volmask;
-            if ((ch & 0x0f) == 0) ch = 0xf0;
+            uint16_t out_block = block;
+            uint8_t slots = part->slotmask;
+            uint8_t lfosw = part->lfoswi;
+            uint8_t volmask = part->volmask;
+            if ((volmask & 0x0f) == 0) volmask = 0xf0;
+            uint8_t volmask2 = part->_volmask;
+            if ((volmask2 & 0x0f) == 0) volmask2 = 0xf0;
 
             static const uint8_t hi_reg[4] = {0xa6, 0xac, 0xae, 0xad};
             static const uint8_t lo_reg[4] = {0xa2, 0xa8, 0xaa, 0xa9};
@@ -7089,21 +7088,21 @@ static void otodasi(struct pmd *pmd, struct pmd_qq *di) {
                 pmd->slot_detune2, pmd->slot_detune1,
             };
             for (int slot = 0; slot < 4; slot++) {
-                if ((bl & 0x80) == 0) {
-                    bl = (uint8_t)(bl << 1);
+                if ((slots & 0x80) == 0) {
+                    slots = (uint8_t)(slots << 1);
                     continue;
                 }
-                bl = (uint8_t)(bl << 1);
-                uint16_t value = (uint16_t)(ax + detunes[slot]);
-                bool use_lfo1 = (bh & 0x80) != 0 && (cl & 1) != 0;
-                bool use_lfo2 = (ch & 0x80) != 0 && (cl & 0x10) != 0;
-                bh = (uint8_t)(bh << 1);
-                ch = (uint8_t)(ch << 1);
-                if (use_lfo1) value = (uint16_t)(value + di->lfodat);
-                if (use_lfo2) value = (uint16_t)(value + di->_lfodat);
-                uint16_t out_block = block;
-                fm_block_calc(&out_block, &value);
-                value |= out_block;
+                slots = (uint8_t)(slots << 1);
+                uint16_t value = (uint16_t)(fnum + detunes[slot]);
+                bool use_lfo1 = (volmask & 0x80) != 0 && (lfosw & 1) != 0;
+                bool use_lfo2 = (volmask2 & 0x80) != 0 && (lfosw & 0x10) != 0;
+                volmask = (uint8_t)(volmask << 1);
+                volmask2 = (uint8_t)(volmask2 << 1);
+                if (use_lfo1) value = (uint16_t)(value + part->lfodat);
+                if (use_lfo2) value = (uint16_t)(value + part->_lfodat);
+                uint16_t slot_block = out_block;
+                fm_block_calc(&slot_block, &value);
+                value |= slot_block;
                 opnset(pmd, (uint16_t)((hi_reg[slot] << 8) | (value >> 8)));
                 opnset(pmd, (uint16_t)((lo_reg[slot] << 8) | (value & 0xff)));
             }
@@ -7111,904 +7110,900 @@ static void otodasi(struct pmd *pmd, struct pmd_qq *di) {
         }
     }
 
-    if ((di->lfoswi & 1) != 0) ax = (uint16_t)(ax + di->lfodat);
-    if ((di->lfoswi & 0x10) != 0) ax = (uint16_t)(ax + di->_lfodat);
-    fm_block_calc(&cx, &ax);
+    if ((part->lfoswi & 1) != 0) fnum = (uint16_t)(fnum + part->lfodat);
+    if ((part->lfoswi & 0x10) != 0) fnum = (uint16_t)(fnum + part->_lfodat);
+    fm_block_calc(&block, &fnum);
 
-    ax |= cx;
-    dh = (uint8_t)(dh + 0xa3);
-    opnset(pmd, (uint16_t)((dh << 8) | (ax >> 8)));
-    dh = (uint8_t)(dh - 4);
-    opnset(pmd, (uint16_t)((dh << 8) | (ax & 0xff)));
+    fnum |= block;
+    reg = (uint8_t)(reg + 0xa3);
+    opnset(pmd, (uint16_t)((reg << 8) | (fnum >> 8)));
+    reg = (uint8_t)(reg - 4);
+    opnset(pmd, (uint16_t)((reg << 8) | (fnum & 0xff)));
 }
 
 // :4549
-static void fm_block_calc(uint16_t *cx, uint16_t *ax) {
+static void fm_block_calc(uint16_t *block, uint16_t *fnum) {
     for (;;) {
-        if ((*ax & 0x8000) != 0) goto od1;
-        if (*ax < 0x26a) goto od1;
-        if (*ax < 0x26a * 2) return;
-        *cx = (uint16_t)(*cx + 0x0800);
-        if (*cx == 0x4000) {
-            *cx = 0x3800;
-            if (*ax < 0x800) return;
-            *ax = 0x7ff;
+        if ((*fnum & 0x8000) != 0) goto od1;
+        if (*fnum < 0x26a) goto od1;
+        if (*fnum < 0x26a * 2) return;
+        *block = (uint16_t)(*block + 0x0800);
+        if (*block == 0x4000) {
+            *block = 0x3800;
+            if (*fnum < 0x800) return;
+            *fnum = 0x7ff;
             return;
         }
-        *ax = (uint16_t)(*ax - 0x26a);
+        *fnum = (uint16_t)(*fnum - 0x26a);
         continue;
 
 od1:
         // The octave cannot drop below zero. The original subtracts and then
         // overwrites CX on the borrow path, so it happens after the check.
-        if (*cx < 0x0800) {
-            *cx = 0;
-            if ((*ax & 0x8000) == 0 && *ax >= 8) return;
-            *ax = 8;
+        if (*block < 0x0800) {
+            *block = 0;
+            if ((*fnum & 0x8000) == 0 && *fnum >= 8) return;
+            *fnum = 8;
             return;
         }
-        *cx = (uint16_t)(*cx - 0x0800);
-        *ax = (uint16_t)(*ax + 0x26a);
+        *block = (uint16_t)(*block - 0x0800);
+        *fnum = (uint16_t)(*fnum + 0x26a);
     }
 }
 
 // :4588
-static void otodasip(struct pmd *pmd, struct pmd_qq *di) {
-    uint16_t ax = di->fnum;
-    if (ax == 0) return;
+static void otodasip(struct pmd *pmd, struct pmd_qq *part) {
+    uint16_t fnum = part->fnum;
+    if (fnum == 0) return;
 
-    ax = (uint16_t)(ax + di->porta_num);
+    fnum = (uint16_t)(fnum + part->porta_num);
 
-    if ((di->extendmode & 1) == 0) {
-        ax = (uint16_t)(ax - di->detune);
-        if ((di->lfoswi & 1) != 0) ax = (uint16_t)(ax - di->lfodat);
-        if ((di->lfoswi & 0x10) != 0) ax = (uint16_t)(ax - di->_lfodat);
+    if ((part->extendmode & 1) == 0) {
+        fnum = (uint16_t)(fnum - part->detune);
+        if ((part->lfoswi & 1) != 0) fnum = (uint16_t)(fnum - part->lfodat);
+        if ((part->lfoswi & 0x10) != 0) fnum = (uint16_t)(fnum - part->_lfodat);
     } else {
         // Extended detune.
-        if (di->detune != 0) {
-            int32_t product = (int16_t)ax * di->detune;
-            int16_t dx = (int16_t)(((uint32_t)product << 4) >> 16);
-            if (dx < 0) dx--;
-            else dx++;
-            ax = (uint16_t)(ax - (uint16_t)dx);
+        if (part->detune != 0) {
+            int32_t product = (int16_t)fnum * part->detune;
+            int16_t delta = (int16_t)(((uint32_t)product << 4) >> 16);
+            if (delta < 0) delta--;
+            else delta++;
+            fnum = (uint16_t)(fnum - (uint16_t)delta);
         }
 
-        int16_t dx = 0;
-        if ((di->lfoswi & 0x11) != 0) {
-            if ((di->lfoswi & 1) != 0) dx = di->lfodat;
-            if ((di->lfoswi & 0x10) != 0) dx = (int16_t)(dx + di->_lfodat);
-            if (dx != 0) {
-                int32_t product = (int16_t)ax * dx;
+        int16_t delta = 0;
+        if ((part->lfoswi & 0x11) != 0) {
+            if ((part->lfoswi & 1) != 0) delta = part->lfodat;
+            if ((part->lfoswi & 0x10) != 0) delta = (int16_t)(delta + part->_lfodat);
+            if (delta != 0) {
+                int32_t product = (int16_t)fnum * delta;
                 int16_t d = (int16_t)(((uint32_t)product << 4) >> 16);
                 if (d < 0) d--;
                 else d++;
-                ax = (uint16_t)(ax - (uint16_t)d);
+                fnum = (uint16_t)(fnum - (uint16_t)d);
             }
         }
     }
 
     // :4677 tonesetp
-    if (ax >= 0x1000) ax = (int16_t)ax < 0 ? 0 : 0xfff;
+    if (fnum >= 0x1000) fnum = (int16_t)fnum < 0 ? 0 : 0xfff;
     {
-        uint8_t dh = (uint8_t)((pmd->partb - 1) * 2);
-        opnset44(pmd, (uint16_t)((dh << 8) | (ax & 0xff)));
-        dh++;
-        opnset44(pmd, (uint16_t)((dh << 8) | (ax >> 8)));
+        uint8_t reg = (uint8_t)((pmd->partb - 1) * 2);
+        opnset44(pmd, (uint16_t)((reg << 8) | (fnum & 0xff)));
+        reg++;
+        opnset44(pmd, (uint16_t)((reg << 8) | (fnum >> 8)));
     }
 }
 
 // :4726
-static void volset(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t bl = di->slotmask;
-    if (bl == 0) return;
+static void volset(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t slots = part->slotmask;
+    if (slots == 0) return;
 
-    uint8_t al = di->volpush;
-    if (al != 0) al--;
-    else al = di->volume;
-    uint8_t cl = al;
+    uint8_t volume = part->volpush;
+    if (volume != 0) volume--;
+    else volume = part->volume;
 
-    if (di != &pmd->part_e) {
-        al = pmd->fm_voldown;
-        if (al != 0) {
-            uint16_t product = (uint16_t)(uint8_t)(-al) * cl;
-            cl = (uint8_t)(product >> 8);
+    if (part != &pmd->part_e) {
+        uint8_t voldown = pmd->fm_voldown;
+        if (voldown != 0) {
+            uint16_t product = (uint16_t)(uint8_t)(-voldown) * volume;
+            volume = (uint8_t)(product >> 8);
         }
-        al = pmd->fadeout_volume;
-        if (al >= 2) {
-            al >>= 1;
-            uint16_t product = (uint16_t)(uint8_t)(-al) * cl;
-            cl = (uint8_t)(product >> 8);
+        uint8_t fade = pmd->fadeout_volume;
+        if (fade >= 2) {
+            fade >>= 1;
+            uint16_t product = (uint16_t)(uint8_t)(-fade) * volume;
+            volume = (uint8_t)(product >> 8);
         }
     }
 
     uint8_t vol[4] = {0x80, 0x80, 0x80, 0x80};
-    uint8_t bh = 0;
-    uint8_t ch = bl;
+    uint8_t mask = 0;
+    uint8_t lfo_mask = slots;
 
-    cl = (uint8_t)~cl;
-    bl &= di->carrier;
-    bh |= bl;
-    if ((bl & 0x80) != 0) vol[0] = cl;
-    if ((bl & 0x40) != 0) vol[1] = cl;
-    if ((bl & 0x20) != 0) vol[2] = cl;
-    if ((bl & 0x10) != 0) vol[3] = cl;
+    volume = (uint8_t)~volume;
+    slots &= part->carrier;
+    mask |= slots;
+    if ((slots & 0x80) != 0) vol[0] = volume;
+    if ((slots & 0x40) != 0) vol[1] = volume;
+    if ((slots & 0x20) != 0) vol[2] = volume;
+    if ((slots & 0x10) != 0) vol[3] = volume;
 
-    if (cl != 0xff) {
-        if ((di->lfoswi & 2) != 0) {
-            uint8_t mask = (uint8_t)(di->volmask & ch);
-            bh |= mask;
-            fmlfo_sub((uint8_t)di->lfodat, mask, vol);
+    if (volume != 0xff) {
+        if ((part->lfoswi & 2) != 0) {
+            uint8_t covered = (uint8_t)(part->volmask & lfo_mask);
+            mask |= covered;
+            fmlfo_sub((uint8_t)part->lfodat, covered, vol);
         }
-        if ((di->lfoswi & 0x20) != 0) {
-            uint8_t mask = (uint8_t)(di->_volmask & ch);
-            bh |= mask;
-            fmlfo_sub((uint8_t)di->_lfodat, mask, vol);
+        if ((part->lfoswi & 0x20) != 0) {
+            uint8_t covered = (uint8_t)(part->_volmask & lfo_mask);
+            mask |= covered;
+            fmlfo_sub((uint8_t)part->_lfodat, covered, vol);
         }
     }
 
-    uint8_t dh = (uint8_t)(0x4c - 1 + pmd->partb);
-    uint8_t *slots[4] = {&di->slot4, &di->slot3, &di->slot2, &di->slot1};
+    uint8_t reg = (uint8_t)(0x4c - 1 + pmd->partb);
+    uint8_t *slot[4] = {&part->slot4, &part->slot3, &part->slot2, &part->slot1};
     for (int i = 0; i < 4; i++) {
-        if ((bh & 0x80) != 0) {
-            uint8_t dl = *slots[i];
-            al = vol[i];
-            unsigned sum = (unsigned)al + dl;
-            al = sum > 0xff ? 255 : (uint8_t)sum;
-            if (al < 0x80) al = 0;
-            else al -= 0x80;
-            opnset(pmd, (uint16_t)((dh << 8) | al));
+        if ((mask & 0x80) != 0) {
+            uint8_t tl = *slot[i];
+            uint8_t total = vol[i];
+            unsigned sum = (unsigned)total + tl;
+            total = sum > 0xff ? 255 : (uint8_t)sum;
+            if (total < 0x80) total = 0;
+            else total -= 0x80;
+            opnset(pmd, (uint16_t)((reg << 8) | total));
         }
-        bh = (uint8_t)(bh << 1);
-        if (i == 0) dh = (uint8_t)(dh - 8);
-        else if (i == 1) dh = (uint8_t)(dh + 4);
-        else if (i == 2) dh = (uint8_t)(dh - 8);
+        mask = (uint8_t)(mask << 1);
+        if (i == 0) reg = (uint8_t)(reg - 8);
+        else if (i == 1) reg = (uint8_t)(reg + 4);
+        else if (i == 2) reg = (uint8_t)(reg - 8);
     }
 }
 
 // :4864
-static void fmlfo_sub(uint8_t al, uint8_t bl, uint8_t *vol) {
+static void fmlfo_sub(uint8_t delta, uint8_t mask, uint8_t *vol) {
     for (int i = 0; i < 4; i++) {
-        if ((bl & 0x80) == 0) {
-            bl = (uint8_t)(bl << 1);
+        if ((mask & 0x80) == 0) {
+            mask = (uint8_t)(mask << 1);
             continue;
         }
-        bl = (uint8_t)(bl << 1);
-        if ((al & 0x80) == 0) {
+        mask = (uint8_t)(mask << 1);
+        if ((delta & 0x80) == 0) {
             uint8_t v = vol[i];
-            uint8_t res = (uint8_t)(v - al);
-            if (v < al) vol[i] = 0;
+            uint8_t res = (uint8_t)(v - delta);
+            if (v < delta) vol[i] = 0;
             else vol[i] = res;
         } else {
             uint8_t v = vol[i];
-            uint8_t res = (uint8_t)(v - al);
-            if (v >= al) vol[i] = 0xff;
+            uint8_t res = (uint8_t)(v - delta);
+            if (v >= delta) vol[i] = 0xff;
             else vol[i] = res;
         }
     }
 }
 
 // :4890
-static void volsetp(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->envf == 3) return;
-    if (di->envf == 0xff && di->eenv_count == 0) return;
+static void volsetp(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->envf == 3) return;
+    if (part->envf == 0xff && part->eenv_count == 0) return;
 
-    uint8_t al = di->volpush;
-    if (al != 0) al--;
-    else al = di->volume;
-    uint8_t dl = al;
+    uint8_t volume = part->volpush;
+    if (volume != 0) volume--;
+    else volume = part->volume;
 
-    al = pmd->ssg_voldown;
-    if (al != 0) {
-        uint16_t product = (uint16_t)(uint8_t)(-al) * dl;
-        dl = (uint8_t)(product >> 8);
+    uint8_t voldown = pmd->ssg_voldown;
+    if (voldown != 0) {
+        uint16_t product = (uint16_t)(uint8_t)(-voldown) * volume;
+        volume = (uint8_t)(product >> 8);
     }
 
-    al = pmd->fadeout_volume;
-    if (al != 0) {
-        uint16_t product = (uint16_t)(uint8_t)(-al) * dl;
-        dl = (uint8_t)(product >> 8);
+    uint8_t fade = pmd->fadeout_volume;
+    if (fade != 0) {
+        uint16_t product = (uint16_t)(uint8_t)(-fade) * volume;
+        volume = (uint8_t)(product >> 8);
     }
 
     // :4921 psg_env_calc
-    if (dl == 0) goto pv_out;
+    if (volume == 0) goto pv_out;
 
-    if (di->envf == 0xff) {
-        al = dl;
-        dl = di->eenv_volume;
-        if (dl == 0) {
-            dl = 0;
+    if (part->envf == 0xff) {
+        uint8_t env_volume = part->eenv_volume;
+        if (env_volume == 0) {
+            volume = 0;
             goto pv_out;
         }
-        dl++;
-        uint16_t product = (uint16_t)al * dl;
-        dl = (uint8_t)product;
-        bool carry = (dl & 1) != 0;
-        dl >>= 1;
-        carry = (dl & 1) != 0;
-        dl >>= 1;
-        carry = (dl & 1) != 0;
-        dl >>= 1;
-        carry = (dl & 1) != 0;
-        dl >>= 1;
-        if (carry) dl++;
+        uint16_t product = (uint16_t)volume * (uint8_t)(env_volume + 1);
+        volume = (uint8_t)product;
+        bool carry = (volume & 1) != 0;
+        volume >>= 1;
+        carry = (volume & 1) != 0;
+        volume >>= 1;
+        carry = (volume & 1) != 0;
+        volume >>= 1;
+        carry = (volume & 1) != 0;
+        volume >>= 1;
+        if (carry) volume++;
     } else {
-        int16_t sum = (int16_t)(int8_t)dl + (int8_t)di->penv;
+        int16_t sum = (int16_t)(int8_t)volume + (int8_t)part->penv;
         if (sum < 0) {
-            dl = 0;
+            volume = 0;
             goto pv_out;
         }
-        dl = (uint8_t)sum;
-        if (dl == 0) goto pv_out;
-        if (dl >= 16) dl = 15;
+        volume = (uint8_t)sum;
+        if (volume == 0) goto pv_out;
+        if (volume >= 16) volume = 15;
     }
 
     // :4965 volume LFO
-    if ((di->lfoswi & 0x22) != 0) {
-        int16_t ax = 0;
-        if ((di->lfoswi & 2) != 0) ax = di->lfodat;
-        if ((di->lfoswi & 0x20) != 0) ax = (int16_t)(ax + di->_lfodat);
-        int16_t sum = (int16_t)dl + ax;
-        if (sum < 0) dl = 0;
-        else if (sum >= 16) dl = 15;
-        else dl = (uint8_t)sum;
+    if ((part->lfoswi & 0x22) != 0) {
+        int16_t delta = 0;
+        if ((part->lfoswi & 2) != 0) delta = part->lfodat;
+        if ((part->lfoswi & 0x20) != 0) delta = (int16_t)(delta + part->_lfodat);
+        int16_t sum = (int16_t)volume + delta;
+        if (sum < 0) volume = 0;
+        else if (sum >= 16) volume = 15;
+        else volume = (uint8_t)sum;
     }
 
 pv_out:
     {
-        uint8_t dh = (uint8_t)(pmd->partb + 8 - 1);
-        opnset44(pmd, (uint16_t)((dh << 8) | dl));
+        uint8_t reg = (uint8_t)(pmd->partb + 8 - 1);
+        opnset44(pmd, (uint16_t)((reg << 8) | volume));
     }
 }
 
 // :4998
-static void keyon(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->onkai == 0xff) return;
-    uint8_t dl = (uint8_t)(pmd->partb - 1);
-    uint8_t bl = dl;
+static void keyon(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->onkai == 0xff) return;
+    uint8_t channel = (uint8_t)(pmd->partb - 1);
+    uint8_t index = channel;
     uint8_t *state;
 #if board2
-    if (pmd->fmsel != 0) state = &pmd->ura_key1 + bl;
-    else state = &pmd->omote_key1 + bl;
+    if (pmd->fmsel != 0) state = &pmd->ura_key1 + index;
+    else state = &pmd->omote_key1 + index;
 #else
-    state = &pmd->omote_key1 + bl;
+    state = &pmd->omote_key1 + index;
 #endif
-    uint8_t al = (uint8_t)(*state | di->slotmask);
-    if (di->sdelay_c != 0) al &= di->sdelay_m;
-    *state = al;
-    dl |= al;
+    uint8_t keys = (uint8_t)(*state | part->slotmask);
+    if (part->sdelay_c != 0) keys &= part->sdelay_m;
+    *state = keys;
+    channel |= keys;
 #if board2
-    if (pmd->fmsel != 0) dl |= 0x04;
+    if (pmd->fmsel != 0) channel |= 0x04;
 #endif
-    opnset44(pmd, (uint16_t)((0x28 << 8) | dl));
+    opnset44(pmd, (uint16_t)((0x28 << 8) | channel));
 }
 
 // :5039
-static void keyonp(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->onkai == 0xff) return;
-    uint8_t al, ah;
-    psgmsk(pmd, &al, &ah);
-    al |= ah;
-    ah &= di->psgpat;
-    ah = (uint8_t)~ah;
-    al &= ah;
-    opnset44(pmd, (uint16_t)((7 << 8) | al));
+static void keyonp(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->onkai == 0xff) return;
+    uint8_t mix, channel;
+    psgmsk(pmd, &mix, &channel);
+    mix |= channel;
+    channel &= part->psgpat;
+    channel = (uint8_t)~channel;
+    mix &= channel;
+    opnset44(pmd, (uint16_t)((7 << 8) | mix));
 
-    uint8_t dl = pmd->psnoi;
-    if (dl == pmd->psnoi_last) return;
+    uint8_t noise = pmd->psnoi;
+    if (noise == pmd->psnoi_last) return;
     if ((pmd->psgefcnum & 0x80) == 0) return;
-    opnset44(pmd, (uint16_t)((6 << 8) | dl));
-    pmd->psnoi_last = dl;
+    opnset44(pmd, (uint16_t)((6 << 8) | noise));
+    pmd->psnoi_last = noise;
 }
 
 // :5074
-static void psgmsk(struct pmd *pmd, uint8_t *al, uint8_t *ah) {
-    uint8_t cl = pmd->partb;
+static void psgmsk(struct pmd *pmd, uint8_t *mix, uint8_t *channel) {
+    uint8_t partb = pmd->partb;
     // The original sets the carry and rotates it into AL once per part, so the
     // part's own channel bit is 1 << (partb - 1), not 1 << partb.
-    *al = (uint8_t)(cl != 0 ? 1u << (cl - 1) : 0);
-    *ah = *al;
-    *al <<= 3;
-    *ah |= *al;
-    *al = get07(pmd);
+    *mix = (uint8_t)(partb != 0 ? 1u << (partb - 1) : 0);
+    *channel = *mix;
+    *mix <<= 3;
+    *channel |= *mix;
+    *mix = get07(pmd);
 }
 
 // :5091
-static void keyoff(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->onkai == 0xff) return;
-    keyoff_main(pmd, di);
+static void keyoff(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->onkai == 0xff) return;
+    keyoff_main(pmd, part);
 }
 
 // :5095
 // kof1: the register write, also used when silencing a masked part.
-static void keyoff_main(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t dl = (uint8_t)(pmd->partb - 1);
-    uint8_t bl = dl;
+static void keyoff_main(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t channel = (uint8_t)(pmd->partb - 1);
+    uint8_t index = channel;
     uint8_t *state;
 #if board2
-    if (pmd->fmsel != 0) state = &pmd->ura_key1 + bl;
-    else state = &pmd->omote_key1 + bl;
+    if (pmd->fmsel != 0) state = &pmd->ura_key1 + index;
+    else state = &pmd->omote_key1 + index;
 #else
-    state = &pmd->omote_key1 + bl;
+    state = &pmd->omote_key1 + index;
 #endif
-    uint8_t cl = (uint8_t)(~di->slotmask & *state);
-    *state = cl;
-    dl |= cl;
+    uint8_t keys = (uint8_t)(~part->slotmask & *state);
+    *state = keys;
+    channel |= keys;
 #if board2
-    if (pmd->fmsel != 0) dl |= 0x04;
+    if (pmd->fmsel != 0) channel |= 0x04;
 #endif
-    opnset44(pmd, (uint16_t)((0x28 << 8) | dl));
+    opnset44(pmd, (uint16_t)((0x28 << 8) | channel));
 }
 
 // :5125
-static void keyoffp(struct pmd *pmd, struct pmd_qq *di) {
+static void keyoffp(struct pmd *pmd, struct pmd_qq *part) {
     (void)pmd;
-    if (di->onkai == 0xff) return;
-    if (di->envf == 0xff) di->eenv_count = 4;
-    else di->envf = 2;
+    if (part->onkai == 0xff) return;
+    if (part->envf == 0xff) part->eenv_count = 4;
+    else part->envf = 2;
 }
 
 // :5144
-static void neiroset(struct pmd *pmd, struct pmd_qq *di, uint8_t dl) {
-    uint8_t *bx;
-    toneadr_calc(pmd, di, dl, &bx);
-    uint8_t *tl = bx + 4;
-    if (!silence_fmpart(pmd, di)) {
+static void neiroset(struct pmd *pmd, struct pmd_qq *part, uint8_t voice) {
+    uint8_t *tone;
+    toneadr_calc(pmd, part, voice, &tone);
+    uint8_t *tl = tone + 4;
+    if (!silence_fmpart(pmd, part)) {
         // :5160 neiroset_main
-        uint8_t dh = (uint8_t)(0xb0 - 1 + pmd->partb);
-        dl = bx[24];
-        if (pmd->af_check != 0) dl = di->alg_fb;
+        uint8_t reg = (uint8_t)(0xb0 - 1 + pmd->partb);
+        uint8_t alg = tone[24];
+        if (pmd->af_check != 0) alg = part->alg_fb;
 
-        if (fm3_active(pmd, di)) {
+        if (fm3_active(pmd, part)) {
             if (pmd->af_check == 0) {
-                if ((di->slotmask & 0x10) == 0) {
-                    uint8_t al = (uint8_t)(pmd->fm3_alg_fb & 0x38);
-                    dl = (uint8_t)((dl & 7) | al);
+                if ((part->slotmask & 0x10) == 0) {
+                    uint8_t mask = (uint8_t)(pmd->fm3_alg_fb & 0x38);
+                    alg = (uint8_t)((alg & 7) | mask);
                 }
-                pmd->fm3_alg_fb = dl;
+                pmd->fm3_alg_fb = alg;
             } else {
-                dl = pmd->fm3_alg_fb;
+                alg = pmd->fm3_alg_fb;
             }
         }
-        opnset(pmd, (uint16_t)((dh << 8) | dl));
-        di->alg_fb = dl;
-        dl &= 7;
+        opnset(pmd, (uint16_t)((reg << 8) | alg));
+        part->alg_fb = alg;
+        alg &= 7;
 
         // :5200 check_carrier
-        uint8_t al = carrier_table[dl];
-        if ((di->volmask & 0x0f) == 0) di->volmask = al;
-        if ((di->_volmask & 0x0f) == 0) di->_volmask = al;
-        di->carrier = al;
-        uint8_t ah = carrier_table[dl + 8];
+        uint8_t carrier = carrier_table[alg];
+        if ((part->volmask & 0x0f) == 0) part->volmask = carrier;
+        if ((part->_volmask & 0x0f) == 0) part->_volmask = carrier;
+        part->carrier = carrier;
+        uint8_t neiromask2 = carrier_table[alg + 8];
 
-        al = di->neiromask;
-        ah &= al;
+        uint8_t neiromask = part->neiromask;
+        neiromask2 &= neiromask;
 
-        dh = (uint8_t)(0x30 - 1 + pmd->partb);
+        reg = (uint8_t)(0x30 - 1 + pmd->partb);
 
         // The original rotates the masks, so a fully-set neiromask walks all
         // sixteen remaining parameters.
         for (int i = 0; i < 4; i++) {
-            dl = *bx++;
-            if (al & 0x80) opnset(pmd, (uint16_t)((dh << 8) | dl));
-            al = (uint8_t)((al << 1) | (al >> 7));
-            dh = (uint8_t)(dh + 4);
+            uint8_t value = *tone++;
+            if (neiromask & 0x80) opnset(pmd, (uint16_t)((reg << 8) | value));
+            neiromask = (uint8_t)((neiromask << 1) | (neiromask >> 7));
+            reg = (uint8_t)(reg + 4);
         }
         for (int i = 0; i < 4; i++) {
-            dl = *bx++;
-            if (ah & 0x80) opnset(pmd, (uint16_t)((dh << 8) | dl));
-            ah = (uint8_t)((ah << 1) | (ah >> 7));
-            dh = (uint8_t)(dh + 4);
+            uint8_t value = *tone++;
+            if (neiromask2 & 0x80) opnset(pmd, (uint16_t)((reg << 8) | value));
+            neiromask2 = (uint8_t)((neiromask2 << 1) | (neiromask2 >> 7));
+            reg = (uint8_t)(reg + 4);
         }
         for (int i = 0; i < 16; i++) {
-            dl = *bx++;
-            if (al & 0x80) opnset(pmd, (uint16_t)((dh << 8) | dl));
-            al = (uint8_t)((al << 1) | (al >> 7));
-            dh = (uint8_t)(dh + 4);
+            uint8_t value = *tone++;
+            if (neiromask & 0x80) opnset(pmd, (uint16_t)((reg << 8) | value));
+            neiromask = (uint8_t)((neiromask << 1) | (neiromask >> 7));
+            reg = (uint8_t)(reg + 4);
         }
 
     }
-    neiroset_tl(di, tl);
+    neiroset_tl(part, tl);
 }
 
 // :5258
-static void neiroset_tl(struct pmd_qq *di, const uint8_t *bx) {
-    di->slot1 = bx[0];
-    di->slot3 = bx[1];
-    di->slot2 = bx[2];
-    di->slot4 = bx[3];
+static void neiroset_tl(struct pmd_qq *part, const uint8_t *tl) {
+    part->slot1 = tl[0];
+    part->slot3 = tl[1];
+    part->slot2 = tl[2];
+    part->slot4 = tl[3];
 }
 
 // :5274
-static void toneadr_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t dl, uint8_t **bx) {
-    if (pmd->prg_flg == 0 && di != &pmd->part_e) {
-        *bx = pmd->tondat + (unsigned)dl * 32;
+static void toneadr_calc(struct pmd *pmd, struct pmd_qq *part, uint8_t voice, uint8_t **tone) {
+    if (pmd->prg_flg == 0 && part != &pmd->part_e) {
+        *tone = pmd->tondat + (unsigned)voice * 32;
         return;
     }
     uint8_t *p = pmd->prgdat_adr;
-    if (di == &pmd->part_e) p = pmd->prgdat_adr2;
-    while (*p != dl) p += 26;
-    *bx = p + 1;
+    if (part == &pmd->part_e) p = pmd->prgdat_adr2;
+    while (*p != voice) p += 26;
+    *tone = p + 1;
 }
 
 // :5307
-static bool silence_fmpart(struct pmd *pmd, struct pmd_qq *di) {
-    uint8_t al = di->neiromask;
-    if (al == 0) return true;
+static bool silence_fmpart(struct pmd *pmd, struct pmd_qq *part) {
+    uint8_t mask = part->neiromask;
+    if (mask == 0) return true;
 
-    uint8_t dh = (uint8_t)(pmd->partb + 0x3f);
+    uint8_t reg = (uint8_t)(pmd->partb + 0x3f);
     for (int i = 0; i < 4; i++) {
-        if (al & 0x80) {
-            opnset(pmd, (uint16_t)((dh << 8) | 127));
-            opnset(pmd, (uint16_t)(((dh + 0x40) << 8) | 127));
+        if (mask & 0x80) {
+            opnset(pmd, (uint16_t)((reg << 8) | 127));
+            opnset(pmd, (uint16_t)(((reg + 0x40) << 8) | 127));
         }
-        al = (uint8_t)(al << 1);
-        dh = (uint8_t)(dh + 4);
+        mask = (uint8_t)(mask << 1);
+        reg = (uint8_t)(reg + 4);
     }
-    keyoff_main(pmd, di);
+    keyoff_main(pmd, part);
     return false;
 }
 
 // :5341
-static bool lfo(struct pmd *pmd, struct pmd_qq *di) {
-    if (di->delay != 0) {
-        di->delay--;
+static bool lfo(struct pmd *pmd, struct pmd_qq *part) {
+    if (part->delay != 0) {
+        part->delay--;
         return false;
     }
 
     // :5348
-    if ((di->extendmode & 2) != 0) {
-        uint8_t ch = (uint8_t)(pmd->TimerAtime - pmd->lastTimerAtime);
-        if (ch == 0) return false;
-        int16_t old = di->lfodat;
+    if ((part->extendmode & 2) != 0) {
+        uint8_t count = (uint8_t)(pmd->TimerAtime - pmd->lastTimerAtime);
+        if (count == 0) return false;
+        int16_t old = part->lfodat;
         do {
-            lfo_main(pmd, di);
-            ch--;
-        } while (ch != 0);
-        return di->lfodat != old;
+            lfo_main(pmd, part);
+            count--;
+        } while (count != 0);
+        return part->lfodat != old;
     }
 
     {
-        int16_t old = di->lfodat;
-        lfo_main(pmd, di);
-        return di->lfodat != old;
+        int16_t old = part->lfodat;
+        lfo_main(pmd, part);
+        return part->lfodat != old;
     }
 }
 
 // :5375
-static void lfo_main(struct pmd *pmd, struct pmd_qq *di) {
+static void lfo_main(struct pmd *pmd, struct pmd_qq *part) {
     (void)pmd;
-    if (di->speed != 1) {
-        if (di->speed == 0xff) return;
-        di->speed--;
+    if (part->speed != 1) {
+        if (part->speed == 0xff) return;
+        part->speed--;
         return;
     }
 
     // :5383 lfo2
-    di->speed = di->speed2;
-    switch (di->lfo_wave) {
+    part->speed = part->speed2;
+    switch (part->lfo_wave) {
     case 0:
     case 4:
     case 5:
         // :5408 lfo_sankaku
         {
-            uint16_t ax;
-            if (di->lfo_wave == 5) {
-                int8_t al = (int8_t)di->step;
-                uint8_t mag = (uint8_t)(al < 0 ? -al : al);
-                ax = (uint16_t)((int16_t)al * (int16_t)mag);
+            uint16_t value;
+            if (part->lfo_wave == 5) {
+                int8_t step = (int8_t)part->step;
+                uint8_t mag = (uint8_t)(step < 0 ? -step : step);
+                value = (uint16_t)((int16_t)step * (int16_t)mag);
             } else {
-                ax = (uint16_t)(int16_t)(int8_t)di->step;
+                value = (uint16_t)(int16_t)(int8_t)part->step;
             }
-            di->lfodat = (int16_t)(di->lfodat + (int16_t)ax);
-            if (di->lfodat == 0) md_inc(di);
+            part->lfodat = (int16_t)(part->lfodat + (int16_t)value);
+            if (part->lfodat == 0) md_inc(part);
         }
         {
             // :5429 lfo3
-            uint8_t al = di->time;
-            if (al != 0xff) {
-                al--;
-                if (al == 0) {
-                    al = di->time2;
-                    if (di->lfo_wave != 4) al = (uint8_t)(al + al);
-                    di->time = al;
-                    di->step = (uint8_t)(0 - di->step);
+            uint8_t time = part->time;
+            if (time != 0xff) {
+                time--;
+                if (time == 0) {
+                    time = part->time2;
+                    if (part->lfo_wave != 4) time = (uint8_t)(time + time);
+                    part->time = time;
+                    part->step = (uint8_t)(0 - part->step);
                     return;
                 }
             }
-            di->time = al;
+            part->time = time;
             return;
         }
 
     case 1:
         // :5434 lfo_nokogiri
-        di->lfodat = (int16_t)(di->lfodat + (int16_t)(int8_t)di->step);
+        part->lfodat = (int16_t)(part->lfodat + (int16_t)(int8_t)part->step);
         {
             // :5450 nk_lfo3
-            uint8_t al = di->time;
-            if (al != 0xff) {
-                al--;
-                if (al == 0) {
-                    di->lfodat = (int16_t)(0 - di->lfodat);
-                    md_inc(di);
-                    al = di->time2;
-                    al = (uint8_t)(al + al);
+            uint8_t time = part->time;
+            if (time != 0xff) {
+                time--;
+                if (time == 0) {
+                    part->lfodat = (int16_t)(0 - part->lfodat);
+                    md_inc(part);
+                    time = part->time2;
+                    time = (uint8_t)(time + time);
                 }
             }
-            di->time = al;
+            part->time = time;
             return;
         }
 
     case 6:
         // :5454 lfo_oneshot
         {
-            uint8_t al = di->time;
-            if (al == 0) return;
-            if (al != 0xff) {
-                al--;
-                di->time = al;
+            uint8_t time = part->time;
+            if (time == 0) return;
+            if (time != 0xff) {
+                time--;
+                part->time = time;
             }
-            di->lfodat = (int16_t)(di->lfodat + (int16_t)(int8_t)di->step);
+            part->lfodat = (int16_t)(part->lfodat + (int16_t)(int8_t)part->step);
             return;
         }
 
     case 2:
         // :5470 lfo_kukei
         {
-            uint16_t ax = (uint16_t)((int16_t)(int8_t)di->step *
-                                     (int16_t)(int8_t)di->time);
-            di->lfodat = (int16_t)ax;
-            md_inc(di);
-            di->step = (uint8_t)(0 - di->step);
+            uint16_t value = (uint16_t)((int16_t)(int8_t)part->step *
+                                        (int16_t)(int8_t)part->time);
+            part->lfodat = (int16_t)value;
+            md_inc(part);
+            part->step = (uint8_t)(0 - part->step);
             return;
         }
 
     default:
         // :5479 not_nokogiri / lfo_random, waves 3 and above
         {
-            uint8_t al = di->step;
-            if ((al & 0x80) != 0) al = (uint8_t)(0 - al);
-            uint16_t x = (uint16_t)((unsigned)al * di->time);
+            uint8_t step = part->step;
+            if ((step & 0x80) != 0) step = (uint8_t)(0 - step);
+            uint16_t x = (uint16_t)((unsigned)step * part->time);
             uint16_t r = rnd(pmd, (uint16_t)(x + x));
-            di->lfodat = (int16_t)(r - x);
+            part->lfodat = (int16_t)(r - x);
             return;
         }
     }
 }
 
 // :5499
-static void md_inc(struct pmd_qq *di) {
-    di->mdspd--;
-    if (di->mdspd != 0) return;
-    di->mdspd = di->mdspd2;
+static void md_inc(struct pmd_qq *part) {
+    part->mdspd--;
+    if (part->mdspd != 0) return;
+    part->mdspd = part->mdspd2;
 
-    uint8_t al = di->mdc;
-    if (al == 0) return;
-    if ((al & 0x80) == 0) di->mdc = (uint8_t)(al - 1);
+    uint8_t count = part->mdc;
+    if (count == 0) return;
+    if ((count & 0x80) == 0) part->mdc = (uint8_t)(count - 1);
 
     // :5512 mdi21
-    al = di->step;
-    if ((al & 0x80) != 0) {
-        al = (uint8_t)(0 - al);
-        al = (uint8_t)(al + di->mdepth);
-        if ((al & 0x80) != 0) {
-            al = 0;
-            if ((di->mdepth & 0x80) == 0) al = 0x81;
-            di->step = al;
+    uint8_t step = part->step;
+    if ((step & 0x80) != 0) {
+        step = (uint8_t)(0 - step);
+        step = (uint8_t)(step + part->mdepth);
+        if ((step & 0x80) != 0) {
+            step = 0;
+            if ((part->mdepth & 0x80) == 0) step = 0x81;
+            part->step = step;
             return;
         }
-        al = (uint8_t)(0 - al);
-        di->step = al;
+        step = (uint8_t)(0 - step);
+        part->step = step;
         return;
     }
-    al = (uint8_t)(al + di->mdepth);
-    if ((al & 0x80) != 0) {
-        al = 0;
-        if ((di->mdepth & 0x80) == 0) al = 0x7f;
-        di->step = al;
+    step = (uint8_t)(step + part->mdepth);
+    if ((step & 0x80) != 0) {
+        step = 0;
+        if ((part->mdepth & 0x80) == 0) step = 0x7f;
+        part->step = step;
         return;
     }
-    di->step = al;
+    part->step = step;
 }
 
 // :5548
-static uint16_t rnd(struct pmd *pmd, uint16_t ax) {
-    uint16_t cx = ax;
+static uint16_t rnd(struct pmd *pmd, uint16_t range) {
+    uint16_t span = range;
     uint32_t product = (uint32_t)259 * pmd->seed;
-    ax = (uint16_t)((uint16_t)product + 3) & 0x7fff;
-    pmd->seed = ax;
-    uint32_t p2 = (uint32_t)ax * cx;
+    uint16_t value = (uint16_t)((uint16_t)product + 3) & 0x7fff;
+    pmd->seed = value;
+    uint32_t p2 = (uint32_t)value * span;
     return (uint16_t)(p2 / 32767);
 }
 
 // :5568
-static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0c) {
-        al = di->onkai_def;
-        ah = al & 0x0f;
+static uint8_t lfoinitp(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0c) {
+        note = part->onkai_def;
+        pitch_class = note & 0x0f;
     }
-    di->onkai_def = al;
+    part->onkai_def = note;
 
-    if (ah != 0x0f) {
-        di->porta_num = 0;
+    if (pitch_class != 0x0f) {
+        part->porta_num = 0;
         if ((pmd->tieflag & 1) == 0) {
-            if (di->envf == 0xff) {
+            if (part->envf == 0xff) {
                 // :5612 extenv_init, the extended SSG envelope
-                di->eenv_arc = (uint8_t)(di->eenv_ar - 16);
-                uint8_t v = (uint8_t)(di->eenv_dr - 16);
+                part->eenv_arc = (uint8_t)(part->eenv_ar - 16);
+                uint8_t v = (uint8_t)(part->eenv_dr - 16);
                 if ((v & 0x80) != 0) v = (uint8_t)(v + v);
-                di->eenv_drc = v;
-                v = (uint8_t)(di->eenv_sr - 16);
+                part->eenv_drc = v;
+                v = (uint8_t)(part->eenv_sr - 16);
                 if ((v & 0x80) != 0) v = (uint8_t)(v + v);
-                di->eenv_src = v;
-                di->eenv_rrc = (uint8_t)((di->eenv_rr + di->eenv_rr) - 16);
-                di->eenv_volume = di->eenv_al;
-                di->eenv_count = 1;
-                ext_ssgenv_main(di);
+                part->eenv_src = v;
+                part->eenv_rrc = (uint8_t)((part->eenv_rr + part->eenv_rr) - 16);
+                part->eenv_volume = part->eenv_al;
+                part->eenv_count = 1;
+                ext_ssgenv_main(part);
             } else {
                 // :5593 seinit
-                di->envf = 0;
-                di->penv = 0;
-                ah = di->patb;
-                di->pat = ah;
-                if (ah == 0) {
-                    di->envf = 1;
-                    di->penv = di->pv2;
+                part->envf = 0;
+                part->penv = 0;
+                uint8_t pattern = part->patb;
+                part->pat = pattern;
+                if (pattern == 0) {
+                    part->envf = 1;
+                    part->penv = part->pv2;
                 }
-                di->pr1 = di->pr1b;
-                di->pr2 = di->pr2b;
+                part->pr1 = part->pr1b;
+                part->pr2 = part->pr2b;
             }
-            lfin1(pmd, di);
-            return al;
+            lfin1(pmd, part);
+            return note;
         }
     }
 
     // :5584 lfo_exitp
-    soft_env(pmd, di);
-    lfo_exit_common(pmd, di);
-    return al;
+    soft_env(pmd, part);
+    lfo_exit_common(pmd, part);
+    return note;
 }
 
 // :5645
-static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
-    uint8_t ah = al & 0x0f;
-    if (ah == 0x0c) {
-        al = di->onkai_def;
-        ah = al & 0x0f;
+static uint8_t lfoinit(struct pmd *pmd, struct pmd_qq *part, uint8_t note) {
+    uint8_t pitch_class = note & 0x0f;
+    if (pitch_class == 0x0c) {
+        note = part->onkai_def;
+        pitch_class = note & 0x0f;
     }
-    di->onkai_def = al;
-    if (ah != 0x0f) {
-        di->porta_num = 0;
+    part->onkai_def = note;
+    if (pitch_class != 0x0f) {
+        part->porta_num = 0;
         if ((pmd->tieflag & 1) == 0) {
-            lfin1(pmd, di);
-            return al;
+            lfin1(pmd, part);
+            return note;
         }
     }
 
     // :5665 lfo_exit
-    lfo_exit_common(pmd, di);
-    return al;
+    lfo_exit_common(pmd, part);
+    return note;
 }
 
 // :5661
 // The shared tail of lfoinit and lfoinitp.
-static void lfo_exit_common(struct pmd *pmd, struct pmd_qq *di) {
-    if ((di->lfoswi & 3) != 0) lfo(pmd, di);
-    if ((di->lfoswi & 0x30) != 0) {
-        lfo_change(di);
-        lfo(pmd, di);
-        lfo_change(di);
+static void lfo_exit_common(struct pmd *pmd, struct pmd_qq *part) {
+    if ((part->lfoswi & 3) != 0) lfo(pmd, part);
+    if ((part->lfoswi & 0x30) != 0) {
+        lfo_change(part);
+        lfo(pmd, part);
+        lfo_change(part);
     }
 }
 
 // :5684 lfin1, shared by lfoinit and lfoinitp.
-static void lfin1(struct pmd *pmd, struct pmd_qq *di) {
+static void lfin1(struct pmd *pmd, struct pmd_qq *part) {
 #if board2
-    di->hldelay_c = di->hldelay;
-    if (di->hldelay != 0) {
+    part->hldelay_c = part->hldelay;
+    if (part->hldelay != 0) {
         opnset(pmd, (uint16_t)(((pmd->partb + 0xb3) << 8) |
-                               (di->fmpan & 0xc0)));
+                               (part->fmpan & 0xc0)));
     }
 #endif
-    di->sdelay_c = di->sdelay;
+    part->sdelay_c = part->sdelay;
 
-    uint8_t cl = di->lfoswi;
-    if ((cl & 3) != 0) {
-        if ((cl & 4) == 0) lfoinit_main(di);
-        lfo(pmd, di);
+    uint8_t lfosw = part->lfoswi;
+    if ((lfosw & 3) != 0) {
+        if ((lfosw & 4) == 0) lfoinit_main(part);
+        lfo(pmd, part);
     }
-    if ((cl & 0x30) != 0) {
-        if ((cl & 0x40) == 0) {
-            lfo_change(di);
-            lfoinit_main(di);
-            lfo_change(di);
+    if ((lfosw & 0x30) != 0) {
+        if ((lfosw & 0x40) == 0) {
+            lfo_change(part);
+            lfoinit_main(part);
+            lfo_change(part);
         }
-        lfo_change(di);
-        lfo(pmd, di);
-        lfo_change(di);
+        lfo_change(part);
+        lfo(pmd, part);
+        lfo_change(part);
     }
 }
 
 // :5737
-static void lfoinit_main(struct pmd_qq *di) {
-    di->lfodat = 0;
-    di->delay = di->delay2;
-    di->speed = di->speed2;
-    di->step = di->step2;
-    di->time = di->time2;
-    di->mdc = di->mdc2;
+static void lfoinit_main(struct pmd_qq *part) {
+    part->lfodat = 0;
+    part->delay = part->delay2;
+    part->speed = part->speed2;
+    part->step = part->step2;
+    part->time = part->time2;
+    part->mdc = part->mdc2;
 
-    if (di->lfo_wave == 2 || di->lfo_wave == 3) {
-        di->speed = 1;
+    if (part->lfo_wave == 2 || part->lfo_wave == 3) {
+        part->speed = 1;
         return;
     }
-    di->speed++;
+    part->speed++;
 }
 
 // :5761
-static bool soft_env(struct pmd *pmd, struct pmd_qq *di) {
-    if ((di->extendmode & 4) != 0) {
-        uint8_t ch = (uint8_t)(pmd->TimerAtime - pmd->lastTimerAtime);
-        if (ch == 0) return false;
-        uint8_t cl = 0;
+static bool soft_env(struct pmd *pmd, struct pmd_qq *part) {
+    if ((part->extendmode & 4) != 0) {
+        uint8_t count = (uint8_t)(pmd->TimerAtime - pmd->lastTimerAtime);
+        if (count == 0) return false;
+        uint8_t changed = 0;
         do {
-            if (soft_env_main(di)) cl = 1;
-            ch--;
-        } while (ch != 0);
-        return (cl & 1) != 0;
+            if (soft_env_main(part)) changed = 1;
+            count--;
+        } while (count != 0);
+        return changed != 0;
     }
-    return soft_env_main(di);
+    return soft_env_main(part);
 }
 
 // :5778
-static bool soft_env_main(struct pmd_qq *di) {
-    if (di->envf == 0xff) return ext_ssgenv_main(di);
-    uint8_t old = di->penv;
-    soft_env_sub(di, &old);
-    return old != di->penv;
+static bool soft_env_main(struct pmd_qq *part) {
+    if (part->envf == 0xff) return ext_ssgenv_main(part);
+    uint8_t old = part->penv;
+    soft_env_sub(part, &old);
+    return old != part->penv;
 }
 
 // :5789
-static void soft_env_sub(struct pmd_qq *di, uint8_t *dl) {
-    (void)dl;
-    if (di->envf == 0) {
+static void soft_env_sub(struct pmd_qq *part, uint8_t *value) {
+    (void)value;
+    if (part->envf == 0) {
         // Attack
-        di->pat--;
-        if (di->pat != 0) return;
-        di->envf = 1;
-        di->penv = di->pv2;
+        part->pat--;
+        if (part->pat != 0) return;
+        part->envf = 1;
+        part->penv = part->pv2;
         return;
     }
-    if (di->envf == 2) goto se3;
+    if (part->envf == 2) goto se3;
 
     // Decay
-    if (di->pr1 == 0) return;
-    di->pr1--;
-    if (di->pr1 != 0) return;
-    di->pr1 = di->pr1b;
-    di->penv--;
+    if (part->pr1 == 0) return;
+    part->pr1--;
+    if (part->pr1 != 0) return;
+    part->pr1 = part->pr1b;
+    part->penv--;
 
 se4:
-    if (di->penv >= (uint8_t)-15) return;
-    if (di->penv < 15) return;
+    if (part->penv >= (uint8_t)-15) return;
+    if (part->penv < 15) return;
 se5:
-    di->penv = (uint8_t)-15;
+    part->penv = (uint8_t)-15;
     return;
 
 se3:
     // Release
-    if (di->pr2 == 0) goto se5;
-    di->pr2--;
-    if (di->pr2 != 0) return;
-    di->pr2 = di->pr2b;
-    di->penv--;
+    if (part->pr2 == 0) goto se5;
+    part->pr2--;
+    if (part->pr2 != 0) return;
+    part->pr2 = part->pr2b;
+    part->penv--;
     goto se4;
 }
 
 // :5835
-static bool ext_ssgenv_main(struct pmd_qq *di) {
-    uint8_t ah = di->eenv_count;
-    if (ah == 0) return false;
-    uint8_t old = di->eenv_volume;
-    uint8_t dl = di->eenv_volume;
-    esm_sub(di, &ah, &dl);
-    return old != di->eenv_volume;
+static bool ext_ssgenv_main(struct pmd_qq *part) {
+    uint8_t count = part->eenv_count;
+    if (count == 0) return false;
+    uint8_t old = part->eenv_volume;
+    uint8_t volume = part->eenv_volume;
+    esm_sub(part, &count, &volume);
+    return old != part->eenv_volume;
 }
 
 // :5849
-static void esm_sub(struct pmd_qq *di, uint8_t *ah, uint8_t *dl) {
-    (void)dl;
-    (*ah)--;
-    if (*ah != 0) goto esm_dr_check;
+static void esm_sub(struct pmd_qq *part, uint8_t *count, uint8_t *value) {
+    (void)value;
+    (*count)--;
+    if (*count != 0) goto esm_dr_check;
 
     // Attack Rate
     {
-        uint8_t al = (uint8_t)(di->eenv_arc - 1);
-        if ((al & 0x80) != 0) goto arc_count_check;
-        al++;
-        di->eenv_volume = (uint8_t)(di->eenv_volume + al);
-        if (di->eenv_volume < 15) {
-            di->eenv_arc = (uint8_t)(di->eenv_ar - 16);
+        uint8_t rate = (uint8_t)(part->eenv_arc - 1);
+        if ((rate & 0x80) != 0) goto arc_count_check;
+        rate++;
+        part->eenv_volume = (uint8_t)(part->eenv_volume + rate);
+        if (part->eenv_volume < 15) {
+            part->eenv_arc = (uint8_t)(part->eenv_ar - 16);
             return;
         }
-        di->eenv_volume = 15;
-        di->eenv_count++;
-        if (di->eenv_sl != 15) return;
-        di->eenv_count++;
+        part->eenv_volume = 15;
+        part->eenv_count++;
+        if (part->eenv_sl != 15) return;
+        part->eenv_count++;
         return;
 arc_count_check:
-        if (di->eenv_ar == 0) return;
-        di->eenv_arc++;
+        if (part->eenv_ar == 0) return;
+        part->eenv_arc++;
         return;
     }
 
 esm_dr_check:
-    (*ah)--;
-    if (*ah != 0) goto esm_sr_check;
+    (*count)--;
+    if (*count != 0) goto esm_sr_check;
 
     // Decay Rate
     {
-        uint8_t al = (uint8_t)(di->eenv_drc - 1);
-        if ((al & 0x80) != 0) goto drc_count_check;
-        al++;
-        uint8_t volume = (uint8_t)(di->eenv_volume - al);
-        bool borrow = di->eenv_volume < al;
-        di->eenv_volume = volume;
+        uint8_t rate = (uint8_t)(part->eenv_drc - 1);
+        if ((rate & 0x80) != 0) goto drc_count_check;
+        rate++;
+        uint8_t volume = (uint8_t)(part->eenv_volume - rate);
+        bool borrow = part->eenv_volume < rate;
+        part->eenv_volume = volume;
         if (borrow) goto dr_slset;
-        if (di->eenv_volume < di->eenv_sl) goto dr_slset;
-        uint8_t ah2 = (uint8_t)(di->eenv_dr - 16);
-        if ((ah2 & 0x80) != 0) ah2 = (uint8_t)(ah2 + ah2);
-        di->eenv_drc = ah2;
+        if (part->eenv_volume < part->eenv_sl) goto dr_slset;
+        uint8_t scaled = (uint8_t)(part->eenv_dr - 16);
+        if ((scaled & 0x80) != 0) scaled = (uint8_t)(scaled + scaled);
+        part->eenv_drc = scaled;
         return;
 dr_slset:
-        di->eenv_volume = di->eenv_sl;
-        di->eenv_count++;
+        part->eenv_volume = part->eenv_sl;
+        part->eenv_count++;
         return;
 drc_count_check:
-        if (di->eenv_dr == 0) return;
-        di->eenv_drc++;
+        if (part->eenv_dr == 0) return;
+        part->eenv_drc++;
         return;
     }
 
 esm_sr_check:
-    (*ah)--;
-    if (*ah != 0) goto esm_rr;
+    (*count)--;
+    if (*count != 0) goto esm_rr;
 
     // Sustain Rate
     {
-        uint8_t al = (uint8_t)(di->eenv_src - 1);
-        if ((al & 0x80) != 0) goto src_count_check;
-        al++;
-        uint8_t volume = (uint8_t)(di->eenv_volume - al);
-        if (di->eenv_volume < al) {
-            di->eenv_volume = 0;
+        uint8_t rate = (uint8_t)(part->eenv_src - 1);
+        if ((rate & 0x80) != 0) goto src_count_check;
+        rate++;
+        uint8_t volume = (uint8_t)(part->eenv_volume - rate);
+        if (part->eenv_volume < rate) {
+            part->eenv_volume = 0;
         } else {
-            di->eenv_volume = volume;
+            part->eenv_volume = volume;
         }
-        uint8_t ah2 = (uint8_t)(di->eenv_sr - 16);
-        if ((ah2 & 0x80) != 0) ah2 = (uint8_t)(ah2 + ah2);
-        di->eenv_src = ah2;
+        uint8_t scaled = (uint8_t)(part->eenv_sr - 16);
+        if ((scaled & 0x80) != 0) scaled = (uint8_t)(scaled + scaled);
+        part->eenv_src = scaled;
         return;
 src_count_check:
-        if (di->eenv_sr == 0) return;
-        di->eenv_src++;
+        if (part->eenv_sr == 0) return;
+        part->eenv_src++;
         return;
     }
 
 esm_rr:
     // Release Rate
     {
-        uint8_t al = (uint8_t)(di->eenv_rrc - 1);
-        if ((al & 0x80) != 0) goto rrc_count_check;
-        al++;
-        uint8_t volume = (uint8_t)(di->eenv_volume - al);
-        if (di->eenv_volume < al) di->eenv_volume = 0;
-        else di->eenv_volume = volume;
-        di->eenv_rrc = (uint8_t)((di->eenv_rr + di->eenv_rr) - 16);
+        uint8_t rate = (uint8_t)(part->eenv_rrc - 1);
+        if ((rate & 0x80) != 0) goto rrc_count_check;
+        rate++;
+        uint8_t volume = (uint8_t)(part->eenv_volume - rate);
+        if (part->eenv_volume < rate) part->eenv_volume = 0;
+        else part->eenv_volume = volume;
+        part->eenv_rrc = (uint8_t)((part->eenv_rr + part->eenv_rr) - 16);
         return;
 rrc_count_check:
-        if (di->eenv_rr == 0) return;
-        di->eenv_rrc++;
+        if (part->eenv_rr == 0) return;
+        part->eenv_rrc++;
         return;
     }
 }
@@ -8016,11 +8011,11 @@ rrc_count_check:
 // :5967
 static void fadeout(struct pmd *pmd) {
     if (pmd->pause_flag == 1) return;
-    uint8_t al = pmd->fadeout_speed;
-    if (al == 0) return;
+    uint8_t speed = pmd->fadeout_speed;
+    if (speed == 0) return;
 
-    unsigned sum = (unsigned)al + pmd->fadeout_volume;
-    if ((al & 0x80) == 0) {
+    unsigned sum = (unsigned)speed + pmd->fadeout_volume;
+    if ((speed & 0x80) == 0) {
         // :5978 fadeout_end
         if (sum > 0xff) {
             pmd->fadeout_volume = 255;
@@ -8067,12 +8062,12 @@ static void silence(struct pmd *pmd) {
 #if board2
     sel44(pmd);
     // :6045 oploop masks both chips, the first chip's first.
-    for (uint8_t ah = 2; ah != 0; ah--) {
+    for (uint8_t bank = 2; bank != 0; bank--) {
 #endif
         const uint8_t *table;
         if (pmd->fm_effec_flag == 1
 #if board2
-            && ah == 1
+            && bank == 1
 #endif
         ) {
             table = fmoff_ef;
@@ -8080,9 +8075,9 @@ static void silence(struct pmd *pmd) {
             table = fmoff_nef;
         }
         for (;;) {
-            uint8_t dh = *table++;
-            if (dh == 0xff) break;
-            opnset(pmd, (uint16_t)(((dh + 0x80) << 8) | 0xff));
+            uint8_t reg = *table++;
+            if (reg == 0xff) break;
+            opnset(pmd, (uint16_t)(((reg + 0x80) << 8) | 0xff));
         }
 
 #if board2
@@ -8091,34 +8086,34 @@ static void silence(struct pmd *pmd) {
 #endif
 
     {
-        uint16_t dx = 0x2800;
-        uint8_t cx = 3;
+        uint16_t cmd = 0x2800;
+        uint8_t count = 3;
 #if !board2
-        if (pmd->fm_effec_flag == 1) cx--;
+        if (pmd->fm_effec_flag == 1) count--;
 #endif
         do {
-            opnset44(pmd, dx);
-            dx = (uint16_t)(dx + 1); // the channel number is the data byte
-            cx--;
-        } while (cx != 0);
+            opnset44(pmd, cmd);
+            cmd = (uint16_t)(cmd + 1); // the channel number is the data byte
+            count--;
+        } while (count != 0);
     }
 #if board2
     {
-        uint16_t dx = 0x2804;
-        uint8_t cx = 3;
-        if (pmd->fm_effec_flag == 1) cx--;
+        uint16_t cmd = 0x2804;
+        uint8_t count = 3;
+        if (pmd->fm_effec_flag == 1) count--;
         do {
-            opnset44(pmd, dx);
-            dx = (uint16_t)(dx + 1);
-            cx--;
-        } while (cx != 0);
+            opnset44(pmd, cmd);
+            cmd = (uint16_t)(cmd + 1);
+            count--;
+        } while (count != 0);
     }
 #endif
 
     if (pmd->effon != 0) {
         // :6107 psg_ef
-        uint8_t dl = (uint8_t)((get07(pmd) & 0x3f) | 0x9b);
-        opnset44(pmd, (uint16_t)((0x07 << 8) | dl));
+        uint8_t value = (uint8_t)((get07(pmd) & 0x3f) | 0x9b);
+        opnset44(pmd, (uint16_t)((0x07 << 8) | value));
     } else {
         if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL &&
             pmd->pps->keyoff != NULL) {
@@ -8151,8 +8146,8 @@ static void silence(struct pmd *pmd) {
         const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
         if (drv != NULL) {
             drv->fifo_interrupt_stop(pmd->user_data);
-            for (uint8_t ch = 0; ch < 8; ch++) {
-                drv->keyoff(ch, pmd->user_data);
+            for (uint8_t chan = 0; chan < 8; chan++) {
+                drv->keyoff(chan, pmd->user_data);
             }
         }
     }
@@ -8165,29 +8160,29 @@ static void silence(struct pmd *pmd) {
 // helpers perform the I/O only.
 //
 // :6173
-static void opnset44(struct pmd *pmd, uint16_t dx) {
+static void opnset44(struct pmd *pmd, uint16_t cmd) {
     rdychk(pmd, pmd->fm1_port1);
-    outb(pmd, pmd->fm1_port1, (uint8_t)(dx >> 8));
+    outb(pmd, pmd->fm1_port1, (uint8_t)(cmd >> 8));
     _waitP(pmd);
-    outb(pmd, pmd->fm1_port2, (uint8_t)dx);
+    outb(pmd, pmd->fm1_port2, (uint8_t)cmd);
 }
 
 #if board2
 // :6200
-static void opnset46(struct pmd *pmd, uint16_t dx) {
+static void opnset46(struct pmd *pmd, uint16_t cmd) {
     rdychk(pmd, pmd->fm2_port1);
-    outb(pmd, pmd->fm2_port1, (uint8_t)(dx >> 8));
+    outb(pmd, pmd->fm2_port1, (uint8_t)(cmd >> 8));
     _waitP(pmd);
-    outb(pmd, pmd->fm2_port2, (uint8_t)dx);
+    outb(pmd, pmd->fm2_port2, (uint8_t)cmd);
 }
 #endif
 
 // :6226
-static void opnset(struct pmd *pmd, uint16_t dx) {
+static void opnset(struct pmd *pmd, uint16_t cmd) {
     rdychk(pmd, pmd->fm_port1);
-    outb(pmd, pmd->fm_port1, (uint8_t)(dx >> 8));
+    outb(pmd, pmd->fm_port1, (uint8_t)(cmd >> 8));
     _waitP(pmd);
-    outb(pmd, pmd->fm_port2, (uint8_t)dx);
+    outb(pmd, pmd->fm_port2, (uint8_t)cmd);
 }
 
 // :6253
@@ -8212,9 +8207,9 @@ uint8_t *pmd_get_efcdat_adr(struct pmd *pmd) { return pmd->efcdat; }
 // :6436
 uint8_t pmd_get_fv(struct pmd *pmd) {
     int60_enter(pmd, 0x08);
-    uint8_t al = pmd->board != 0 ? pmd->fadeout_volume : PMD_NO_BOARD;
+    uint8_t value = pmd->board != 0 ? pmd->fadeout_volume : PMD_NO_BOARD;
     int60_exit(pmd);
-    return al;
+    return value;
 }
 
 // :6441
@@ -8273,17 +8268,17 @@ struct pmd_qq **pmd_get_workadr(struct pmd *pmd) { return pmd->part_data_table; 
 // :6494
 uint8_t pmd_get_fmefc_num(struct pmd *pmd) {
     int60_enter(pmd, 0x11);
-    uint8_t al = pmd->board != 0 ? pmd->fm_effec_num : PMD_NO_BOARD;
+    uint8_t value = pmd->board != 0 ? pmd->fm_effec_num : PMD_NO_BOARD;
     int60_exit(pmd);
-    return al;
+    return value;
 }
 
 // :6499
 uint8_t pmd_get_pcmefc_num(struct pmd *pmd) {
     int60_enter(pmd, 0x12);
-    uint8_t al = pmd->board != 0 ? pmd->pcm_effec_num : PMD_NO_BOARD;
+    uint8_t value = pmd->board != 0 ? pmd->pcm_effec_num : PMD_NO_BOARD;
     int60_exit(pmd);
-    return al;
+    return value;
 }
 
 // :6504
@@ -8351,9 +8346,9 @@ struct pmd_psgefcnum pmd_get_psgefcnum(struct pmd *pmd) {
 // :6553
 uint8_t pmd_get_ppsdrv_flag(struct pmd *pmd) {
     int60_enter(pmd, 0x17);
-    uint8_t al = pmd->board != 0 ? pmd->ppsdrv_flag : PMD_NO_BOARD;
+    uint8_t value = pmd->board != 0 ? pmd->ppsdrv_flag : PMD_NO_BOARD;
     int60_exit(pmd);
-    return al;
+    return value;
 }
 
 // :6558
@@ -8381,7 +8376,7 @@ struct pmd_size pmd_get_size(struct pmd *pmd) {
 }
 
 // :6592
-// Both axes, in AL and AH. The original brackets each PSG access with cli/sti;
+// Returns both axes. The original brackets each PSG access with cli/sti;
 // the host owns that exclusion.
 static struct pmd_joy get_joy(struct pmd *pmd) {
     struct pmd_joy joy;
@@ -8493,33 +8488,33 @@ void pmd_pause_off(struct pmd *pmd) {
 }
 
 // :6741
-static uint8_t *get_memo(struct pmd *pmd, uint8_t al) {
-    uint8_t *si = pmd->mmlbuf;
-    if ((uint16_t)(si[0] | (si[1] << 8)) != 0x1a) {
+static uint8_t *get_memo(struct pmd *pmd, uint8_t n) {
+    uint8_t *src = pmd->mmlbuf;
+    if ((uint16_t)(src[0] | (src[1] << 8)) != 0x1a) {
         return NULL; // no voice data: the memo table address is unavailable
     }
 
-    si = pmd->mmlbuf + (uint16_t)(si[0x18] | (si[0x19] << 8)) - 4;
-    uint8_t bl = si[2];
-    uint8_t bh = si[3];
-    if (bl != 0x40 && (bh != 0xfe || bl < 0x41)) return NULL;
+    src = pmd->mmlbuf + (uint16_t)(src[0x18] | (src[0x19] << 8)) - 4;
+    uint8_t version = src[2];
+    uint8_t marker = src[3];
+    if (version != 0x40 && (marker != 0xfe || version < 0x41)) return NULL;
 
     // :6782 The memo table starts one entry further in MC 4.2 and again in
     // 4.8.
-    if (bl >= 0x42) al++;
-    if (bl >= 0x48) al++;
-    si = pmd->mmlbuf + (uint16_t)(si[0] | (si[1] << 8));
+    if (version >= 0x42) n++;
+    if (version >= 0x48) n++;
+    src = pmd->mmlbuf + (uint16_t)(src[0] | (src[1] << 8));
 
     // :6792 One-based, and an underflowed count walks the whole table.
-    al++;
-    uint16_t dx;
+    n++;
+    uint16_t offset;
     do {
-        dx = (uint16_t)(si[0] | (si[1] << 8));
-        if (dx == 0) return NULL;
-        si += 2;
-    } while (--al != 0);
+        offset = (uint16_t)(src[0] | (src[1] << 8));
+        if (offset == 0) return NULL;
+        src += 2;
+    } while (--n != 0);
 
-    return pmd->mmlbuf + dx;
+    return pmd->mmlbuf + offset;
 }
 
 // :6741
@@ -8536,21 +8531,21 @@ uint8_t pmd_ff_music(struct pmd *pmd, uint16_t bar) {
     // Without a board the original leaves AL untouched; the typed interface
     // reports an explicit sentinel instead. The stop state check inside
     // ff_music_main cannot reject a call, only report AL=2.
-    uint8_t al = PMD_FF_MUSIC_NO_BOARD;
-    if (!ok) al = PMD_FF_MUSIC_REJECTED;
-    else if (pmd->board != 0) al = ff_music_main(pmd, bar);
+    uint8_t result = PMD_FF_MUSIC_NO_BOARD;
+    if (!ok) result = PMD_FF_MUSIC_REJECTED;
+    else if (pmd->board != 0) result = ff_music_main(pmd, bar);
     int60_exit(pmd);
-    return al;
+    return result;
 }
 
 // :6820
-// Fast-forwards to bar `dx`. The original masks the FM interrupt around this
+// Fast-forwards to `bar`. The original masks the FM interrupt around this
 // call; the host owns that exclusion.
-static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx) {
+static uint8_t ff_music_main(struct pmd *pmd, uint16_t bar) {
     if (pmd->status2 == 0xff) return PMD_FF_MUSIC_STOPPED;
 
     pmd->skip_flag = 1;
-    bool skip = dx > pmd->syousetu;
+    bool skip = bar > pmd->syousetu;
     if (!skip) {
         // :6835 Restart from the top before skipping forward.
         pmd->skip_flag = 2;
@@ -8558,7 +8553,7 @@ static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx) {
         data_init2(pmd);
         play_init(pmd);
         opn_init(pmd);
-        skip = dx != 0;
+        skip = bar != 0;
     }
 
     if (skip) {
@@ -8574,7 +8569,7 @@ static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx) {
         pmd->fadeout_volume = 0xff;
         pmd->rhythmmask = 0;
 
-        uint16_t bp = dx;
+        uint16_t target = bar;
         for (;;) {
             mmain(pmd);
             syousetu_count(pmd);
@@ -8584,7 +8579,7 @@ static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx) {
                 pmd->skip_flag = 0;
                 return PMD_FF_MUSIC_PAST;
             }
-            if (bp <= pmd->syousetu) break;
+            if (target <= pmd->syousetu) break;
         }
 
         pmd->fadeout_volume = fadeout_volume;
@@ -8607,19 +8602,19 @@ static uint8_t ff_music_main(struct pmd *pmd, uint16_t dx) {
 static void maskon_all(struct pmd *pmd) {
     const uint8_t(*entry)[3] = part_table;
     for (unsigned i = 0; i < max_part1; i++) {
-        struct pmd_qq *di = &pmd->parts[i];
+        struct pmd_qq *part = &pmd->parts[i];
 #if ppz
         // :6910 The PPZ8 build's work array continues with the PPZ8 parts, so
         // the Rhythm and Effect entries are skipped here.
         if ((*entry)[0] == 0xff) entry += 2;
 #endif
-        uint8_t al = (*entry)[1];
-        uint8_t ah = (*entry)[2];
+        uint8_t partb = (*entry)[1];
+        uint8_t source = (*entry)[2];
         entry++;
 
-        di->partmask |= 0x80;
-        if (di->partmask != 0x80) continue; // already masked elsewhere
-        maskon_main(pmd, di, al, ah);
+        part->partmask |= 0x80;
+        if (part->partmask != 0x80) continue; // already masked elsewhere
+        maskon_main(pmd, part, partb, source);
     }
 }
 
@@ -8627,51 +8622,51 @@ static void maskon_all(struct pmd *pmd) {
 static void maskoff_all(struct pmd *pmd) {
     const uint8_t(*entry)[3] = part_table;
     for (unsigned i = 0; i < max_part1; i++) {
-        struct pmd_qq *di = &pmd->parts[i];
+        struct pmd_qq *part = &pmd->parts[i];
 #if ppz
         if ((*entry)[0] == 0xff) entry += 2;
 #endif
-        uint8_t al = (*entry)[1];
-        uint8_t ah = (*entry)[2];
+        uint8_t partb = (*entry)[1];
+        uint8_t source = (*entry)[2];
         entry++;
 
-        di->partmask &= 0x7f;
-        if (di->partmask != 0) continue; // still masked elsewhere
-        maskoff_main(pmd, di, al, ah);
+        part->partmask &= 0x7f;
+        if (part->partmask != 0) continue; // still masked elsewhere
+        maskoff_main(pmd, part, partb, source);
     }
 }
 
 // :6967
-// Masks (AL < 80h) or unmasks (AL >= 80h) one part, keying off or restoring
+// Masks (`n` < 80h) or unmasks (`n` >= 80h) one part, keying off or restoring
 // its sound.
-static void part_mask(struct pmd *pmd, uint8_t al) {
-    uint8_t ah = al & 0x7f;
+static void part_mask(struct pmd *pmd, uint8_t n) {
+    uint8_t index = n & 0x7f;
 #if ppz
-    if (ah >= 16 + 8) return;
+    if (index >= 16 + 8) return;
 #else
-    if (ah >= 16) return;
+    if (index >= 16) return;
 #endif
-    if ((al & 0x80) != 0) {
-        part_on(pmd, ah);
+    if ((n & 0x80) != 0) {
+        part_on(pmd, index);
         return;
     }
 
-    const uint8_t(*entry)[3] = &part_table[ah];
-    int8_t dl = (int8_t)(*entry)[0];
-    if (dl < 0) {
+    const uint8_t(*entry)[3] = &part_table[index];
+    int8_t work = (int8_t)(*entry)[0];
+    if (work < 0) {
         rhythm_mask(pmd);
         return;
     }
     uint8_t partb = (*entry)[1];
     uint8_t ongen = (*entry)[2];
 
-    struct pmd_qq *di = pmd->part_data_table[(uint8_t)dl];
-    uint8_t previous = di->partmask;
-    di->partmask |= 1;
+    struct pmd_qq *part = pmd->part_data_table[(uint8_t)work];
+    uint8_t previous = part->partmask;
+    part->partmask |= 1;
     if (previous != 0) return; // already masked
     if (pmd->play_flag == 0) return; // the music is stopped
 
-    maskon_main(pmd, di, partb, ongen);
+    maskon_main(pmd, part, partb, ongen);
 }
 
 // :6967
@@ -8684,26 +8679,27 @@ void pmd_part_mask(struct pmd *pmd, uint8_t part) {
 // :7001
 // The original walks AH down through the sound sources; the switch keeps that
 // order, including the deletes that make a source meaningless in a variant.
-static void maskon_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah) {
-    switch (ah) {
+static void maskon_main(struct pmd *pmd, struct pmd_qq *part, uint8_t partb, uint8_t source) {
+    switch (source) {
     case 0: // pm_fm1
-        pmd->partb = al;
+        pmd->partb = partb;
 #if board2
         sel44(pmd);
 #endif
-        (void)silence_fmpart(pmd, di);
+        (void)silence_fmpart(pmd, part);
         return;
 #if board2
     case 1: // pm_fm2
-        pmd->partb = al;
+        pmd->partb = partb;
         sel46(pmd);
-        (void)silence_fmpart(pmd, di);
+        (void)silence_fmpart(pmd, part);
         return;
 #endif
     case 2: { // pm_ssg
-        pmd->partb = al;
-        psgmsk(pmd, &al, &ah);
-        opnset44(pmd, (uint16_t)((0x07 << 8) | (al | ah)));
+        uint8_t mix, channel;
+        pmd->partb = partb;
+        psgmsk(pmd, &mix, &channel);
+        opnset44(pmd, (uint16_t)((0x07 << 8) | (mix | channel)));
         return;
     }
 #if board2
@@ -8730,11 +8726,11 @@ static void maskon_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t 
 #if ppz
     case 5: // pm_ppz
 #if ademu
-        if (al == 7 && pmd->adpcm_emulate == 1) return;
+        if (partb == 7 && pmd->adpcm_emulate == 1) return;
 #endif
         {
             const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
-            if (drv != NULL) drv->keyoff(al, pmd->user_data);
+            if (drv != NULL) drv->keyoff(partb, pmd->user_data);
         }
         return;
 #endif
@@ -8754,41 +8750,41 @@ static void rhythm_mask(struct pmd *pmd) {
 }
 
 // :7111
-// Unmasks one part and restores its voice, given the part number in AH.
-static void part_on(struct pmd *pmd, uint8_t ah) {
-    const uint8_t(*entry)[3] = &part_table[ah];
-    int8_t dl = (int8_t)(*entry)[0];
-    if (dl < 0) {
+// Unmasks one part and restores its voice, given the part number.
+static void part_on(struct pmd *pmd, uint8_t n) {
+    const uint8_t(*entry)[3] = &part_table[n];
+    int8_t work = (int8_t)(*entry)[0];
+    if (work < 0) {
         pmd->rhythmmask = 0xff;
         return;
     }
     uint8_t partb = (*entry)[1];
     uint8_t ongen = (*entry)[2];
 
-    struct pmd_qq *di = pmd->part_data_table[(uint8_t)dl];
-    if (di->partmask == 0) return; // not masked
-    di->partmask &= (uint8_t)~1;
-    if (di->partmask != 0) return; // still masked by an effect
+    struct pmd_qq *part = pmd->part_data_table[(uint8_t)work];
+    if (part->partmask == 0) return; // not masked
+    part->partmask &= (uint8_t)~1;
+    if (part->partmask != 0) return; // still masked by an effect
     if (pmd->play_flag == 0) return; // the music is stopped
 
-    maskoff_main(pmd, di, partb, ongen);
+    maskoff_main(pmd, part, partb, ongen);
 }
 
 // :7135
-static void maskoff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t ah) {
-    switch (ah) {
+static void maskoff_main(struct pmd *pmd, struct pmd_qq *part, uint8_t partb, uint8_t source) {
+    switch (source) {
     case 0: // po_fm1
-        pmd->partb = al;
+        pmd->partb = partb;
 #if board2
         sel44(pmd);
 #endif
-        if (di->address != NULL) neiro_reset(pmd, di);
+        if (part->address != NULL) neiro_reset(pmd, part);
         return;
 #if board2
     case 1: // po_fm2
-        pmd->partb = al;
+        pmd->partb = partb;
         sel46(pmd);
-        if (di->address != NULL) neiro_reset(pmd, di);
+        if (part->address != NULL) neiro_reset(pmd, part);
         return;
 #endif
     default:
@@ -8798,10 +8794,10 @@ static void maskoff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al, uint8_t
 }
 
 // :7354
-static void fm_effect_on(struct pmd *pmd, uint8_t al) {
+static void fm_effect_on(struct pmd *pmd, uint8_t efcnum) {
     if (pmd->fm_effec_flag != 0) fm_effect_off(pmd);
 
-    pmd->fm_effec_num = al;
+    pmd->fm_effec_num = efcnum;
     pmd->fm_effec_flag = 1;
 
     pmd->partb = 3;
@@ -8814,17 +8810,18 @@ static void fm_effect_on(struct pmd *pmd, uint8_t al) {
     pmd->parts[part3d].partmask |= 2;
 #endif
 
-    struct pmd_qq *di = &pmd->part_e;
-    memset(di, 0, sizeof(*di));
+    struct pmd_qq *part = &pmd->part_e;
+    memset(part, 0, sizeof(*part));
 
-    uint16_t offset = (uint16_t)(pmd->efcdat[2 * al] | (pmd->efcdat[2 * al + 1] << 8));
-    di->address = pmd->efcdat + offset;
-    di->leng = 1; // starts on the next count
-    di->volume = 108; // FM volume default
-    di->slotmask = 0xf0;
-    di->neiromask = 0xff;
+    uint16_t offset = (uint16_t)(pmd->efcdat[2 * efcnum] |
+                                (pmd->efcdat[2 * efcnum + 1] << 8));
+    part->address = pmd->efcdat + offset;
+    part->leng = 1; // starts on the next count
+    part->volume = 108; // FM volume default
+    part->slotmask = 0xf0;
+    part->neiromask = 0xff;
 #if board2
-    di->fmpan = 0xc0; // centre
+    part->fmpan = 0xc0; // centre
     sel46(pmd);
     opnset(pmd, 0xb6c0);
 #else
@@ -9075,12 +9072,12 @@ static uint8_t key_port8(uint8_t state) {
 // :7831
 // Counts bars.
 static void syousetu_count(struct pmd *pmd) {
-    uint8_t al = (uint8_t)(pmd->opncount + 1);
-    if (al == pmd->syousetu_lng) {
-        al = 0;
+    uint8_t count = (uint8_t)(pmd->opncount + 1);
+    if (count == pmd->syousetu_lng) {
+        count = 0;
         pmd->syousetu++;
     }
-    pmd->opncount = al;
+    pmd->opncount = count;
 }
 
 // :7844
@@ -9093,20 +9090,20 @@ static void settempo_b(struct pmd *pmd) {
 // :7852
 // Writes the Timer B speed when it changed. settempo_b's tempo path and
 // ff_music_main's fast-forward exit share it.
-static void stb_ff(struct pmd *pmd, uint8_t dl) {
-    if (dl == pmd->TimerB_speed) return;
-    pmd->TimerB_speed = dl;
-    opnset44(pmd, (uint16_t)((0x26 << 8) | dl));
+static void stb_ff(struct pmd *pmd, uint8_t tempo) {
+    if (tempo == pmd->TimerB_speed) return;
+    pmd->TimerB_speed = tempo;
+    opnset44(pmd, (uint16_t)((0x26 << 8) | tempo));
 }
 
 // :7864
 // Rewinds one bar when the rewind key is held.
 static void rew(struct pmd *pmd) {
     if (!check_grph(pmd, pmd->rew_sp_key)) return;
-    uint16_t dx = pmd->syousetu;
-    uint8_t al = (uint8_t)(pmd->syousetu_lng >> 2);
-    if (pmd->opncount < al && dx != 0) dx--;
-    ff_music_main(pmd, dx);
+    uint16_t bar = pmd->syousetu;
+    uint8_t threshold = (uint8_t)(pmd->syousetu_lng >> 2);
+    if (pmd->opncount < threshold && bar != 0) bar--;
+    ff_music_main(pmd, bar);
 }
 
 // :7887
@@ -9170,28 +9167,28 @@ static void memchk_init(struct pmd *pmd) {
 // interrupt-number bits match the board int_init detected.
 static void opninit_loop(struct pmd *pmd) {
     for (unsigned i = 0; i < 4; i++) {
-        uint16_t dx = (uint16_t)(0x088 + (i << 8));
+        uint16_t port = (uint16_t)(0x088 + (i << 8));
 
-        uint8_t ah = 0xff;
+        uint8_t id = 0xff;
         bool present = false;
         for (unsigned n = 0; n < 256; n++) {
-            ah &= inb(pmd, dx);
-            if ((ah & 0x80) == 0) {
+            id &= inb(pmd, port);
+            if ((id & 0x80) == 0) {
                 present = true;
                 break;
             }
         }
         if (!present) continue; // no sound chip on this port
 
-        rdychk(pmd, dx);
-        outb(pmd, dx, 0x0e);
-        if ((inb(pmd, dx + 2) & 0xc0) != pmd->opn_0eh) continue;
+        rdychk(pmd, port);
+        outb(pmd, port, 0x0e);
+        if ((inb(pmd, port + 2) & 0xc0) != pmd->opn_0eh) continue;
 
-        opnset_fmc(pmd, dx, 0x2900);
-        opnset_fmc(pmd, dx, 0x2400);
-        opnset_fmc(pmd, dx, 0x2500);
-        opnset_fmc(pmd, dx, 0x2600);
-        opnset_fmc(pmd, dx, 0x273f);
+        opnset_fmc(pmd, port, 0x2900);
+        opnset_fmc(pmd, port, 0x2400);
+        opnset_fmc(pmd, port, 0x2500);
+        opnset_fmc(pmd, port, 0x2600);
+        opnset_fmc(pmd, port, 0x273f);
     }
 }
 #endif
@@ -9250,14 +9247,14 @@ static void int_init(struct pmd *pmd) {
     rdychk(pmd, pmd->fm1_port1);
     outb(pmd, pmd->fm1_port1, 0x0e);
     _wait(pmd); // PSG read wait
-    uint8_t al = inb(pmd, pmd->fm1_port2) & 0xc0;
+    uint8_t level = inb(pmd, pmd->fm1_port2) & 0xc0;
 #if !va
-    pmd->opn_0eh = al;
+    pmd->opn_0eh = level;
 #endif
     // :8929 The original rotates the two interrupt-number bits into a 4-byte
     // table index and then multiplies by 4; the two steps cancel out.
-    pmd->mes_int[mes_int_int_num] = vector_table[al >> 6].num;
-    pmd->int_level = vector_table[al >> 6].level;
+    pmd->mes_int[mes_int_int_num] = vector_table[level >> 6].num;
+    pmd->int_level = vector_table[level >> 6].level;
 
     // :8942
     if (pmd->message_flag != 0) {
@@ -9345,11 +9342,11 @@ static void opnint_start(struct pmd *pmd) {
 #if !va
 // :9174
 // OPN out for the 088/188/288/388 initialization: address to DX, data to DX+2.
-static void opnset_fmc(struct pmd *pmd, uint16_t dx, uint16_t ax) {
+static void opnset_fmc(struct pmd *pmd, uint16_t port, uint16_t cmd) {
     // The original delays 256 `loop $` iterations before each write
     // (:9177-9178, :9181-9182); the host backend owns the chip timing.
-    outb(pmd, dx, (uint8_t)(ax >> 8));
-    outb(pmd, dx + 2, (uint8_t)ax);
+    outb(pmd, port, (uint8_t)(cmd >> 8));
+    outb(pmd, port + 2, (uint8_t)cmd);
 }
 #endif
 
@@ -9397,20 +9394,20 @@ static bool port_check(struct pmd *pmd) {
     // :9262 the 088h-388h YM2203-class cards.
     pmd->ongen = 0;
     uint8_t tries = 4;
-    uint16_t dx = 0x088;
+    uint16_t base = 0x088;
     if (pmd->port_sel != -1) {
-        dx = (uint16_t)((dx & 0xff) | (pmd->port_sel << 8));
+        base = (uint16_t)((base & 0xff) | (pmd->port_sel << 8));
         tries = 1;
     }
     for (;;) {
-        outb(pmd, dx, 0x0b);
-        outb(pmd, dx + 2, 0xaa);
-        if (inb(pmd, dx + 2) == 0xaa) {
-            set_port(pmd, dx);
+        outb(pmd, base, 0x0b);
+        outb(pmd, base + 2, 0xaa);
+        if (inb(pmd, base + 2) == 0xaa) {
+            set_port(pmd, base);
             return true;
         }
         if (--tries == 0) return false;
-        dx = (uint16_t)(dx + 0x100);
+        base = (uint16_t)(base + 0x100);
     }
 #endif
 }
@@ -9426,31 +9423,31 @@ static bool check_86b(struct pmd *pmd) {
     // PC-286VE. Those PC-98-specific reads are omitted, so epson_flag stays 0
     // and an EPSON host is treated like any other.
     // :9334 No NEC OPNA ID port means no 86 board.
-    uint8_t al = inb(pmd, 0xa460);
-    if (al == 0xff) return false;
-    outb(pmd, 0x5f, al);
-    outb(pmd, 0xa460, (uint8_t)(al & 0xfc)); // NEC OPNA off
+    uint8_t id = inb(pmd, 0xa460);
+    if (id == 0xff) return false;
+    outb(pmd, 0x5f, id);
+    outb(pmd, 0xa460, (uint8_t)(id & 0xfc)); // NEC OPNA off
 
     uint8_t tries = 2;
-    uint16_t dx = 0x188;
+    uint16_t base = 0x188;
     if (pmd->port_sel != -1) {
-        dx = (uint16_t)((dx & 0xff) | (pmd->port_sel << 8));
+        base = (uint16_t)((base & 0xff) | (pmd->port_sel << 8));
         tries = 1;
     }
     for (;;) {
-        outb(pmd, dx, 0xff);
-        if (inb(pmd, dx + 2) == 1) { // YM2608?
-            uint8_t bl = inb(pmd, dx + 4);
-            if ((uint8_t)((inb(pmd, dx + 6) & bl) + 1) == 0) break;
+        outb(pmd, base, 0xff);
+        if (inb(pmd, base + 2) == 1) { // YM2608?
+            uint8_t mask = inb(pmd, base + 4);
+            if ((uint8_t)((inb(pmd, base + 6) & mask) + 1) == 0) break;
         }
         if (--tries == 0) return false;
-        dx = (uint16_t)(dx + 0x100);
+        base = (uint16_t)(base + 0x100);
     }
 
     // :9133
-    al = inb(pmd, 0xa460);
-    outb(pmd, 0x5f, al);
-    outb(pmd, 0xa460, (uint8_t)((al & 0xfc) | 1)); // NEC OPNA on
+    id = inb(pmd, 0xa460);
+    outb(pmd, 0x5f, id);
+    outb(pmd, 0xa460, (uint8_t)((id & 0xfc) | 1)); // NEC OPNA on
     uint8_t v = inb(pmd, 0xa66e);
     outb(pmd, 0x5f, v);
     outb(pmd, 0xa66e, (uint8_t)(v & 0xfe)); // a66e B0: 1 = mute
@@ -9461,7 +9458,7 @@ static bool check_86b(struct pmd *pmd) {
     // :9152 Stop PCM playback before the port is reused.
     stop_86pcm(pmd);
 #endif
-    set_port(pmd, dx);
+    set_port(pmd, base);
     return true;
 }
 
@@ -9473,40 +9470,40 @@ static bool check_spb(struct pmd *pmd) {
     pmd->ongen = 1;
     // The EPSON ROM reads are omitted as in check_86b (:9318-9323). Unlike
     // check_86b, an EPSON machine only skips the OPNA off write here.
-    uint8_t al = inb(pmd, 0xa460);
-    if (al != 0xff) {
-        outb(pmd, 0x5f, al);
-        outb(pmd, 0xa460, (uint8_t)(al & 0xfc)); // NEC OPNA off
+    uint8_t id = inb(pmd, 0xa460);
+    if (id != 0xff) {
+        outb(pmd, 0x5f, id);
+        outb(pmd, 0xa460, (uint8_t)(id & 0xfc)); // NEC OPNA off
     }
 
     uint8_t tries = 4;
-    uint16_t dx = 0x088;
+    uint16_t base = 0x088;
     if (pmd->port_sel != -1) {
-        dx = (uint16_t)((dx & 0xff) | (pmd->port_sel << 8));
+        base = (uint16_t)((base & 0xff) | (pmd->port_sel << 8));
         tries = 1;
     }
     for (;;) {
-        outb(pmd, dx, 0xff);
-        if (inb(pmd, dx + 2) == 1) { // YM2608?
-            uint8_t bl = inb(pmd, dx + 4);
-            if ((uint8_t)((inb(pmd, dx + 6) & bl) + 1) != 0) {
-                set_port(pmd, dx);
+        outb(pmd, base, 0xff);
+        if (inb(pmd, base + 2) == 1) { // YM2608?
+            uint8_t mask = inb(pmd, base + 4);
+            if ((uint8_t)((inb(pmd, base + 6) & mask) + 1) != 0) {
+                set_port(pmd, base);
                 return true;
             }
         }
         if (--tries == 0) return false;
-        dx = (uint16_t)(dx + 0x100);
+        base = (uint16_t)(base + 0x100);
     }
 }
 #endif
 
 // :9468
 // Sets fm1/fm2 from the base port a probe matched.
-static void set_port(struct pmd *pmd, uint16_t dx) {
-    pmd->fm1_port1 = dx;
-    pmd->fm1_port2 = (uint16_t)(dx + 2);
-    pmd->fm2_port1 = (uint16_t)(dx + 4);
-    pmd->fm2_port2 = (uint16_t)(dx + 6);
+static void set_port(struct pmd *pmd, uint16_t base) {
+    pmd->fm1_port1 = base;
+    pmd->fm1_port2 = (uint16_t)(base + 2);
+    pmd->fm2_port1 = (uint16_t)(base + 4);
+    pmd->fm2_port2 = (uint16_t)(base + 6);
 }
 #endif
 
@@ -9624,23 +9621,23 @@ static uint8_t sp_key_display(uint8_t key) {
 }
 
 // :9715
-// Prints AL as a decimal number without leading zeros.
-static void put8(struct pmd *pmd, uint8_t al) {
+// Prints `value` as a decimal number without leading zeros.
+static void put8(struct pmd *pmd, uint8_t value) {
     bool printed = false;
-    p8_oneset(pmd, &al, 100, &printed);
-    p8_oneset(pmd, &al, 10, &printed);
-    print_char(pmd, (char)('0' + al));
+    p8_oneset(pmd, &value, 100, &printed);
+    p8_oneset(pmd, &value, 10, &printed);
+    print_char(pmd, (char)('0' + value));
 }
 
 // :9726
-static void p8_oneset(struct pmd *pmd, uint8_t *al, uint8_t dl, bool *printed) {
-    char dh = '0';
-    while (*al >= dl) {
-        *al = (uint8_t)(*al - dl);
-        dh++;
+static void p8_oneset(struct pmd *pmd, uint8_t *value, uint8_t digit, bool *printed) {
+    char c = '0';
+    while (*value >= digit) {
+        *value = (uint8_t)(*value - digit);
+        c++;
     }
-    if (*printed || dh != '0') {
-        print_char(pmd, dh);
+    if (*printed || c != '0') {
+        print_char(pmd, c);
         *printed = true;
     }
 }
@@ -9875,8 +9872,8 @@ static bool ppz_reset(struct pmd *pmd, const char **cmd, bool from_env) {
     } else {
         if (ppz8_check(pmd)) {
             pmd->ppz8->fifo_interrupt_stop(pmd->user_data); // 12h
-            for (uint8_t ch = 0; ch < 8; ch++) {
-                pmd->ppz8->keyoff(ch, pmd->user_data); // 0200h-0207h
+            for (uint8_t chan = 0; chan < 8; chan++) {
+                pmd->ppz8->keyoff(chan, pmd->user_data); // 0200h-0207h
             }
             pmd->ppz8->set_removal_protection(false, pmd->user_data); // 1900h
         }
@@ -9975,25 +9972,25 @@ static bool get_comline_number(const char **cmd, uint8_t *out) {
 }
 
 // :10350
-// Prints AX as a decimal number without leading zeros.
-static void print_16(struct pmd *pmd, uint16_t ax) {
+// Prints `value` as a decimal number without leading zeros.
+static void print_16(struct pmd *pmd, uint16_t value) {
     bool printed = false;
-    p16_oneset(pmd, &ax, 10000, &printed);
-    p16_oneset(pmd, &ax, 1000, &printed);
-    p16_oneset(pmd, &ax, 100, &printed);
-    p16_oneset(pmd, &ax, 10, &printed);
-    print_char(pmd, (char)('0' + ax));
+    p16_oneset(pmd, &value, 10000, &printed);
+    p16_oneset(pmd, &value, 1000, &printed);
+    p16_oneset(pmd, &value, 100, &printed);
+    p16_oneset(pmd, &value, 10, &printed);
+    print_char(pmd, (char)('0' + value));
 }
 
 // :10366
-static void p16_oneset(struct pmd *pmd, uint16_t *ax, uint16_t bx, bool *printed) {
-    char dl = '0';
-    while (*ax >= bx) {
-        *ax = (uint16_t)(*ax - bx);
-        dl++;
+static void p16_oneset(struct pmd *pmd, uint16_t *value, uint16_t digit, bool *printed) {
+    char c = '0';
+    while (*value >= digit) {
+        *value = (uint16_t)(*value - digit);
+        c++;
     }
-    if (*printed || dl != '0') {
-        print_char(pmd, dl);
+    if (*printed || c != '0') {
+        print_char(pmd, c);
         *printed = true;
     }
 }
