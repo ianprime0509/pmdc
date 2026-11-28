@@ -29,6 +29,59 @@
 #define vsync 0
 #endif
 
+#if lang == 256 * 'e' + 'n'
+#include "strings_en.h"
+#else
+#include "strings_jp.h"
+#endif
+
+// Character classification helpers
+//
+// These functions work slightly differently from their ctype.h counterparts,
+// since they must work correctly with Shift JIS and replicate quirks within the
+// original code (such as DEL not being considered a control character).
+
+static bool is_cntrl(char c) { return c >= 0 && c < ' '; }
+static bool is_digit(char c) { return c >= '0' && c <= '9'; }
+static bool is_lower(char c) { return c >= 'a' && c <= 'z'; }
+static char to_upper(char c) { return is_lower(c) ? c - 'a' + 'A' : c; }
+
+// Data read/write helpers
+
+static uint8_t lodsb(uint8_t **si) { return *(*si)++; }
+
+static uint16_t lodsw(uint8_t **si) {
+    uint16_t value = (uint16_t)((*si)[0] | ((*si)[1] << 8));
+    *si += 2;
+    return value;
+}
+
+static uint8_t inb(struct pmd *pmd, uint16_t port) {
+    return pmd->hw->inb(port, pmd->user_data);
+}
+
+static void outb(struct pmd *pmd, uint16_t port, uint8_t value) {
+    pmd->hw->outb(port, value, pmd->user_data);
+}
+
+// Writes one character (DOS INT 21h/AH=2 in the original).
+static void print_char(struct pmd *pmd, char c) {
+    pmd->sys->putc(c, pmd->user_data);
+}
+
+// Helpers for repeated logic
+
+// True when DI is the selected FM3 part (always the front chip).
+static bool fm3_active(struct pmd *pmd, struct pmd_qq *di) {
+    (void)di;
+    if (pmd->partb != 3) return false;
+#if board2
+    return pmd->fmsel == 0;
+#else
+    return di != &pmd->part_e;
+#endif
+}
+
 // :12
 enum {
     // Module data buffer size (KiB).
@@ -52,89 +105,118 @@ enum {
 };
 #endif
 
-// :8318
-// Indices into pmd->parts. The part work areas are one contiguous array
-// because the original advances from part1 through adjacent areas.
-enum {
-    part1 = 0,
-    part2,
-    part3,
-#if board2
-    part4,
-    part5,
-    part6,
-#else
-    part3b,
-    part3c,
-    part3d,
-#endif
-    part7,
-    part8,
-    part9,
-    part10,
-    part11,
-#if board2
-    part3b,
-    part3c,
-    part3d,
-#endif
-#if ppz
-    part10a,
-    part10b,
-    part10c,
-    part10d,
-    part10e,
-    part10f,
-    part10g,
-    part10h,
-#endif
+#if board2 && pcm
+
+// TUNEDATA.INC:9
+// The default 16.54kHz PCM86 frequency table (96 notes).
+static const uint8_t pcm_tune_data_default[288] = {
+    0x00, 0xb7, 0x2a, 0x00, 0x41, 0x2d, 0x00, 0xf2, 0x2f, 0x00, 0xcb, 0x32,
+    0x00, 0xd1, 0x35, 0x00, 0x04, 0x39, 0x00, 0x68, 0x3c, 0x00, 0xff, 0x3f,
+    0x00, 0xce, 0x43, 0x00, 0xd6, 0x47, 0x00, 0x1b, 0x4c, 0x00, 0xa2, 0x50,
+    0x00, 0x6e, 0x55, 0x00, 0x82, 0x5a, 0x00, 0xe4, 0x5f, 0x00, 0x97, 0x65,
+    0x00, 0xa2, 0x6b, 0x00, 0x09, 0x72, 0x00, 0xd0, 0x78, 0x00, 0xff, 0x7f,
+    0x00, 0x9c, 0x87, 0x00, 0xac, 0x8f, 0x00, 0x37, 0x98, 0x00, 0x45, 0xa1,
+    0x00, 0xdc, 0xaa, 0x00, 0x04, 0xb5, 0x00, 0xc8, 0xbf, 0x00, 0x2f, 0xcb,
+    0x00, 0x44, 0xd7, 0x00, 0x12, 0xe4, 0x00, 0xa1, 0xf1, 0x01, 0x00, 0x00,
+    0x20, 0x6b, 0xcb, 0x20, 0x83, 0xd7, 0x20, 0x54, 0xe4, 0x20, 0xe7, 0xf1,
+    0x40, 0xdc, 0xaa, 0x40, 0x04, 0xb5, 0x40, 0xc8, 0xbf, 0x40, 0x2f, 0xcb,
+    0x40, 0x44, 0xd7, 0x40, 0x12, 0xe4, 0x40, 0xa1, 0xf1, 0x41, 0x00, 0x00,
+    0x60, 0x6b, 0xcb, 0x60, 0x83, 0xd7, 0x60, 0x54, 0xe4, 0x60, 0xe7, 0xf1,
+    0x80, 0xdc, 0xaa, 0x80, 0x04, 0xb5, 0x80, 0xc8, 0xbf, 0x80, 0x2f, 0xcb,
+    0x80, 0x44, 0xd7, 0x80, 0x12, 0xe4, 0x80, 0xa1, 0xf1, 0x81, 0x00, 0x00,
+    0xa0, 0x6b, 0xcb, 0xa0, 0x83, 0xd7, 0xa0, 0x54, 0xe4, 0xa0, 0xe7, 0xf1,
+    0xc0, 0xdc, 0xaa, 0xc0, 0x04, 0xb5, 0xc0, 0xc8, 0xbf, 0xc0, 0x2f, 0xcb,
+    0xc0, 0x44, 0xd7, 0xc0, 0x12, 0xe4, 0xc0, 0xa1, 0xf1, 0xc1, 0x00, 0x00,
+    0xe0, 0x6b, 0xcb, 0xe0, 0x83, 0xd7, 0xe0, 0x54, 0xe4, 0xe0, 0xe7, 0xf1,
+    0xe1, 0x4a, 0x00, 0xe1, 0x87, 0x0f, 0xe1, 0xac, 0x1f, 0xe1, 0xc7, 0x30,
+    0xe1, 0xe7, 0x42, 0xe1, 0x1c, 0x56, 0xe1, 0x72, 0x6a, 0xe1, 0x00, 0x80,
+    0xe1, 0xd6, 0x96, 0xe1, 0x06, 0xaf, 0xe1, 0xa8, 0xc8, 0xe1, 0xcf, 0xe3,
+    0xe2, 0x94, 0x00, 0xe2, 0x0e, 0x1f, 0xe2, 0x59, 0x3f, 0xe2, 0x8f, 0x61,
+    0xe2, 0xce, 0x85, 0xe2, 0x38, 0xac, 0xe2, 0xe5, 0xd4, 0xe3, 0x00, 0x00,
+    0xe3, 0xac, 0x2d, 0xe3, 0x0d, 0x5e, 0xe3, 0x50, 0x91, 0xe3, 0x9e, 0xc7,
 };
 
-// :8263
-enum {
-#if ppz
-    max_part1 = 14 + 8,
+#endif
+
+// :6360
+// The INT 60h reentrancy classes: bit 0 rejects the call while Timer B's
+// handler owns the state, bit 1 while Timer A's does, and bit 2 while another
+// INT 60h call is active. The original's table ends at 21h, so its 22h lookup
+// reads one byte past the end; the port treats that entry as unrestricted.
+static const uint8_t reint_chk[0x22 + 1] = {
+    4, 4, 0, 6, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 0, 5,
+    0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 5, 5, 7, 0, 7, 0,
+    0, 0,
+    0,
+};
+
+// :7180
+// The part table: part number, partb, and sound source per part work area.
+// maskon_all/maskoff_all walk it in work area order, while part_mask and
+// part_on index it by part number; the two orders agree for the entries those
+// paths reach. Source: 0 FM1, 1 FM2, 2 SSG, 3 PCM or rhythm, 4 rhythm, 5 PPZ8.
+static const uint8_t part_table[][3] = {
+#if board2 && ppz
+    {0x00, 1, 0}, // A
+    {0x01, 2, 0}, // B
+    {0x02, 3, 0}, // C
+    {0x03, 1, 1}, // D
+    {0x04, 2, 1}, // E
+    {0x05, 3, 1}, // F
+    {0x06, 1, 2}, // G
+    {0x07, 2, 2}, // H
+    {0x08, 3, 2}, // I
+    {0x09, 1, 3}, // J
+    {0x0a, 3, 4}, // K
+    {0x0b, 3, 0}, // c2
+    {0x0c, 3, 0}, // c3
+    {0x0d, 3, 0}, // c4
+    {0xff, 0, 0xff}, // Rhythm
+    {0x16, 3, 1}, // Effect
+    {0x0e, 0, 5}, // PPZ1
+    {0x0f, 1, 5}, // PPZ2
+    {0x10, 2, 5}, // PPZ3
+    {0x11, 3, 5}, // PPZ4
+    {0x12, 4, 5}, // PPZ5
+    {0x13, 5, 5}, // PPZ6
+    {0x14, 6, 5}, // PPZ7
+    {0x15, 7, 5}, // PPZ8
 #elif board2
-    max_part1 = 14,
+    {0x00, 1, 0}, // A
+    {0x01, 2, 0}, // B
+    {0x02, 3, 0}, // C
+    {0x03, 1, 1}, // D
+    {0x04, 2, 1}, // E
+    {0x05, 3, 1}, // F
+    {0x06, 1, 2}, // G
+    {0x07, 2, 2}, // H
+    {0x08, 3, 2}, // I
+    {0x09, 1, 3}, // J
+    {0x0a, 3, 4}, // K
+    {0x0b, 3, 0}, // c2
+    {0x0c, 3, 0}, // c3
+    {0x0d, 3, 0}, // c4
+    {0xff, 0, 0xff}, // Rhythm
+    {0x0e, 3, 1}, // Effect
 #else
-    max_part1 = 11,
+    {0x00, 1, 0}, // A
+    {0x01, 2, 0}, // B
+    {0x02, 3, 0}, // C
+    {0x03, 3, 0}, // c2
+    {0x04, 3, 0}, // c3
+    {0x05, 3, 0}, // c4
+    {0x06, 1, 2}, // G
+    {0x07, 2, 2}, // H
+    {0x08, 3, 2}, // I
+    {0x09, 1, 3}, // J
+    {0x0a, 3, 4}, // K
+    {0x03, 3, 0}, // c2
+    {0x04, 3, 0}, // c3
+    {0x05, 3, 0}, // c4
+    {0xff, 0, 0xff}, // Rhythm
+    {0x0b, 3, 0}, // Effect
 #endif
-    // :8266
-    max_part2 = 11,
 };
-
-// struct pmd has a fixed layout, so its part array must cover max_part1 for
-// every variant. Equality holds for the largest (PPZ8) one.
-static_assert(PMD_MAX_PARTS >= max_part1, "PMD_MAX_PARTS must cover max_part1");
-
-// :8275
-enum {
-    fm = 0,
-    fm2 = 1,
-    psg = 2,
-    rhythm = 3,
-};
-
-#if lang == 256 * 'e' + 'n'
-#include "strings_en.h"
-#else
-#include "strings_jp.h"
-#endif
-
-// Writes one character (DOS INT 21h/AH=2 in the original).
-static void print_char(struct pmd *pmd, char c) {
-    pmd->sys->putc(c, pmd->user_data);
-}
-
-// The register accesses below go through pmd_hw; these two wrappers only keep
-// the transcription of the original's `in`/`out` sequences readable.
-static uint8_t inb(struct pmd *pmd, uint16_t port) {
-    return pmd->hw->inb(port, pmd->user_data);
-}
-
-static void outb(struct pmd *pmd, uint16_t port, uint8_t value) {
-    pmd->hw->outb(port, value, pmd->user_data);
-}
 
 // :7925
 // FM f-number table for one octave (C..B).
@@ -284,6 +366,80 @@ static const uint8_t rhydat[11][3] = {
     {0x1a, 0x5e, 0x04}, // ride cymbal
 };
 #endif
+
+// :8263
+enum {
+#if ppz
+    max_part1 = 14 + 8,
+#elif board2
+    max_part1 = 14,
+#else
+    max_part1 = 11,
+#endif
+    // :8266
+    max_part2 = 11,
+};
+
+// struct pmd has a fixed layout, so its part array must cover max_part1 for
+// every variant. Equality holds for the largest (PPZ8) one.
+static_assert(PMD_MAX_PARTS >= max_part1, "PMD_MAX_PARTS must cover max_part1");
+
+// :8275
+enum {
+    fm = 0,
+    fm2 = 1,
+    psg = 2,
+    rhythm = 3,
+};
+
+// :8318
+// Indices into pmd->parts. The part work areas are one contiguous array
+// because the original advances from part1 through adjacent areas.
+enum {
+    part1 = 0,
+    part2,
+    part3,
+#if board2
+    part4,
+    part5,
+    part6,
+#else
+    part3b,
+    part3c,
+    part3d,
+#endif
+    part7,
+    part8,
+    part9,
+    part10,
+    part11,
+#if board2
+    part3b,
+    part3c,
+    part3d,
+#endif
+#if ppz
+    part10a,
+    part10b,
+    part10c,
+    part10d,
+    part10e,
+    part10f,
+    part10g,
+    part10h,
+#endif
+};
+
+// :8377
+// The empty module image: the version/system byte, 12 empty part offsets, and
+// the end-of-data marker.
+static const uint8_t empty_dataarea[] = {
+    0x00,
+    0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00,
+    0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00,
+    0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00,
+    0x80,
+};
 
 #if board2 && pcm
 // :10844
@@ -499,47 +655,7 @@ static const uint8_t hzdata[8][288] = {
     },
 };
 
-// TUNEDATA.INC:9
-// The default 16.54kHz PCM86 frequency table (96 notes).
-static const uint8_t pcm_tune_data_default[288] = {
-    0x00, 0xb7, 0x2a, 0x00, 0x41, 0x2d, 0x00, 0xf2, 0x2f, 0x00, 0xcb, 0x32,
-    0x00, 0xd1, 0x35, 0x00, 0x04, 0x39, 0x00, 0x68, 0x3c, 0x00, 0xff, 0x3f,
-    0x00, 0xce, 0x43, 0x00, 0xd6, 0x47, 0x00, 0x1b, 0x4c, 0x00, 0xa2, 0x50,
-    0x00, 0x6e, 0x55, 0x00, 0x82, 0x5a, 0x00, 0xe4, 0x5f, 0x00, 0x97, 0x65,
-    0x00, 0xa2, 0x6b, 0x00, 0x09, 0x72, 0x00, 0xd0, 0x78, 0x00, 0xff, 0x7f,
-    0x00, 0x9c, 0x87, 0x00, 0xac, 0x8f, 0x00, 0x37, 0x98, 0x00, 0x45, 0xa1,
-    0x00, 0xdc, 0xaa, 0x00, 0x04, 0xb5, 0x00, 0xc8, 0xbf, 0x00, 0x2f, 0xcb,
-    0x00, 0x44, 0xd7, 0x00, 0x12, 0xe4, 0x00, 0xa1, 0xf1, 0x01, 0x00, 0x00,
-    0x20, 0x6b, 0xcb, 0x20, 0x83, 0xd7, 0x20, 0x54, 0xe4, 0x20, 0xe7, 0xf1,
-    0x40, 0xdc, 0xaa, 0x40, 0x04, 0xb5, 0x40, 0xc8, 0xbf, 0x40, 0x2f, 0xcb,
-    0x40, 0x44, 0xd7, 0x40, 0x12, 0xe4, 0x40, 0xa1, 0xf1, 0x41, 0x00, 0x00,
-    0x60, 0x6b, 0xcb, 0x60, 0x83, 0xd7, 0x60, 0x54, 0xe4, 0x60, 0xe7, 0xf1,
-    0x80, 0xdc, 0xaa, 0x80, 0x04, 0xb5, 0x80, 0xc8, 0xbf, 0x80, 0x2f, 0xcb,
-    0x80, 0x44, 0xd7, 0x80, 0x12, 0xe4, 0x80, 0xa1, 0xf1, 0x81, 0x00, 0x00,
-    0xa0, 0x6b, 0xcb, 0xa0, 0x83, 0xd7, 0xa0, 0x54, 0xe4, 0xa0, 0xe7, 0xf1,
-    0xc0, 0xdc, 0xaa, 0xc0, 0x04, 0xb5, 0xc0, 0xc8, 0xbf, 0xc0, 0x2f, 0xcb,
-    0xc0, 0x44, 0xd7, 0xc0, 0x12, 0xe4, 0xc0, 0xa1, 0xf1, 0xc1, 0x00, 0x00,
-    0xe0, 0x6b, 0xcb, 0xe0, 0x83, 0xd7, 0xe0, 0x54, 0xe4, 0xe0, 0xe7, 0xf1,
-    0xe1, 0x4a, 0x00, 0xe1, 0x87, 0x0f, 0xe1, 0xac, 0x1f, 0xe1, 0xc7, 0x30,
-    0xe1, 0xe7, 0x42, 0xe1, 0x1c, 0x56, 0xe1, 0x72, 0x6a, 0xe1, 0x00, 0x80,
-    0xe1, 0xd6, 0x96, 0xe1, 0x06, 0xaf, 0xe1, 0xa8, 0xc8, 0xe1, 0xcf, 0xe3,
-    0xe2, 0x94, 0x00, 0xe2, 0x0e, 0x1f, 0xe2, 0x59, 0x3f, 0xe2, 0x8f, 0x61,
-    0xe2, 0xce, 0x85, 0xe2, 0x38, 0xac, 0xe2, 0xe5, 0xd4, 0xe3, 0x00, 0x00,
-    0xe3, 0xac, 0x2d, 0xe3, 0x0d, 0x5e, 0xe3, 0x50, 0x91, 0xe3, 0x9e, 0xc7,
-};
-
 #endif
-
-// :8377
-// The empty module image: the version/system byte, 12 empty part offsets, and
-// the end-of-data marker.
-static const uint8_t empty_dataarea[] = {
-    0x00,
-    0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00,
-    0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00,
-    0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00,
-    0x80,
-};
 
 #if board2 && adpcm && !ademu
 // ADRAMCHK.ASM:385
@@ -547,86 +663,6 @@ static const uint8_t empty_dataarea[] = {
 // terminator; the extra byte here is never sent.
 static const char check_code[] = "*+=-PMD ADPCM RAM Check Data-=+*";
 #endif
-
-// :6360
-// The INT 60h reentrancy classes: bit 0 rejects the call while Timer B's
-// handler owns the state, bit 1 while Timer A's does, and bit 2 while another
-// INT 60h call is active. The original's table ends at 21h, so its 22h lookup
-// reads one byte past the end; the port treats that entry as unrestricted.
-static const uint8_t reint_chk[0x22 + 1] = {
-    4, 4, 0, 6, 6, 0, 0, 0, 0, 0, 0, 0, 7, 7, 0, 5,
-    0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 5, 5, 7, 0, 7, 0,
-    0, 0,
-    0,
-};
-
-// :7180
-// The part table: part number, partb, and sound source per part work area.
-// maskon_all/maskoff_all walk it in work area order, while part_mask and
-// part_on index it by part number; the two orders agree for the entries those
-// paths reach. Source: 0 FM1, 1 FM2, 2 SSG, 3 PCM or rhythm, 4 rhythm, 5 PPZ8.
-static const uint8_t part_table[][3] = {
-#if board2 && ppz
-    {0x00, 1, 0}, // A
-    {0x01, 2, 0}, // B
-    {0x02, 3, 0}, // C
-    {0x03, 1, 1}, // D
-    {0x04, 2, 1}, // E
-    {0x05, 3, 1}, // F
-    {0x06, 1, 2}, // G
-    {0x07, 2, 2}, // H
-    {0x08, 3, 2}, // I
-    {0x09, 1, 3}, // J
-    {0x0a, 3, 4}, // K
-    {0x0b, 3, 0}, // c2
-    {0x0c, 3, 0}, // c3
-    {0x0d, 3, 0}, // c4
-    {0xff, 0, 0xff}, // Rhythm
-    {0x16, 3, 1}, // Effect
-    {0x0e, 0, 5}, // PPZ1
-    {0x0f, 1, 5}, // PPZ2
-    {0x10, 2, 5}, // PPZ3
-    {0x11, 3, 5}, // PPZ4
-    {0x12, 4, 5}, // PPZ5
-    {0x13, 5, 5}, // PPZ6
-    {0x14, 6, 5}, // PPZ7
-    {0x15, 7, 5}, // PPZ8
-#elif board2
-    {0x00, 1, 0}, // A
-    {0x01, 2, 0}, // B
-    {0x02, 3, 0}, // C
-    {0x03, 1, 1}, // D
-    {0x04, 2, 1}, // E
-    {0x05, 3, 1}, // F
-    {0x06, 1, 2}, // G
-    {0x07, 2, 2}, // H
-    {0x08, 3, 2}, // I
-    {0x09, 1, 3}, // J
-    {0x0a, 3, 4}, // K
-    {0x0b, 3, 0}, // c2
-    {0x0c, 3, 0}, // c3
-    {0x0d, 3, 0}, // c4
-    {0xff, 0, 0xff}, // Rhythm
-    {0x0e, 3, 1}, // Effect
-#else
-    {0x00, 1, 0}, // A
-    {0x01, 2, 0}, // B
-    {0x02, 3, 0}, // C
-    {0x03, 3, 0}, // c2
-    {0x04, 3, 0}, // c3
-    {0x05, 3, 0}, // c4
-    {0x06, 1, 2}, // G
-    {0x07, 2, 2}, // H
-    {0x08, 3, 2}, // I
-    {0x09, 1, 3}, // J
-    {0x0a, 3, 4}, // K
-    {0x03, 3, 0}, // c2
-    {0x04, 3, 0}, // c3
-    {0x05, 3, 0}, // c4
-    {0xff, 0, 0xff}, // Rhythm
-    {0x0b, 3, 0}, // Effect
-#endif
-};
 
 // :10568
 // Byte offsets of int_num and port_num inside pmd->mes_int, which is the
@@ -706,20 +742,6 @@ static void _rwait(struct pmd *pmd);
 #endif
 // :242
 static uint8_t rdychk(struct pmd *pmd, uint16_t port);
-// C-only helpers shared by the sequencer.
-//
-// These have no labels of their own in the original. The line numbers mark the
-// first lodsb/lodsw use and the FM3 check they abstract; the group stays at the
-// top of the block because it has no single position in the source order.
-
-// :1078 lodsb
-// The sequencer's SI cursor.
-static uint8_t lod8(uint8_t **si);
-// :534 lodsw
-static uint16_t lod16(uint8_t **si);
-// :2528
-// True when DI is FM3 and the chip is in effect mode.
-static bool fm3_active(struct pmd *pmd, struct pmd_qq *di);
 // :308
 // Counts one INT 60h call and applies the reint_chk class of table entry
 // `entry` (the original AH value). Returns false when the call is rejected, in
@@ -1362,8 +1384,6 @@ static void p8_oneset(struct pmd *pmd, uint8_t *al, uint8_t dl, bool *printed);
 static bool resident_cut_main(struct pmd *pmd, const char **cmd, bool from_env);
 // :9927
 static bool set_option(struct pmd *pmd, const struct pmd_option *table, const char *cmd, bool from_env);
-// :9928
-static char lodsb(const char **cmd);
 // :9958
 static bool muslng_get(struct pmd *pmd, const char **cmd, bool from_env);
 // :9967
@@ -1717,29 +1737,6 @@ static uint8_t rdychk(struct pmd *pmd, uint16_t port) {
 // first lodsb/lodsw use and the FM3 check they abstract; the group stays at the
 // top of the block because it has no single position in the source order.
 
-// :1078 lodsb
-// Reads through the sequencer's SI cursor.
-static uint8_t lod8(uint8_t **si) { return *(*si)++; }
-
-// :534 lodsw
-static uint16_t lod16(uint8_t **si) {
-    uint16_t value = (uint16_t)((*si)[0] | ((*si)[1] << 8));
-    *si += 2;
-    return value;
-}
-
-// :2528
-// True when DI is the selected FM3 part (always the front chip).
-static bool fm3_active(struct pmd *pmd, struct pmd_qq *di) {
-    (void)di;
-    if (pmd->partb != 3) return false;
-#if board2
-    return pmd->fmsel == 0;
-#else
-    return di != &pmd->part_e;
-#endif
-}
-
 // :308
 // int60_main counts every INT 60h call; int60_start then rejects the ones the
 // reint_chk table excludes for the running timer. The no-board path
@@ -1771,7 +1768,8 @@ static void pcmmain(struct pmd *pmd, struct pmd_qq *di) {
     di->leng--;
     uint8_t al = di->leng;
 
-    // :18 Keyoff when the remaining length reaches Q.
+    // PCMDRV.ASM:18, PCMDRVE.ASM:18, PCMDRV86.ASM:18
+    // Keyoff when the remaining length reaches Q.
     if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
         di->keyoff_flag = 0xff;
         keyoffm(pmd, di);
@@ -1779,12 +1777,12 @@ static void pcmmain(struct pmd *pmd, struct pmd_qq *di) {
     if (al != 0) goto mpexitm;
 
 #if !pcm
-    // PCMDRV.ASM:29 mp1m0, empty at PCMDRV86.ASM:29 (no portamento).
+    // PCMDRV.ASM:29, PCMDRVE.ASM:29
     di->lfoswi &= 0xf7; // portamento off
 #endif
 
 mp1m:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al < 0x80) goto mp2m;
     if (al == 0x80) goto mp15m;
 
@@ -1797,7 +1795,8 @@ mp1m:
     goto mp1m;
 
 mp15m:
-    // :42 End of music, or a loop if "L" was seen.
+    // PCMDRV.ASM:42, PCMDRVE.ASM:42, PCMDRV86.ASM:42
+    // End of music, or a loop if "L" was seen.
     si--;
     di->address = si;
     di->loopcheck = 3;
@@ -1808,17 +1807,18 @@ mp15m:
     goto mp1m;
 
 mp2m:
-    // :55 Note: set the pitch and gate.
+    // PCMDRV.ASM:55, PCMDRVE.ASM:55, PCMDRV86.ASM:55
+    // Note: set the pitch and gate.
     al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetm(pmd, di, al);
 
-    al = lod8(&si);
+    al = lodsb(&si);
     di->leng = al;
     calc_q(pmd, di, &si);
 
 porta_returnm:
-    // :64
+    // PCMDRV.ASM:64, PCMDRVE.ASM:64, PCMDRV86.ASM:64
     if (di->volpush == 0) goto mp_newm;
     if (di->onkai == 0xff) goto mp_newm;
     pmd->volpush_flag--;
@@ -1842,7 +1842,7 @@ mp_newm:
 
 mpexitm:;
 #if pcm
-    // :88
+    // PCMDRV86.ASM:88
     uint8_t cl = di->lfoswi;
     if ((cl & 0x22) != 0) {
         pmd->lfo_switch = 0;
@@ -1878,7 +1878,8 @@ mpexitm:;
     mnp_ret(pmd, di);
     return;
 #else
-    // :89 The YM2608 drivers process the tone and volume LFOs and portamento.
+    // PCMDRV.ASM:89, PCMDRVE.ASM:89
+    // The YM2608 drivers process the tone and volume LFOs and portamento.
     uint8_t cl = di->lfoswi;
     pmd->lfo_switch = (uint8_t)(cl & 8);
     if (cl != 0) {
@@ -1899,7 +1900,7 @@ mpexitm:;
             otodasim(pmd, di);
         }
     }
-    // :129 volsm
+    // PCMDRV:129, PCMDRVE.ASM:129 volsm
     if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
         pmd->fadeout_speed == 0) {
         mnp_ret(pmd, di);
@@ -1912,7 +1913,7 @@ mpexitm:;
 
 pcmmain_nonplay:;
 #if pcm
-    // :134
+    // PCMDRV86.ASM:134
     di->leng--;
     if (di->leng != 0) {
         mnp_ret(pmd, di);
@@ -1929,7 +1930,7 @@ pcmmain_nonplay:;
         goto mp1m; // the part is revived
     }
 #elif ademu
-    // :142
+    // PCMDRVE.ASM:142
     di->keyoff_flag = 0xff;
     di->leng--;
     if (di->leng != 0) {
@@ -1937,7 +1938,7 @@ pcmmain_nonplay:;
         return;
     }
 #else
-    // :142
+    // PCMDRV.ASM:142
     di->keyoff_flag = 0xff;
     di->leng--;
     if (di->leng != 0) {
@@ -1945,8 +1946,9 @@ pcmmain_nonplay:;
         return;
     }
     if ((di->partmask & 2) != 0) {
-        // :149 EOS check: the interrupt PCM has finished when bit 2 of the
-        // FM2 data port is set.
+        // PCMDRV.ASM:149
+        // EOS check: the interrupt PCM has finished when bit 2 of the FM2 data
+        // port is set.
         uint8_t eos = inb(pmd, pmd->fm2_port1);
         if ((eos & 0x04) == 0) goto pcmmnp_1; // still sounding
         pmd->pcmflag = 0;
@@ -1959,7 +1961,7 @@ pcmmain_nonplay:;
 #endif
 
 pcmmnp_1:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al == 0x80) goto pcmmnp_2;
     if (al < 0x80) goto pcmmnp_3;
     switch (commandsm(pmd, di, &si)) {
@@ -1971,7 +1973,8 @@ pcmmnp_1:
     goto pcmmnp_1;
 
 pcmmnp_2:
-    // :167 End of music, or a loop if "L" was seen.
+    // PCMDRV.ASM:167, PCMDRVE.ASM:167, PCMDRV86.ASM:167
+    // End of music, or a loop if "L" was seen.
     si--;
     di->address = si;
     di->loopcheck = 3;
@@ -1985,7 +1988,8 @@ pcmmnp_2:
     goto pcmmnp_1;
 
 pcmmnp_3:
-    // :158 A rest goes through the shared rest-note path.
+    // PCMDRV.ASM:163, PCMDRVE.ASM:151, PCMDRV86.ASM:173 A rest goes through
+    // the shared rest-note path.
     rest_note(pmd, di, &si);
 }
 #endif
@@ -2104,7 +2108,7 @@ static const pmd_cmd_fn cmdtblm[0xff - 0xb1 + 1] = {
 
 // PCMDRV.ASM:291, PCMDRVE.ASM:279, PCMDRV86.ASM:281
 static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (al >= 2) return special_0c0h(pmd, di, si, al);
     if (al == 0) {
         di->partmask &= 0xbf;
@@ -2135,8 +2139,9 @@ static enum pmd_cmd_result pcm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di,
 static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if pcm
-    // :304 `whole` is the original voice size (the original pushes DX:CX) and
-    // `running` the working copy it adjusts while reading the parameters.
+    // PCMDRV86.ASM:304 `whole` is the original voice size (the original pushes
+    // DX:CX) and `running` the working copy it adjusts while reading the
+    // parameters.
     uint32_t whole = ((uint32_t)pmd->_size2 << 16) | pmd->_size1;
     uint32_t running = whole;
     uint32_t size = whole;
@@ -2145,8 +2150,8 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
     pmd->repeat_flag = 1;
     pmd->release_flag1 = 0;
 
-    // :320 The first value is the repeat start.
-    uint16_t ax = lod16(si);
+    // PCMDRV86.ASM:320 The first value is the repeat start.
+    uint16_t ax = lodsw(si);
     if ((int16_t)ax < 0) {
         ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
         repeat_size = ax;
@@ -2158,8 +2163,8 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
         repeat_ofs += ax;
     }
 
-    // :345 The second value is the repeat end.
-    ax = lod16(si);
+    // PCMDRV86.ASM:345 The second value is the repeat end.
+    ax = lodsw(si);
     if (ax != 0) {
         if ((int16_t)ax < 0) {
             ax = pcm86vol_chk(pmd, (uint16_t)(0u - ax));
@@ -2179,9 +2184,9 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
     pmd->_size1 = (uint16_t)size;
     pmd->_size2 = (uint16_t)(size >> 16);
 
-    // :371 The third value is the release start; the original restores the
-    // pushed whole size for it.
-    ax = lod16(si);
+    // PCMDRV86.ASM:371 The third value is the release start; the original
+    // restores the pushed whole size for it.
+    ax = lodsw(si);
     if (ax == 0x8000) return PMD_CMD_RETURN; // no release
     uint32_t release_size = whole;
     uint32_t release_ofs = ((uint32_t)pmd->_start_ofs2 << 16) | pmd->_start_ofs;
@@ -2210,11 +2215,11 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
         if (voice != NULL) size = (uint16_t)(voice->size >> 6);
     }
 
-    uint16_t ax = lod16(si);
+    uint16_t ax = lodsw(si);
     uint16_t start = (int16_t)ax < 0 ? (uint16_t)(ax + size) : ax;
-    ax = lod16(si);
+    ax = lodsw(si);
     uint16_t end = (ax == 0 || (int16_t)ax < 0) ? (uint16_t)(ax + size) : ax;
-    (void)lod16(si); // the release value cannot be set
+    (void)lodsw(si); // the release value cannot be set
 
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv != NULL) {
@@ -2222,18 +2227,19 @@ static enum pmd_cmd_result pcmrepeat_set(struct pmd *pmd, struct pmd_qq *di, uin
     }
 #else
     // PCMDRV.ASM:317 The offsets are relative to the voice's start or stop.
-    uint16_t ax = lod16(si);
+    uint16_t ax = lodsw(si);
     if ((int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
     else ax = (uint16_t)(ax + pmd->pcmstart);
     pmd->pcmrepeat1 = ax;
 
-    ax = lod16(si);
+    ax = lodsw(si);
     if (ax == 0 || (int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
     else ax = (uint16_t)(ax + pmd->pcmstart);
     pmd->pcmrepeat2 = ax;
 
-    ax = lod16(si);
-    // :371 A third value of 8000h disables the release but is still stored.
+    ax = lodsw(si);
+    // PCMDRV.ASM:340 A third value of 8000h disables the release but is still
+    // stored.
     if (ax != 0x8000) {
         if ((int16_t)ax < 0) ax = (uint16_t)(ax + pmd->pcmstop);
         else ax = (uint16_t)(ax + pmd->pcmstart);
@@ -2252,7 +2258,7 @@ static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **
         return PMD_CMD_RETURN;
     }
 
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetm(pmd, di, al);
@@ -2260,7 +2266,7 @@ static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     uint16_t fnum = di->fnum;
     uint8_t onkai = di->onkai;
 
-    al = lod8(si);
+    al = lodsb(si);
     al = oshift(di, al);
     fnumsetm(pmd, di, al);
     uint16_t ax = di->fnum;
@@ -2269,7 +2275,7 @@ static enum pmd_cmd_result portam(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     di->fnum = fnum;
     ax = (uint16_t)(ax - fnum);
 
-    di->leng = lod8(si);
+    di->leng = lodsb(si);
     calc_q(pmd, di, si);
 
     int16_t n = (int16_t)ax;
@@ -2292,7 +2298,7 @@ static enum pmd_cmd_result comvolupm(struct pmd *pmd, struct pmd_qq *di, uint8_t
 // PCMDRV.ASM:411, PCMDRVE.ASM:415, PCMDRV86.ASM:436
 static enum pmd_cmd_result comvolupm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    unsigned sum = lod8(si) + di->volume;
+    unsigned sum = lodsb(si) + di->volume;
     di->volume = sum > 0xff ? 255 : (uint8_t)sum;
     return PMD_CMD_RETURN;
 }
@@ -2308,7 +2314,7 @@ static enum pmd_cmd_result comvoldownm(struct pmd *pmd, struct pmd_qq *di, uint8
 // PCMDRV.ASM:425, PCMDRVE.ASM:429, PCMDRV86.ASM:451
 static enum pmd_cmd_result comvoldownm2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->volume = di->volume < al ? 0 : (uint8_t)(di->volume - al);
     return PMD_CMD_RETURN;
 }
@@ -2323,9 +2329,9 @@ static const uint8_t pcm_pan_data[] = {0, 9, 1, 5};
 // register B4h, PPZ8's emulation uses a 0-9 value, and the PCM86 a 0..127
 // balance with a reversed-phase flag.
 static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if pcm
-    // :467 p0 reversed phase, p1 right, p2 left, p3 centre.
+    // PCMDRV86.ASM:467 p0 reversed phase, p1 right, p2 left, p3 centre.
     uint8_t pan = 0;
     uint8_t rev = 0;
     if (al == 1) {
@@ -2337,7 +2343,7 @@ static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t *
     }
     set_pcm_pan(pmd, di, pan, rev);
 #elif ademu
-    // :441 PCMDRVE.ASM:447 masks the value, then rotates it into bits 6-7.
+    // PCMDRVE.ASM:441 The value is masked and rotated into bits 6-7.
     al &= 3;
     di->fmpan = (uint8_t)(al << 6);
     // The pan value goes straight to PPZ8 unless the ADPCM emulation already
@@ -2360,12 +2366,12 @@ static enum pmd_cmd_result pansetm(struct pmd *pmd, struct pmd_qq *di, uint8_t *
 // PCMDRV.ASM:449, PCMDRVE.ASM:465, PCMDRV86.ASM:491
 // Pan setting extend: px -127..+127 plus the reversed-phase flag (0c3h).
 static enum pmd_cmd_result pansetm_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if pcm
     set_pcm_pan(pmd, di, al, *(*si)++);
 #else
     (*si)++; // the reversed-phase flag is skipped
-    // :449 The extended value is reduced to left, right, or centre.
+    // PCMDRV.ASM:449 The extended value is reduced to left, right, or centre.
     if (al == 0) al = 3;
     else if ((int8_t)al < 0) al = 1;
     else al = 2;
@@ -2413,7 +2419,7 @@ static void set_pcm_pan2(struct pmd *pmd, uint8_t al, uint8_t ah) {
 // PCMDRV.ASM:467, PCMDRVE.ASM:483, PCMDRV86.ASM:531
 // Voice change for the PCM parts.
 static enum pmd_cmd_result com_at_m(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if pcm
     di->voicenum = al;
     neiro_set(pmd, al);
@@ -2460,7 +2466,8 @@ static void volsetm(struct pmd *pmd, struct pmd_qq *di) {
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv != NULL) drv->set_volume(7, al, pmd->user_data);
 #else
-    // :596 The YM2608 ADPCM volume write, with :514's squared fadeout.
+    // PCMDRV.ASM:596 The YM2608 ADPCM volume write, with PCMDRV.ASM:514's
+    // squared fadeout.
     uint8_t al = pcm_vol_calc(pmd, di, pmd->pcm_voldown, true);
     opnset46(pmd, (uint16_t)((0x0b << 8) | al));
 #endif
@@ -2504,7 +2511,7 @@ static void keyonm(struct pmd *pmd, struct pmd_qq *di) {
 static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
 #if pcm
     if (pmd->release_flag1 == 1) {
-        // :723 The release range replaces the playback range.
+        // PCMDRV86.ASM:723 The release range replaces the playback range.
         pmd->start_ofs = pmd->release_ofs;
         pmd->start_ofs2 = pmd->release_ofs2;
         pmd->size1 = pmd->release_size1;
@@ -2520,7 +2527,7 @@ static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
 #if pcm || ademu
     keyoffp(pmd, di);
 #else
-    // :687 PCMDRV.ASM: an explicit release address restarts the ADPCM at it.
+    // PCMDRV.ASM:687 An explicit release address restarts the ADPCM at it.
     if (pmd->pcmrelease == 0x8000) {
         keyoffp(pmd, di);
         return;
@@ -2540,8 +2547,8 @@ static void keyoffm(struct pmd *pmd, struct pmd_qq *di) {
 static void otodasim(struct pmd *pmd, struct pmd_qq *di) {
     if (di->fnum == 0) return;
 #if pcm
-    // :752 The PCM86 keeps the fractional pitch in fnum2 and scales the
-    // detune by it.
+    // PCMDRV86.ASM:752 The PCM86 keeps the fractional pitch in fnum2 and
+    // scales the detune by it.
     uint16_t ax = di->fnum2;
     uint16_t bx = di->fnum;
     if (pmd->pcm86_vol != 1 && di->detune != 0) {
@@ -2589,8 +2596,8 @@ static void otodasim(struct pmd *pmd, struct pmd_qq *di) {
     dx = (int16_t)(dx + di->detune);
 
     if (dx < 0) {
-        // :754 A borrow clears the tone; the original branches on the carry of
-        // the 16-bit add.
+        // PCMDRV.ASM:752 A borrow clears the tone; the original branches on
+        // the carry of the 16-bit add.
         unsigned sum = (unsigned)bx + (unsigned)(uint16_t)dx;
         bx = sum > 0xffff ? (uint16_t)sum : 0;
     } else {
@@ -2620,7 +2627,7 @@ static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     (void)pmd;
     uint8_t ah = al & 0x0f;
     if (ah == 0x0f) {
-        // :775 a rest
+        // PCMDRV.ASM:775, PCMDRVE.ASM:715 a rest
         di->onkai = 0xff;
         if ((di->lfoswi & 0x11) != 0) return;
         di->fnum = 0;
@@ -2653,7 +2660,7 @@ static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     uint8_t ah = al & 0x0f;
     if (ah == 0x0f) {
-        // :821 a rest
+        // PCMDRV86.ASM:821 a rest
         di->onkai = 0xff;
         if ((di->lfoswi & 0x11) != 0) return;
         // PMD.ASM:4296 fnrest clears fnum only; fnum2 keeps its old value.
@@ -2662,7 +2669,7 @@ static void fnumsetm(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     }
 
     if (pmd->pcm86_vol == 1 && al >= 0x65) {
-        // :823 /S plays everything from 65h up one octave lower.
+        // PCMDRV86.ASM:823 /S plays everything from 65h up one octave lower.
         al = ah < 5 ? 0x60 : 0x50;
         al |= ah;
     }
@@ -2701,8 +2708,9 @@ static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t voldown,
     if (al == 0) return 0;
 
     if (di->envf == 0xff) {
-        // :602 The extended envelope scales by (volume + 1) / 16 and rounds up
-        // on the bit the fourth shift drops.
+        // PPZDRV.ASM:609, PCMDRV.ASM:529, PCMDRVE.ASM:552, PCMDRV86.ASM:602
+        // The extended envelope scales by (volume + 1) / 16 and rounds up on
+        // the bit the fourth shift drops.
         uint8_t v = di->eenv_volume;
         if (v == 0) return 0;
         uint16_t product = (uint16_t)al * (uint8_t)(v + 1);
@@ -2727,12 +2735,14 @@ static uint8_t pcm_vol_calc(struct pmd *pmd, struct pmd_qq *di, uint8_t voldown,
     if ((di->lfoswi & 0x20) != 0) delta = (int16_t)(delta + di->_lfodat);
 
     if (delta < 0) {
-        // :628 A borrow clamps the volume to zero; the original branches on
-        // the carry of the 16-bit add.
+        // PPZDRV.ASM:670, PCMDRV.ASM:590, PCMDRVE.ASM:613, PCMDRV86.ASM:663
+        // A borrow clamps the volume to zero; the original branches on the
+        // carry of the 16-bit add.
         unsigned sum = (unsigned)al + (unsigned)(uint16_t)delta;
         al = sum > 0xffff ? (uint8_t)sum : 0;
     } else {
-        // :622 Any set bit above the low byte clamps to the maximum.
+        // PPZDRV.ASM:666, PCMDRV.ASM:586, PCMDRVE.ASM:609, PCMDRV86.ASM:659
+        // Any set bit above the low byte clamps to the maximum.
         unsigned sum = (unsigned)al + (unsigned)delta;
         al = sum > 0xff ? 255 : (uint8_t)sum;
     }
@@ -2785,7 +2795,7 @@ static void ppzmain(struct pmd *pmd, struct pmd_qq *di) {
     di->leng--;
     uint8_t al = di->leng;
 
-    // :26 Keyoff when the remaining length reaches Q.
+    // PPZDRV.ASM:26 Keyoff when the remaining length reaches Q.
     if ((di->keyoff_flag & 3) == 0 && al <= di->qdat) {
         di->keyoff_flag = 0xff;
         keyoffz(pmd, di);
@@ -2795,7 +2805,7 @@ static void ppzmain(struct pmd *pmd, struct pmd_qq *di) {
     di->lfoswi &= 0xf7; // portamento off
 
 mp1z:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al < 0x80) goto mp2z;
     if (al == 0x80) goto mp15z;
 
@@ -2808,7 +2818,7 @@ mp1z:
     goto mp1z;
 
 mp15z:
-    // :49 End of music, or a loop if "L" was seen.
+    // PPZDRV.ASM:49 End of music, or a loop if "L" was seen.
     si--;
     di->address = si;
     di->loopcheck = 3;
@@ -2819,17 +2829,17 @@ mp15z:
     goto mp1z;
 
 mp2z:
-    // :62 Note: set the pitch and gate.
+    // PPZDRV.ASM:62 Note: set the pitch and gate.
     al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetz(pmd, di, al);
 
-    al = lod8(&si);
+    al = lodsb(&si);
     di->leng = al;
     calc_q(pmd, di, &si);
 
 porta_returnz:
-    // :71
+    // PPZDRV.ASM:71
     if (di->volpush == 0) goto mp_newz;
     if (di->onkai == 0xff) goto mp_newz;
     pmd->volpush_flag--;
@@ -2852,7 +2862,7 @@ mp_newz:
     return;
 
 mpexitz:;
-    // :96 LFO, portamento, and fadeout processing.
+    // PPZDRV.ASM:96 LFO, portamento, and fadeout processing.
     uint8_t cl = di->lfoswi;
     pmd->lfo_switch = (uint8_t)(cl & 8);
     if (cl != 0) {
@@ -2873,7 +2883,7 @@ mpexitz:;
             otodasiz(pmd, di);
         }
     }
-    // :136 volsz
+    // PPZDRV.ASM:136 volsz
     if (!soft_env(pmd, di) && (pmd->lfo_switch & 0x22) == 0 &&
         pmd->fadeout_speed == 0) {
         mnp_ret(pmd, di);
@@ -2884,7 +2894,7 @@ mpexitz:;
     return;
 
 ppzmain_nonplay:
-    // :149
+    // PPZDRV.ASM:149
     di->keyoff_flag = 0xff;
     di->leng--;
     if (di->leng != 0) {
@@ -2893,7 +2903,7 @@ ppzmain_nonplay:
     }
 
 ppzmnp_1:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al == 0x80) goto ppzmnp_2;
     if (al < 0x80) goto ppzmnp_3;
     switch (commandsz(pmd, di, &si)) {
@@ -2905,7 +2915,7 @@ ppzmnp_1:
     goto ppzmnp_1;
 
 ppzmnp_2:
-    // :163 End of music, or a loop if "L" was seen.
+    // PPZDRV.ASM:163 End of music, or a loop if "L" was seen.
     si--;
     di->address = si;
     di->loopcheck = 3;
@@ -2919,7 +2929,7 @@ ppzmnp_2:
     goto ppzmnp_1;
 
 ppzmnp_3:
-    // :178 A rest goes through the shared rest-note path.
+    // PPZDRV.ASM:178 A rest goes through the shared rest-note path.
     di->fnum2 = 0;
     rest_note(pmd, di, &si);
 }
@@ -3019,7 +3029,7 @@ static const pmd_cmd_fn cmdtblz[0xff - 0xb1 + 1] = {
 static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
     for (int i = 0; i < 8; i++) {
-        uint16_t ax = lod16(si);
+        uint16_t ax = lodsw(si);
         if (ax == 0) continue;
         struct pmd_qq *part = &pmd->parts[part10a + i];
         part->address = pmd->mmlbuf + ax;
@@ -3038,7 +3048,7 @@ static enum pmd_cmd_result ppz_extpartset(struct pmd *pmd, struct pmd_qq *di, ui
 
 // PPZDRV.ASM:320
 static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (al >= 2) return special_0c0h(pmd, di, si, al);
     if (al == 0) {
         di->partmask &= 0xbf;
@@ -3049,8 +3059,8 @@ static enum pmd_cmd_result ppz_mml_part_mask(struct pmd *pmd, struct pmd_qq *di,
     di->partmask |= 0x40;
     if (di->partmask != 0x40) return PMD_CMD_PPZMNP_1;
 #if ademu
-    // :330 While the PCM part plays through PPZ8's ADPCM emulation, channel 7
-    // is the PCM part's, not this part's.
+    // PPZDRV.ASM:330 While the PCM part plays through PPZ8's ADPCM emulation,
+    // channel 7 is the PCM part's, not this part's.
     if (pmd->partb == 7 && pmd->adpcm_emulate == 1) return PMD_CMD_PPZMNP_1;
 #endif
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
@@ -3103,7 +3113,7 @@ static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **
         return PMD_CMD_RETURN;
     }
 
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetz(pmd, di, al);
@@ -3111,7 +3121,7 @@ static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     uint32_t fnum = ((uint32_t)di->fnum2 << 16) | di->fnum;
     uint8_t onkai = di->onkai;
 
-    al = lod8(si);
+    al = lodsb(si);
     al = oshift(di, al);
     fnumsetz(pmd, di, al);
     uint32_t target = ((uint32_t)di->fnum2 << 16) | di->fnum;
@@ -3121,7 +3131,7 @@ static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     di->fnum2 = (uint16_t)(fnum >> 16);
 
     int32_t delta = (int32_t)(target - fnum) >> 4;
-    di->leng = lod8(si);
+    di->leng = lodsb(si);
     calc_q(pmd, di, si);
 
     int16_t n = (int16_t)(uint16_t)delta;
@@ -3133,7 +3143,7 @@ static enum pmd_cmd_result portaz(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 
 // PPZDRV.ASM:475
 static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     al = ppzpandata[al & 3];
     di->fmpan = al;
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
@@ -3144,7 +3154,7 @@ static enum pmd_cmd_result pansetz(struct pmd *pmd, struct pmd_qq *di, uint8_t *
 // PPZDRV.ASM:494
 // Pan setting extend: px -4..+4 (0c3h), mapped onto PPZ8's 1..9.
 static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     (*si)++; // the reversed-phase flag is skipped
     if ((int8_t)al >= 0) {
         if (al >= 5) al = 4;
@@ -3160,11 +3170,12 @@ static enum pmd_cmd_result pansetz_ex(struct pmd *pmd, struct pmd_qq *di, uint8_
 
 // PPZDRV.ASM:514
 static enum pmd_cmd_result com_at_z(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if ademu
     bool revive = false;
     if (pmd->adpcm_emulate == 1) {
-        // :521 Voices 128-255 cannot be emulated; they fall back to 127.
+        // PPZDRV.ASM:521 Voices 128-255 cannot be emulated; they fall back to
+        // 127.
         if ((int8_t)al < 0) al = 127;
         if (pmd->partb == 7) {
             pmd->parts[part10].partmask |= 0x10;
@@ -3214,7 +3225,8 @@ static void keyonz(struct pmd *pmd, struct pmd_qq *di) {
     if (di->onkai == 0xff) return;
     const struct pmd_drv_ppz8 *drv = ppz8_ops(pmd);
     if (drv == NULL) return;
-    // :710 DX = the voice number with bit 7 moved to bit 15 (the bank select).
+    // PPZDRV.ASM:710 DX = the voice number with bit 7 moved to bit 15 (the
+    // bank select).
     uint8_t num = di->voicenum;
     uint16_t voice = (uint16_t)((num & 0x7f) | ((uint16_t)(num & 0x80) << 8));
     drv->keyon(pmd->partb, voice, pmd->user_data);
@@ -3245,7 +3257,8 @@ static void otodasiz(struct pmd *pmd, struct pmd_qq *di) {
     }
     ax = (int16_t)(ax + di->detune);
 
-    // :771 DX = the high bytes of both halves, the pitch the delta scales by.
+    // PPZDRV.ASM:771 DX = the high bytes of both halves, the pitch the delta
+    // scales by.
     int16_t scale = (int16_t)((uint16_t)((value >> 8) & 0xff) |
                               (uint16_t)(((value >> 24) & 0xff) << 8));
     int32_t product = (int32_t)ax * scale;
@@ -3270,7 +3283,7 @@ static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     (void)pmd;
     uint8_t ah = al & 0x0f;
     if (ah == 0x0f) {
-        // :805 a rest
+        // PPZDRV.ASM:805 a rest
         di->onkai = 0xff;
         if ((di->lfoswi & 0x11) != 0) return;
         di->fnum = 0;
@@ -3284,16 +3297,16 @@ static void fnumsetz(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 
     uint8_t cl = (uint8_t)((al >> 4) & 0x0f); // the octave
     if (cl < 4) {
-        // :824 shr ax,cl
+        // PPZDRV.ASM:824 shr ax,cl
         ax = (uint16_t)(ax >> (4 - cl));
     } else {
-        // :830 ppz_over_o5_loop
+        // PPZDRV.ASM:830 ppz_over_o5_loop
         for (cl -= 4; cl != 0; cl--) {
             dx = (uint16_t)((dx << 1) | (ax >> 15));
             ax = (uint16_t)(ax << 1);
         }
     }
-    // :839 ppz_fnumset
+    // PPZDRV.ASM:835 ppz_fnumset
     di->fnum = ax;
     di->fnum2 = dx;
 }
@@ -3323,7 +3336,8 @@ static const uint8_t *get_data_offset(struct pmd *pmd) {
 static void tone_set2(struct pmd *pmd, uint16_t ax, uint8_t bl) {
     pmd->addsize2 = ax;
     pmd->addsize1 = (uint8_t)(bl & 0x1f);
-    // :796 Bits 5-7 of BL become the slowest three rate bits, inverted.
+    // PCMDRV86.ASM:796 Bits 5-7 of BL become the slowest three rate bits,
+    // inverted.
     bl = (uint8_t)(((bl << 3) | (bl >> 5)) & 0x07);
     bl ^= 7;
     uint8_t al = inb(pmd, 0xa468);
@@ -3349,7 +3363,8 @@ static void neiro_set(struct pmd *pmd, uint8_t al) {
 // Writes a 0..255 volume to the PCM86 volume register.
 static void pcm86_vol_out(struct pmd *pmd, uint8_t al) {
     if (pmd->pcm86_vol != 0) {
-        // :676 SPB-style volume: the register takes roughly sqrt(al).
+        // PCMDRV86.ASM:676 SPB-style volume: the register takes roughly
+        // sqrt(al).
         uint8_t ah = al;
         uint8_t sq = 0;
         bool carry = true;
@@ -3568,7 +3583,8 @@ static void fifo_main(struct pmd *pmd) {
 
 // PCMDRV86.ASM:1205
 static void play_86pcm(struct pmd *pmd) {
-    // :1209 Stop playback, select the CPU-to-FIFO mode, and reset the FIFO.
+    // PCMDRV86.ASM:1209 Stop playback, select the CPU-to-FIFO mode, and reset
+    // the FIFO.
     uint8_t al = inb(pmd, 0xa468);
     outb(pmd, 0x5f, al);
     al &= 0x7f;
@@ -3590,7 +3606,7 @@ static void play_86pcm(struct pmd *pmd) {
     outb(pmd, 0xa468, al);
     outb(pmd, 0xa46a, 0xf2); // pan: 8-bit left and right
 
-    // :1249 The first buffer comes from the voice's start.
+    // PCMDRV86.ASM:1249 The first buffer comes from the voice's start.
     pmd->start_ofs = pmd->_start_ofs;
     pmd->start_ofs2 = pmd->_start_ofs2;
     pmd->size1 = pmd->_size1;
@@ -3599,7 +3615,7 @@ static void play_86pcm(struct pmd *pmd) {
     pmd->release_flag2 = 0;
     pcm_trans(pmd, trans_size);
 
-    // :1265 Enable the FIFO interrupt at trans_size bytes.
+    // PCMDRV86.ASM:1265 Enable the FIFO interrupt at trans_size bytes.
     al = inb(pmd, 0xa468);
     outb(pmd, 0x5f, al);
     al |= 0x10;
@@ -3609,7 +3625,7 @@ static void play_86pcm(struct pmd *pmd) {
     outb(pmd, 0xa468, al);
     outb(pmd, 0xa46a, (uint8_t)(trans_size / 128 - 1));
 
-    // :1285 Start playback.
+    // PCMDRV86.ASM:1285 Start playback.
     al = inb(pmd, 0xa468);
     outb(pmd, 0x5f, al);
     al |= 0x80;
@@ -3668,8 +3684,8 @@ static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
     neiro_set(pmd, pmd->pcm_effec_num);
     set_pcm_pan2(pmd, pmd->_pcmpan, 0);
 
-    // :1366 Fold the DeltaN into the addsize pair: the high byte becomes the
-    // rate and the low byte the fraction.
+    // PCMDRV86.ASM:1366 Fold the DeltaN into the addsize pair: the high byte
+    // becomes the rate and the low byte the fraction.
     uint8_t lo = (uint8_t)pmd->_voice_delta_n;
     uint8_t hi = (uint8_t)(pmd->_voice_delta_n >> 8);
     uint8_t bl = (uint8_t)((hi & 0x0f) | ((hi & 0x70) << 1));
@@ -3718,7 +3734,7 @@ static void pcm_effect(struct pmd *pmd, uint8_t al, uint16_t dx, uint8_t ch,
     opnset46(pmd, (uint16_t)((0x04 << 8) | (uint8_t)pmd->_pcmstop));
     opnset46(pmd, (uint16_t)((0x05 << 8) | (uint8_t)(pmd->_pcmstop >> 8)));
     opnset46(pmd, 0x00a0); // play once
-    // :883 PCMDRV.ASM:884 rotates the masked pan into the top two bits.
+    // PCMDRV.ASM:909 The masked pan is rotated into the top two bits.
     opnset46(pmd, (uint16_t)((0x01 << 8) | (uint8_t)(((pmd->_pcmpan & 3) << 6) | 2)));
     opnset46(pmd, 0x1080); // clear EOS
     opnset46(pmd, 0x1018); // only EOS/TA/TB change
@@ -3775,7 +3791,7 @@ static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
     if (pmd->effflag != 0) return; // the effects are disabled
 
     if (pmd->ppsdrv_flag != 0 && (int8_t)al < 0) {
-        // :40 ppsdrv
+        // EFCDRV.ASM:40 ppsdrv
         if (pmd->effon >= 2) return; // an ordinary effect is sounding
         pmd->parts[part9].partmask |= 2;
         pmd->effon = 1; // priority 1 (ppsdrv)
@@ -3809,7 +3825,7 @@ static void eff_main(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
         return;
     }
 
-    // :84 eg_nonppsdrv
+    // EFCDRV.ASM:84 eg_nonppsdrv
     pmd->psgefcnum = al;
     if (al >= eff_count) return; // no such effect; the original reads past the table
     const uint8_t *bx = &efftbl[(unsigned)al * 3];
@@ -4499,7 +4515,7 @@ mp10:
     di->lfoswi &= 0xf7; // portamento off
 
 mp1:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al < 0x80) goto mp2;
     if (al == 0x80) goto mp15;
 
@@ -4528,7 +4544,7 @@ mp2:
     al = oshift(di, al);
     fnumset(pmd, di, al);
 
-    al = lod8(&si);
+    al = lodsb(&si);
     di->leng = al;
     calc_q(pmd, di, &si);
 
@@ -4617,7 +4633,7 @@ fmmain_nonplay:
     }
 
 fmmnp_1:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al == 0x80) goto fmmnp_2;
     if (al < 0x80) goto fmmnp_3;
     switch (commands(pmd, di, &si)) {
@@ -4652,7 +4668,7 @@ static void rest_note(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     di->fnum = 0;
     di->onkai = 0xff;
     di->onkai_def = 0xff;
-    di->leng = lod8(si);
+    di->leng = lodsb(si);
     di->keyon_flag++;
     di->address = *si;
 
@@ -4756,7 +4772,7 @@ static void psgmain(struct pmd *pmd, struct pmd_qq *di) {
     di->lfoswi &= 0xf7;
 
 mp1p:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al < 0x80) goto mp2p;
     if (al == 0x80) goto mp15p;
 
@@ -4784,7 +4800,7 @@ mp2p:
     al = oshift(di, al);
     fnumsetp(pmd, di, al);
 
-    al = lod8(&si);
+    al = lodsb(&si);
     di->leng = al;
     calc_q(pmd, di, &si);
 
@@ -4854,7 +4870,7 @@ psgmain_nonplay:
     di->lfoswi &= 0xf7;
 
 psgmnp_1:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al == 0x80) goto psgmnp_2;
     if (al < 0x80) goto psgmnp_4;
     if (al == 0xda && ssgdrum_check(pmd, di, al)) goto mp1cp;
@@ -4881,7 +4897,7 @@ psgmnp_4:
     di->fnum = 0;
     di->onkai = 0xff;
     di->onkai_def = 0xff;
-    al = lod8(&si);
+    al = lodsb(&si);
     di->leng = al;
     di->keyon_flag++;
     di->address = si;
@@ -5009,7 +5025,7 @@ roret:
     }
 
 reom:
-    al = lod8(&si);
+    al = lodsb(&si);
     if (al == 0x80) goto rfin;
     if (al < 0x80) goto re00;
     (void)commandsr(pmd, di, &si);
@@ -5402,7 +5418,7 @@ static enum pmd_cmd_result special_0c0h(struct pmd *pmd, struct pmd_qq *di, uint
 // :2082
 static enum pmd_cmd_result pmd86_s(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    pmd->pcm86_vol = lod8(si) & 1;
+    pmd->pcm86_vol = lodsb(si) & 1;
     return PMD_CMD_RETURN;
 }
 
@@ -5415,7 +5431,7 @@ static enum pmd_cmd_result vd_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
 static enum pmd_cmd_result vd_main(struct pmd *pmd, struct pmd_qq *di, uint8_t **si, uint8_t *vol, uint8_t *base, bool add) {
     (void)pmd;
     (void)di;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (!add) {
         *vol = al;
         return PMD_CMD_RETURN;
@@ -5485,9 +5501,9 @@ static enum pmd_cmd_result _vd_ppz(struct pmd *pmd, struct pmd_qq *di, uint8_t *
 // :2159
 static enum pmd_cmd_result slot_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->sdelay_m = (uint8_t)((~(al & 0x0f) & 0x0f) << 4);
-    al = lod8(si);
+    al = lodsb(si);
     di->sdelay = al;
     di->sdelay_c = al;
     return PMD_CMD_RETURN;
@@ -5495,7 +5511,7 @@ static enum pmd_cmd_result slot_delay(struct pmd *pmd, struct pmd_qq *di, uint8_
 
 // :2176
 static enum pmd_cmd_result fb_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if ((al & 0x80) != 0) {
         _fb_set(pmd, di, al);
         return PMD_CMD_RETURN;
@@ -5542,11 +5558,11 @@ static void _fb_set(struct pmd *pmd, struct pmd_qq *di, uint8_t al) {
 // :2248
 static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     uint8_t dh = (uint8_t)(0x40 - 1 + pmd->partb);
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     uint8_t ah = al & 0x0f;
     uint8_t ch = (uint8_t)(((di->slotmask >> 4) | (di->slotmask << 4)));
     ah &= ch;
-    uint8_t dl = lod8(si);
+    uint8_t dl = lodsb(si);
     bool write = di->partmask == 0;
 
     if ((al & 0x80) == 0) dl &= 0x7f;
@@ -5574,7 +5590,7 @@ static enum pmd_cmd_result tl_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 
 // :2357
 static enum pmd_cmd_result fm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (al >= 2) return special_0c0h(pmd, di, si, al);
     if (al == 0) {
         di->partmask &= 0xbf;
@@ -5589,7 +5605,7 @@ static enum pmd_cmd_result fm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, 
 
 // :2378
 static enum pmd_cmd_result ssg_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (al >= 2) return special_0c0h(pmd, di, si, al);
     if (al == 0) {
         di->partmask &= 0xbf;
@@ -5608,7 +5624,7 @@ static enum pmd_cmd_result ssg_mml_part_mask(struct pmd *pmd, struct pmd_qq *di,
 
 // :2402
 static enum pmd_cmd_result rhythm_mml_part_mask(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (al >= 2) return special_0c0h(pmd, di, si, al);
     if (al == 0) di->partmask &= 0xbf;
     else di->partmask |= 0x40;
@@ -5660,7 +5676,7 @@ static void neiro_reset(struct pmd *pmd, struct pmd_qq *di) {
 // :2478
 static enum pmd_cmd_result pdrswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (pmd->ppsdrv_flag != 0 && pmd->pps != NULL &&
         pmd->pps->pdr_switch != NULL) {
         pmd->pps->pdr_switch(al, pmd->user_data);
@@ -5670,7 +5686,7 @@ static enum pmd_cmd_result pdrswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t
 
 // :2493
 static enum pmd_cmd_result volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si) & 0x0f;
+    uint8_t al = lodsb(si) & 0x0f;
     if (al == 0) {
         al = di->carrier;
     } else {
@@ -5684,7 +5700,7 @@ static enum pmd_cmd_result volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8
 
 // :2510
 static enum pmd_cmd_result _volmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si) & 0x0f;
+    uint8_t al = lodsb(si) & 0x0f;
     if (al == 0) {
         al = di->carrier;
     } else {
@@ -5708,7 +5724,7 @@ static enum pmd_cmd_result fm3_extpartset(struct pmd *pmd, struct pmd_qq *di, ui
     (void)di;
     static const int slots[3] = {part3b, part3c, part3d};
     for (int i = 0; i < 3; i++) {
-        uint16_t offset = lod16(si);
+        uint16_t offset = lodsw(si);
         if (offset == 0) continue;
         fm3_partinit(pmd, &pmd->parts[slots[i]], pmd->mmlbuf + offset);
     }
@@ -5734,7 +5750,7 @@ static void fm3_partinit(struct pmd *pmd, struct pmd_qq *di, uint8_t *address) {
 // :2597
 static enum pmd_cmd_result detune_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si) & 1;
+    uint8_t al = lodsb(si) & 1;
     di->extendmode = (uint8_t)((di->extendmode & 0xfe) | al);
     return PMD_CMD_RETURN;
 }
@@ -5742,7 +5758,7 @@ static enum pmd_cmd_result detune_extend(struct pmd *pmd, struct pmd_qq *di, uin
 // :2607
 static enum pmd_cmd_result lfo_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)((lod8(si) & 1) << 1);
+    uint8_t al = (uint8_t)((lodsb(si) & 1) << 1);
     di->extendmode = (uint8_t)((di->extendmode & 0xfd) | al);
     return PMD_CMD_RETURN;
 }
@@ -5750,7 +5766,7 @@ static enum pmd_cmd_result lfo_extend(struct pmd *pmd, struct pmd_qq *di, uint8_
 // :2618
 static enum pmd_cmd_result envelope_extend(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)((lod8(si) & 1) << 2);
+    uint8_t al = (uint8_t)((lodsb(si) & 1) << 2);
     di->extendmode = (uint8_t)((di->extendmode & 0xfb) | al);
     return PMD_CMD_RETURN;
 }
@@ -5758,22 +5774,22 @@ static enum pmd_cmd_result envelope_extend(struct pmd *pmd, struct pmd_qq *di, u
 // :2630
 static enum pmd_cmd_result lfowave_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->lfo_wave = lod8(si);
+    di->lfo_wave = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :2638
 static enum pmd_cmd_result extend_psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->eenv_ar = lod8(si) & 0x1f;
-    di->eenv_dr = lod8(si) & 0x1f;
-    di->eenv_sr = lod8(si) & 0x1f;
-    uint8_t ah = lod8(si);
+    di->eenv_ar = lodsb(si) & 0x1f;
+    di->eenv_dr = lodsb(si) & 0x1f;
+    di->eenv_sr = lodsb(si) & 0x1f;
+    uint8_t ah = lodsb(si);
     di->eenv_rr = ah & 0x0f;
     ah = (uint8_t)((ah << 4) | (ah >> 4)); // rol ah,4
     ah &= 0x0f;
     di->eenv_sl = (uint8_t)(~ah & 0x0f);
-    di->eenv_al = lod8(si) & 0x0f;
+    di->eenv_al = lodsb(si) & 0x0f;
 
     if (di->envf != 0xff) {
         di->envf = 0xff;
@@ -5789,8 +5805,8 @@ static enum pmd_cmd_result slotdetune_set2(struct pmd *pmd, struct pmd_qq *di, u
         *si += 3;
         return PMD_CMD_RETURN;
     }
-    uint8_t bl = lod8(si);
-    uint16_t ax = lod16(si);
+    uint8_t bl = lodsb(si);
+    uint16_t ax = lodsw(si);
     if (bl & 1) pmd->slot_detune1 = (uint16_t)(pmd->slot_detune1 + ax);
     if (bl & 2) pmd->slot_detune2 = (uint16_t)(pmd->slot_detune2 + ax);
     if (bl & 4) pmd->slot_detune3 = (uint16_t)(pmd->slot_detune3 + ax);
@@ -5807,8 +5823,8 @@ static enum pmd_cmd_result slotdetune_set(struct pmd *pmd, struct pmd_qq *di, ui
         *si += 3;
         return PMD_CMD_RETURN;
     }
-    uint8_t bl = lod8(si);
-    uint16_t ax = lod16(si);
+    uint8_t bl = lodsb(si);
+    uint16_t ax = lodsw(si);
     if (bl & 1) pmd->slot_detune1 = ax;
     if (bl & 2) pmd->slot_detune2 = ax;
     if (bl & 4) pmd->slot_detune3 = ax;
@@ -5878,7 +5894,7 @@ static void otodasi_cm(struct pmd *pmd, struct pmd_qq *di) {
 
 // :2839
 static enum pmd_cmd_result slotmask_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     uint8_t ah = al;
     al &= 0x0f;
     if (al != 0) {
@@ -5938,7 +5954,7 @@ static void keyon_sm(struct pmd *pmd, struct pmd_qq *di) {
 
 // :2957
 static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (di->partmask != 0) return PMD_CMD_RETURN;
     if (al != 0) {
         eff_on2(pmd, di, al);
@@ -5950,7 +5966,7 @@ static enum pmd_cmd_result ssg_efct_set(struct pmd *pmd, struct pmd_qq *di, uint
 
 // :2981
 static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (di->partmask != 0) return PMD_CMD_RETURN;
 #if board2
     uint8_t fmsel = pmd->fmsel;
@@ -5973,24 +5989,24 @@ static enum pmd_cmd_result fm_efct_set(struct pmd *pmd, struct pmd_qq *di, uint8
 static enum pmd_cmd_result fade_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
     pmd->fadeout_flag = 1;
-    pmd->fadeout_speed = lod8(si); // fout
+    pmd->fadeout_speed = lodsb(si); // fout
     return PMD_CMD_RETURN;
 }
 
 // :3037
 static enum pmd_cmd_result mdepth_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->mdspd = al;
     di->mdspd2 = al;
-    di->mdepth = lod8(si);
+    di->mdepth = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3045
 static enum pmd_cmd_result mdepth_count(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if ((al & 0x80) != 0) {
         al &= 0x7f;
         if (al == 0) al--;
@@ -6021,10 +6037,10 @@ static void porta_calc(struct pmd *pmd, struct pmd_qq *di) {
 // :3085
 static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     if (di->partmask != 0) {
-        lod8(si);
+        lodsb(si);
         return PMD_CMD_RETURN;
     }
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     al = lfoinit(pmd, di, al);
     al = oshift(di, al);
     fnumset(pmd, di, al);
@@ -6032,7 +6048,7 @@ static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
     uint16_t fnum = di->fnum;
     uint8_t onkai = di->onkai;
 
-    al = lod8(si);
+    al = lodsb(si);
     al = oshift(di, al);
     fnumset(pmd, di, al);
     uint16_t bx = di->fnum;
@@ -6058,7 +6074,7 @@ static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
     bx = (uint16_t)(bx - cx);
     ax = (uint16_t)(ax + bx);
 
-    di->leng = lod8(si);
+    di->leng = lodsb(si);
     calc_q(pmd, di, si);
 
     {
@@ -6074,10 +6090,10 @@ static enum pmd_cmd_result porta(struct pmd *pmd, struct pmd_qq *di, uint8_t **s
 // :3155
 static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     if (di->partmask != 0) {
-        lod8(si);
+        lodsb(si);
         return PMD_CMD_RETURN;
     }
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     al = lfoinitp(pmd, di, al);
     al = oshift(di, al);
     fnumsetp(pmd, di, al);
@@ -6085,7 +6101,7 @@ static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     uint16_t fnum = di->fnum;
     uint8_t onkai = di->onkai;
 
-    al = lod8(si);
+    al = lodsb(si);
     al = oshift(di, al);
     fnumsetp(pmd, di, al);
     uint16_t ax = di->fnum;
@@ -6094,7 +6110,7 @@ static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **
     di->fnum = fnum;
     ax = (uint16_t)(ax - fnum);
 
-    di->leng = lod8(si);
+    di->leng = lodsb(si);
     calc_q(pmd, di, si);
 
     {
@@ -6110,21 +6126,21 @@ static enum pmd_cmd_result portap(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 // :3200
 static enum pmd_cmd_result status_write(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    pmd->status = lod8(si);
+    pmd->status = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3208
 static enum pmd_cmd_result status_add(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    pmd->status = (uint8_t)(pmd->status + lod8(si));
+    pmd->status = (uint8_t)(pmd->status + lodsb(si));
     return PMD_CMD_RETURN;
 }
 
 // :3218
 static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lod8(si) + di->volume);
+    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
     if (al >= 128) al = 127;
     di->volpush = (uint8_t)(al + 1);
     pmd->volpush_flag = 1;
@@ -6134,7 +6150,7 @@ static enum pmd_cmd_result vol_one_up_fm(struct pmd *pmd, struct pmd_qq *di, uin
 // :3229
 static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lod8(si) + di->volume);
+    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
     if (al >= 16) al = 15;
     di->volpush = (uint8_t)(al + 1);
     pmd->volpush_flag = 1;
@@ -6145,7 +6161,7 @@ static enum pmd_cmd_result vol_one_up_psg(struct pmd *pmd, struct pmd_qq *di, ui
 // :3237
 static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    unsigned sum = (unsigned)lod8(si) + di->volume;
+    unsigned sum = (unsigned)lodsb(si) + di->volume;
     uint8_t al;
     if (sum > 0xff) al = 254;
     else if (sum < 255) al = (uint8_t)sum;
@@ -6159,7 +6175,7 @@ static enum pmd_cmd_result vol_one_up_pcm(struct pmd *pmd, struct pmd_qq *di, ui
 // :3248
 static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t ah = lod8(si);
+    uint8_t ah = lodsb(si);
     uint8_t al = di->volume;
     if (al < ah) al = 0;
     else if (al - ah >= 255) al = 254;
@@ -6171,7 +6187,7 @@ static enum pmd_cmd_result vol_one_down(struct pmd *pmd, struct pmd_qq *di, uint
 
 // :3260
 static enum pmd_cmd_result hlfo_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if board2
     di->fmpan = (uint8_t)((di->fmpan & 0xc0) | al);
     if (fm3_active(pmd, di)) {
@@ -6195,7 +6211,7 @@ static enum pmd_cmd_result hlfo_set(struct pmd *pmd, struct pmd_qq *di, uint8_t 
 
 // :3304
 static enum pmd_cmd_result hlfo_onoff(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if board2
     pmd->port22h = al;
     opnset44(pmd, (uint16_t)(0x2200 | al));
@@ -6210,7 +6226,7 @@ static enum pmd_cmd_result hlfo_onoff(struct pmd *pmd, struct pmd_qq *di, uint8_
 
 // :3318
 static enum pmd_cmd_result hlfo_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
 #if board2
     di->hldelay = al;
 #else
@@ -6225,13 +6241,13 @@ static enum pmd_cmd_result hlfo_delay(struct pmd *pmd, struct pmd_qq *di, uint8_
 // :3328
 static enum pmd_cmd_result syousetu_lng_set(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    pmd->syousetu_lng = lod8(si);
+    pmd->syousetu_lng = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3334
 static enum pmd_cmd_result com_at(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->voicenum = al;
     uint8_t dl = al;
     if (di->partmask == 0) {
@@ -6264,7 +6280,7 @@ static enum pmd_cmd_result com_at(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 // :3381
 static enum pmd_cmd_result comq(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->qdata = lod8(si);
+    di->qdata = lodsb(si);
     di->qdat3 = 0;
     return PMD_CMD_RETURN;
 }
@@ -6272,35 +6288,35 @@ static enum pmd_cmd_result comq(struct pmd *pmd, struct pmd_qq *di, uint8_t **si
 // :3386
 static enum pmd_cmd_result comq3(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->qdat2 = lod8(si);
+    di->qdat2 = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3390
 static enum pmd_cmd_result comq4(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->qdat3 = lod8(si);
+    di->qdat3 = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3398
 static enum pmd_cmd_result comq2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->qdatb = lod8(si);
+    di->qdatb = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3406
 static enum pmd_cmd_result comv(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->volume = lod8(si);
+    di->volume = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3417
 static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    uint8_t cmd = lod8(si);
+    uint8_t cmd = lodsb(si);
     if (cmd < 251) {
         pmd->tempo_d = cmd;
         pmd->tempo_d_push = cmd;
@@ -6310,7 +6326,7 @@ static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si
 
     uint8_t a = (uint8_t)(cmd + 1);
     if (a == 0) {
-        uint8_t al = lod8(si);
+        uint8_t al = lodsb(si);
         if (al < 0x18) al = 0x18;
         pmd->tempo_48 = al;
         pmd->tempo_48_push = al;
@@ -6320,7 +6336,7 @@ static enum pmd_cmd_result comt(struct pmd *pmd, struct pmd_qq *di, uint8_t **si
 
     {
         uint8_t b = (uint8_t)(a + 1);
-        uint8_t param = lod8(si);
+        uint8_t param = lodsb(si);
         uint8_t al = param;
         if (b == 0) {
             // T±: relative tempo_d.
@@ -6390,20 +6406,20 @@ static enum pmd_cmd_result comtie(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 // :3531
 static enum pmd_cmd_result comd(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->detune = (int16_t)lod16(si);
+    di->detune = (int16_t)lodsw(si);
     return PMD_CMD_RETURN;
 }
 
 // :3538
 static enum pmd_cmd_result comdd(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->detune = (int16_t)(di->detune + (int16_t)lod16(si));
+    di->detune = (int16_t)(di->detune + (int16_t)lodsw(si));
     return PMD_CMD_RETURN;
 }
 
 // :3545
 static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint16_t offset = lod16(si);
+    uint16_t offset = lodsw(si);
     uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
     base[offset + 1] = 0;
     return PMD_CMD_RETURN;
@@ -6411,7 +6427,7 @@ static enum pmd_cmd_result comstloop(struct pmd *pmd, struct pmd_qq *di, uint8_t
 
 // :3561
 static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if (al == 0) {
         // :3565 muloop, an unconditional loop
         (*si)++;
@@ -6419,7 +6435,7 @@ static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t
     } else {
         uint8_t ah = al;
         (*si)[0]++;
-        al = lod8(si);
+        al = lodsb(si);
         if (ah == al) {
             *si += 2;
             return PMD_CMD_RETURN;
@@ -6427,7 +6443,7 @@ static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t
     }
 
     // :3575 reloop
-    uint16_t ax = lod16(si);
+    uint16_t ax = lodsw(si);
     ax = (uint16_t)(ax + 2);
     uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
     *si = base + ax;
@@ -6436,7 +6452,7 @@ static enum pmd_cmd_result comedloop(struct pmd *pmd, struct pmd_qq *di, uint8_t
 
 // :3590
 static enum pmd_cmd_result comexloop(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint16_t offset = lod16(si);
+    uint16_t offset = lodsw(si);
     uint8_t *base = di == &pmd->part_e ? pmd->efcdat : pmd->mmlbuf;
     uint8_t *bx = base + offset;
     uint8_t dl = (uint8_t)(bx[0] - 1);
@@ -6455,21 +6471,21 @@ static enum pmd_cmd_result comlopset(struct pmd *pmd, struct pmd_qq *di, uint8_t
 // :3620
 static enum pmd_cmd_result comshift(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->shift = (int8_t)lod8(si);
+    di->shift = (int8_t)lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3628
 static enum pmd_cmd_result comshift2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->shift = (int8_t)(di->shift + (int8_t)lod8(si));
+    di->shift = (int8_t)(di->shift + (int8_t)lodsb(si));
     return PMD_CMD_RETURN;
 }
 
 // :3637
 static enum pmd_cmd_result comshift_master(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->shift_def = (int8_t)lod8(si);
+    di->shift_def = (int8_t)lodsb(si);
     return PMD_CMD_RETURN;
 }
 
@@ -6485,7 +6501,7 @@ static enum pmd_cmd_result comvolup(struct pmd *pmd, struct pmd_qq *di, uint8_t 
 // :3657
 static enum pmd_cmd_result comvolup2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lod8(si) + di->volume);
+    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
     di->volume = al >= 128 ? 127 : al;
     return PMD_CMD_RETURN;
 }
@@ -6502,7 +6518,7 @@ static enum pmd_cmd_result comvolupp(struct pmd *pmd, struct pmd_qq *di, uint8_t
 // :3673
 static enum pmd_cmd_result comvolupp2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lod8(si) + di->volume);
+    uint8_t al = (uint8_t)(lodsb(si) + di->volume);
     di->volume = al >= 16 ? 15 : al;
     return PMD_CMD_RETURN;
 }
@@ -6519,7 +6535,7 @@ static enum pmd_cmd_result comvoldown(struct pmd *pmd, struct pmd_qq *di, uint8_
 // :3690
 static enum pmd_cmd_result comvoldown2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t ah = lod8(si);
+    uint8_t ah = lodsb(si);
     di->volume = di->volume >= ah ? (uint8_t)(di->volume - ah) : 0;
     return PMD_CMD_RETURN;
 }
@@ -6535,7 +6551,7 @@ static enum pmd_cmd_result comvoldownp(struct pmd *pmd, struct pmd_qq *di, uint8
 // :3708
 static enum pmd_cmd_result comvoldownp2(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t ah = lod8(si);
+    uint8_t ah = lodsb(si);
     di->volume = di->volume >= ah ? (uint8_t)(di->volume - ah) : 0;
     return PMD_CMD_RETURN;
 }
@@ -6583,7 +6599,7 @@ static enum pmd_cmd_result _lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uin
 // :3749
 static enum pmd_cmd_result _lfoswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = (uint8_t)(lod8(si) & 7);
+    uint8_t al = (uint8_t)(lodsb(si) & 7);
     al = (uint8_t)((al << 4) | (al >> 4));
     di->lfoswi = (uint8_t)((di->lfoswi & 0x8f) | al);
     lfo_change(di);
@@ -6636,16 +6652,16 @@ static void lfo_change(struct pmd_qq *di) {
 // :3813
 static enum pmd_cmd_result lfoset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->delay = al;
     di->delay2 = al;
-    al = lod8(si);
+    al = lodsb(si);
     di->speed = al;
     di->speed2 = al;
-    al = lod8(si);
+    al = lodsb(si);
     di->step = al;
     di->step2 = al;
-    al = lod8(si);
+    al = lodsb(si);
     di->time = al;
     di->time2 = al;
     lfoinit_main(di);
@@ -6655,7 +6671,7 @@ static enum pmd_cmd_result lfoset(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 // :3827
 static enum pmd_cmd_result lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->delay = al;
     di->delay2 = al;
     lfoinit_main(di);
@@ -6665,7 +6681,7 @@ static enum pmd_cmd_result lfoset_delay(struct pmd *pmd, struct pmd_qq *di, uint
 // :3836
 static enum pmd_cmd_result lfoswitch(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     if ((al & 0xf8) != 0) al = 1;
     al &= 7;
     di->lfoswi = (uint8_t)((di->lfoswi & 0xf8) | al);
@@ -6683,14 +6699,14 @@ static enum pmd_cmd_result lfoswitch_f(struct pmd *pmd, struct pmd_qq *di, uint8
 // :3854
 static enum pmd_cmd_result psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     di->pat = al;
     di->patb = al;
-    di->pv2 = lod8(si);
-    al = lod8(si);
+    di->pv2 = lodsb(si);
+    al = lodsb(si);
     di->pr1 = al;
     di->pr1b = al;
-    al = lod8(si);
+    al = lodsb(si);
     di->pr2 = al;
     di->pr2b = al;
     if (di->envf == 0xff) {
@@ -6703,7 +6719,7 @@ static enum pmd_cmd_result psgenvset(struct pmd *pmd, struct pmd_qq *di, uint8_t
 // :3876
 static enum pmd_cmd_result comy(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    uint16_t ax = lod16(si);
+    uint16_t ax = lodsw(si);
     uint8_t dh = (uint8_t)ax;       // AL
     uint8_t dl = (uint8_t)(ax >> 8); // AH
     opnset(pmd, (uint16_t)((dh << 8) | dl));
@@ -6713,14 +6729,14 @@ static enum pmd_cmd_result comy(struct pmd *pmd, struct pmd_qq *di, uint8_t **si
 // :3885
 static enum pmd_cmd_result psgnoise(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    pmd->psnoi = lod8(si);
+    pmd->psnoi = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3889
 static enum pmd_cmd_result psgnoise_move(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
-    uint8_t al = (uint8_t)(lod8(si) + pmd->psnoi);
+    uint8_t al = (uint8_t)(lodsb(si) + pmd->psnoi);
     if ((al & 0x80) != 0) al = 0;
     if (al >= 32) al = 31;
     pmd->psnoi = al;
@@ -6730,13 +6746,13 @@ static enum pmd_cmd_result psgnoise_move(struct pmd *pmd, struct pmd_qq *di, uin
 // :3906
 static enum pmd_cmd_result psgsel(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)pmd;
-    di->psgpat = lod8(si);
+    di->psgpat = lodsb(si);
     return PMD_CMD_RETURN;
 }
 
 // :3914
 static enum pmd_cmd_result panset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     panset_main(pmd, di, al);
     return PMD_CMD_RETURN;
 }
@@ -6779,7 +6795,7 @@ static void calc_panout(struct pmd *pmd, struct pmd_qq *di, uint8_t *dl) {
 
 // :3972
 static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     (*si)++; // reverse-phase flag
 #if board2
     if (al == 0) al = 3;
@@ -6798,7 +6814,7 @@ static enum pmd_cmd_result panset_ex(struct pmd *pmd, struct pmd_qq *di, uint8_t
 static enum pmd_cmd_result rhykey(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     al &= pmd->rhythmmask;
     if (al == 0) return PMD_CMD_RETURN;
     uint8_t dl = al;
@@ -6847,7 +6863,7 @@ static void rflag_inc(struct pmd *pmd, uint8_t dl, uint8_t *flags) {
 static enum pmd_cmd_result rhyvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     uint8_t dl = (uint8_t)(0x1f & al);
     rhyvs_write(pmd, al, dl);
 #else
@@ -6883,12 +6899,12 @@ static void rhyvs_write(struct pmd *pmd, uint8_t al, uint8_t dl) {
 static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     uint8_t index = al;
     uint8_t dh = (uint8_t)(0x17 + index);
     uint8_t *rdat = rdat_adr(pmd, index);
     uint8_t dl = (uint8_t)(*rdat & 0x1f);
-    al = (uint8_t)(lod8(si) + dl);
+    al = (uint8_t)(lodsb(si) + dl);
     if (al >= 32) al = (al & 0x80) != 0 ? 0 : 31;
     dl = (uint8_t)(al & 0x1f);
     dl |= (uint8_t)(*rdat & 0xe0);
@@ -6905,7 +6921,7 @@ static enum pmd_cmd_result rhyvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t
 static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
-    uint8_t al = lod8(si);
+    uint8_t al = lodsb(si);
     uint8_t ah = (uint8_t)(al & 3);
     ah = (uint8_t)(((ah >> 2) | (ah << 6)) & 0xff); // ror ah,2
     rhyvs_write(pmd, al, ah);
@@ -6920,7 +6936,7 @@ static enum pmd_cmd_result rpnset(struct pmd *pmd, struct pmd_qq *di, uint8_t **
 static enum pmd_cmd_result rmsvs(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
-    uint8_t dl = lod8(si);
+    uint8_t dl = lodsb(si);
     uint8_t al = pmd->rhythm_voldown;
     if (al != 0) {
         uint16_t product = (uint16_t)(uint8_t)(-al) * dl;
@@ -6956,7 +6972,7 @@ static void volset2rf(struct pmd *pmd, uint8_t dl) {
 static enum pmd_cmd_result rmsvs_sft(struct pmd *pmd, struct pmd_qq *di, uint8_t **si) {
     (void)di;
 #if board2
-    uint8_t dl = lod8(si);
+    uint8_t dl = lodsb(si);
     uint8_t al = (uint8_t)(pmd->rhyvol + dl);
     if (al >= 64) al = (al & 0x80) != 0 ? 0 : 63;
     volset2r(pmd, al);
@@ -9646,30 +9662,22 @@ static bool resident_cut_main(struct pmd *pmd, const char **cmd, bool from_env) 
 // must stop: a bad PMDOPT option (`usage`) or /R.
 static bool set_option(struct pmd *pmd, const struct pmd_option *table, const char *cmd, bool from_env) {
     for (;;) {
-        unsigned char c = (unsigned char)lodsb(&cmd);
+        char c = *cmd++;
         if (c == '/' || c == '-') {
-            c = (unsigned char)lodsb(&cmd) & 0xdf;
+            c = to_upper(*cmd++);
             const struct pmd_option *entry = table;
             for (;;) {
                 if (entry->name == 0) return usage(pmd, from_env);
-                if ((unsigned char)entry->name == c) break;
+                if (entry->name == c) break;
                 entry++;
             }
             if (!entry->fn(pmd, &cmd, from_env)) return false;
             continue;
         }
-        if (c < ' ') return true;
+        if (is_cntrl(c)) return true;
         if (c == ' ') continue;
         return usage(pmd, from_env);
     }
-}
-
-// :9928
-// Reads one option character. The original's lodsb always advances SI; this
-// cursor stops on the null terminator, which no handler reads past.
-static char lodsb(const char **cmd) {
-    if (**cmd == '\0') return '\0';
-    return *(*cmd)++;
 }
 
 // :9958
@@ -9699,7 +9707,7 @@ static bool efclng_get(struct pmd *pmd, const char **cmd, bool from_env) {
 // :9985
 // /DF, /DS, /DP, /DZ, /DR.
 static bool fmvd_set(struct pmd *pmd, const char **cmd, bool from_env) {
-    unsigned char c = (unsigned char)lodsb(cmd) & 0xdf;
+    char c = to_upper(*(*cmd)++);
     uint8_t n;
     if (!get_comline_number(cmd, &n)) return usage(pmd, from_env);
     switch (c) {
@@ -9731,13 +9739,13 @@ static bool fmvd_set(struct pmd *pmd, const char **cmd, bool from_env) {
 // :10046
 // /K, /KG, /KR, /KE, and /K-.
 static bool keycheck(struct pmd *pmd, const char **cmd, bool from_env) {
-    unsigned char c = (unsigned char)**cmd;
+    char c = **cmd;
     if (c == '-') {
         (*cmd)++;
         pmd->key_check = 1;
         return true;
     }
-    c &= 0xdf;
+    c = to_upper(c);
     if (c == 'G') {
         (*cmd)++;
         return grph_special_set(pmd, cmd, from_env);
@@ -9955,17 +9963,13 @@ static bool message_clear_set(struct pmd *pmd, const char **cmd, bool from_env) 
 // is what the original returns in AL with the carry flag set. Digits wrap at
 // 255 like the original's 8-bit BL.
 static bool get_comline_number(const char **cmd, uint8_t *out) {
-    const char *p = *cmd;
     uint8_t n = 0;
     bool found = false;
     for (;;) {
-        unsigned digit = (unsigned char)(*p - '0');
-        if (digit >= 10) break;
-        n = (uint8_t)(n * 10 + digit);
-        p++;
+        if (!is_digit(**cmd)) break;
+        n = (uint8_t)(n * 10 + *(*cmd)++ - '0');
         found = true;
     }
-    if (found) *cmd = p;
     *out = n;
     return found;
 }
@@ -10019,7 +10023,7 @@ PMDC_NORETURN static void pmderr_main(struct pmd *pmd, const char *mes) {
 // :10462
 // /H, and /HZ through the Z check.
 static bool hz_usage(struct pmd *pmd, const char **cmd, bool from_env) {
-    unsigned char c = (unsigned char)lodsb(cmd) & 0xdf;
+    char c = to_upper(*(*cmd)++);
     if (c == 'Z') return hz_set(pmd, cmd, from_env);
     return usage(pmd, from_env);
 }
@@ -10079,20 +10083,20 @@ static void adpcm_ram_check(struct pmd *pmd) {
     pmd->adpcm_wait = 2;
     memset(check_data, 0, sizeof(check_data));
     if (pcmstore(pmd, check_data)) {
-        // :61 found_ymf288
+        // ADRAMCHK.ASM:61 found_ymf288
         // ADRAMCHK.ASM:62 overwrites the "2608" in mes_ongen1 with "F288".
         memcpy(pmd->mes_ongen1 + 2, "F288", 4);
         pmd->pcm_gs_flag = 1;
         return;
     }
 
-    // :29 The saved speed skips the faster settings.
+    // ADRAMCHK.ASM:29 The saved speed skips the faster settings.
     if (wait != 2 && wait != 1) {
         pmd->adpcm_wait = 0;
         pcmstore(pmd, (const uint8_t *)check_code);
         pcmread(pmd, check_data);
         if (pcmcompare(check_data)) {
-            pmd->pcm_gs_flag = 0; // :57 the ADPCM RAM is present
+            pmd->pcm_gs_flag = 0; // ADRAMCHK.ASM:57 the ADPCM RAM is present
             return;
         }
     }
@@ -10101,14 +10105,14 @@ static void adpcm_ram_check(struct pmd *pmd) {
         pcmstore(pmd, (const uint8_t *)check_code);
         pcmread(pmd, check_data);
         if (pcmcompare(check_data)) {
-            pmd->pcm_gs_flag = 0; // :57 the ADPCM RAM is present
+            pmd->pcm_gs_flag = 0; // ADRAMCHK.ASM:57 the ADPCM RAM is present
             return;
         }
     }
     pmd->adpcm_wait = 2;
     pcmstore(pmd, (const uint8_t *)check_code);
     pcmread(pmd, check_data);
-    pmd->pcm_gs_flag = pcmcompare(check_data) ? 0 : 1; // :57, :64
+    pmd->pcm_gs_flag = pcmcompare(check_data) ? 0 : 1; // ADRAMCHK.ASM:57, ADRAMCHK.ASM:64
 }
 
 // ADRAMCHK.ASM:72
@@ -10132,8 +10136,9 @@ static bool pcmstore(struct pmd *pmd, const uint8_t *data) {
     uint16_t port2 = pmd->fm2_port2;
     unsigned count = 32;
 
-    // The original's cli_sub/sti_sub (:252, :269) only mask the PIC for the
-    // duration of the transfer; the host owns that exclusion.
+    // The original's cli_sub/sti_sub (ADRAMCHK.ASM:252, ADRAMCHK.ASM:269) only
+    // mask the PIC for the duration of the transfer; the host owns that
+    // exclusion.
     if (pmd->adpcm_wait == 0) {
         // ADRAMCHK.ASM:210 high-speed
         (void)inb(pmd, port1);
