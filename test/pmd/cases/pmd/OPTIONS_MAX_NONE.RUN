@@ -1,0 +1,8 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+
+main /C /M28 /V8 /E4
+tondat
+efcdat
+size

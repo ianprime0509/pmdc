@@ -1,0 +1,7 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+
+main /C /P-
+ppsdrv
+change

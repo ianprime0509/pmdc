@@ -484,6 +484,16 @@ enum pmd_change_result {
 // pmd_drv_ppz8.fm_int) are omitted: the typed interface replaces the register
 // dispatcher, reports rejections through typed returns instead of
 // int60_result, and leaves interrupt masking to the host.
+//
+// A few fields are uninitialized in the original (`db ?`/`dw ?`) and stay
+// uninitialized here: volpush_flag (:7983), x68_flg (:8053), wait_clock and
+// wait1_clock (:8100), and TimerB_speed (:8104). The original reads some of
+// them before it writes them: volpush_flag on a note with no volume-push
+// command, TimerB_speed from setint before the first tempo write, and the wait
+// counts in the no-board message. x68_flg is only read if a host runs the
+// timer with play_flag set but never starts a module. The driver's behavior on
+// those paths therefore depends on the caller's memory; pmd_play and the trace
+// host zero the struct, and other callers that need determinism should too.
 struct pmd {
     // :293
     // Interrupt level read from FM register 0Eh.

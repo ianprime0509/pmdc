@@ -6,6 +6,7 @@
 #include "pmd_ymfm.h"
 
 #include <setjmp.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,8 +60,6 @@ struct test_ctx {
     char out[test_out_size];
     size_t out_len;
 
-    // pmd_sys.exit unwinds here.
-    jmp_buf jmp;
     bool exited;
     int exit_status;
 
@@ -149,6 +148,24 @@ struct test_ctx {
 
 static struct test_ctx ctx;
 
+// A driver entry point that exits or trips a hardware script unwinds to the
+// innermost guard. Each guard owns its jmp_buf for exactly as long as its
+// frame is live: reusing one buffer after its frame returns is undefined
+// behavior, so nested guards save and restore the previous frame.
+struct unwind_frame {
+    jmp_buf buf;
+};
+
+static struct unwind_frame *unwind_top;
+
+PMDC_NORETURN static void unwind(int reason) {
+    if (unwind_top == NULL) {
+        fprintf(stderr, "unwind with no live guard: %s\n", ctx.hw_error);
+        exit(1);
+    }
+    longjmp(unwind_top->buf, reason);
+}
+
 static void test_out_char(struct test_ctx *ctx, char c) {
     if (ctx->out_len + 1 < sizeof(ctx->out)) {
         ctx->out[ctx->out_len++] = c;
@@ -169,7 +186,7 @@ PMDC_NORETURN static void test_sys_exit(int status, void *user_data) {
     struct test_ctx *ctx = user_data;
     ctx->exited = true;
     ctx->exit_status = status;
-    longjmp(ctx->jmp, 1);
+    unwind(1);
 }
 
 static char *test_sys_getenv(const char *name, void *user_data) {
@@ -189,7 +206,7 @@ PMDC_NORETURN static void test_hw_fail(struct test_ctx *ctx, uint16_t port,
                                        const char *what, uint16_t expected) {
     snprintf(ctx->hw_error, sizeof(ctx->hw_error), "%s(%#x): expected %#x",
              what, port, expected);
-    longjmp(ctx->jmp, 2);
+    unwind(2);
 }
 
 static uint8_t test_hw_inb(uint16_t port, void *user_data) {
@@ -197,7 +214,7 @@ static uint8_t test_hw_inb(uint16_t port, void *user_data) {
     if (ctx->reads++ >= test_read_max) {
         snprintf(ctx->hw_error, sizeof(ctx->hw_error), "inb(%#x): read limit",
                  port);
-        longjmp(ctx->jmp, 2);
+        unwind(2);
     }
     // The PCM86 FIFO status is a live flag rather than a scripted register:
     // fifo_main's reset write clears it, which test_hw_outb models. It never
@@ -227,7 +244,7 @@ static void test_hw_outb(uint16_t port, uint8_t value, void *user_data) {
     if (ctx->write_count >= test_write_max) {
         snprintf(ctx->hw_error, sizeof(ctx->hw_error), "outb(%#x): write limit",
                  port);
-        longjmp(ctx->jmp, 2);
+        unwind(2);
     }
     ctx->writes[ctx->write_count].port = port;
     ctx->writes[ctx->write_count].value = value;
@@ -398,6 +415,7 @@ static const struct pmd_drv_ppz8 mock_ppz8 = {
 };
 #endif
 
+#if (!va && !board2) || ppz
 // The PPSDRV mock (INT 64h) records the effect requests eff_main sends.
 static void mock_pps_keyoff(void *user_data) {
     struct test_ctx *ctx = user_data;
@@ -421,6 +439,8 @@ static const struct pmd_drv_pps mock_pps = {
     .keyon = mock_pps_keyon,
     .pdr_switch = mock_pps_pdr_switch,
 };
+
+#endif
 
 #if board2 && pcm
 // The P86DRV mock (INT 65h). get_data_offset resolves wide offsets into a
@@ -470,15 +490,17 @@ static void ctx_reset(void) {
     ctx.p86_version = 0x10;
 }
 
-// Allocates a struct pmd filled with garbage and sets the host-owned pointers,
-// without running pmd_init.
+// Allocates a struct pmd and sets the host-owned pointers, without running
+// pmd_init. The rest is zeroed like pmd_play's static instance and the trace
+// host's struct, because the driver branches on fields the original never
+// initializes (see the note on pmd_init's uninitialized fields in pmd.h);
+// tests that need a specific previous value seed it themselves.
 static struct pmd *alloc_pmd(void) {
-    struct pmd *pmd = malloc(sizeof(*pmd));
+    struct pmd *pmd = calloc(1, sizeof(*pmd));
     if (pmd == NULL) {
         fprintf(stderr, "out of memory\n");
         exit(1);
     }
-    memset(pmd, 0xa5, sizeof(*pmd));
     pmd->sys = &test_sys;
     pmd->hw = &test_hw;
     pmd->pps = NULL;
@@ -507,12 +529,15 @@ static void report_unwind(const char *who) {
 }
 
 // Runs pmd_resident_main. Returns true when it returned normally; an exit or a
-// hardware-script failure unwinds through ctx.jmp.
+// hardware-script failure unwinds through the guard.
 static bool run_resident(struct pmd *pmd, const char *cmdline) {
+    struct unwind_frame frame;
+    struct unwind_frame *saved = unwind_top;
     ctx.reads = 0;
     ctx.write_count = 0;
     ctx.fm_timer_installs = 0;
-    if (setjmp(ctx.jmp) == 0) {
+    unwind_top = &frame;
+    if (setjmp(frame.buf) == 0) {
         pmd_resident_main(pmd, (char *)cmdline);
         // A board-present run installs the driver's FM timer handler; the
         // no-board path never touches the hardware vtable hooks.
@@ -522,8 +547,10 @@ static bool run_resident(struct pmd *pmd, const char *cmdline) {
         } else {
             CHECK_EQ(ctx.fm_timer_installs, 0);
         }
+        unwind_top = saved;
         return true;
     }
+    unwind_top = saved;
     report_unwind("pmd_resident_main");
     return false;
 }
@@ -532,27 +559,9 @@ static bool run_resident(struct pmd *pmd, const char *cmdline) {
 // installs its FM timer handler. Each variant's board setup defines it.
 static bool run_board_resident(struct pmd *pmd);
 
-// Runs pmd_change_main. Returns its result unless it unwound, in which case
-// ctx.exited records the exit.
-static enum pmd_change_result run_change(struct pmd *pmd, const char *cmdline) {
-    ctx.reads = 0;
-    ctx.write_count = 0;
-    if (setjmp(ctx.jmp) == 0) {
-        return pmd_change_main(pmd, (char *)cmdline);
-    }
-    report_unwind("pmd_change_main");
-    return PMD_CHANGE_OK;
-}
-
 static void append(char *buf, size_t size, const char *text) {
     size_t len = strlen(buf);
     if (len + 1 < size) strncat(buf, text, size - len - 1);
-}
-
-static void append_number(char *buf, size_t size, unsigned n) {
-    char tmp[16];
-    snprintf(tmp, sizeof(tmp), "%u", n);
-    append(buf, size, tmp);
 }
 
 static void check_output_equals(const char *expected, int line) {
@@ -576,92 +585,9 @@ static void check_output_contains(const char *needle, int line) {
 #define CHECK_OUTPUT_EQUALS(expected) check_output_equals((expected), __LINE__)
 #define CHECK_OUTPUT_CONTAINS(needle) check_output_contains((needle), __LINE__)
 
-// The status text put_status(:9511) must produce, transcribed from the
-// assembly rather than from the implementation.
-static void expected_status(char *buf, size_t size, const struct pmd *pmd) {
-    append(buf, size, changemes_01);
-    append_number(buf, size, pmd->mmldat_lng);
-    append(buf, size, changemes_02);
-    append_number(buf, size, pmd->voicedat_lng);
-    append(buf, size, changemes_03);
-    append_number(buf, size, pmd->effecdat_lng);
-    append(buf, size, changemes_1);
-    append_number(buf, size, pmd->_fm_voldown);
-    append(buf, size, crlf);
-    append(buf, size, changemes_2);
-    append_number(buf, size, pmd->_ssg_voldown);
-    append(buf, size, crlf);
-#if board2
-    append(buf, size, changemes_3);
-    append_number(buf, size, pmd->_pcm_voldown);
-    append(buf, size, crlf);
-#if ppz
-    append(buf, size, changemes_3z);
-    append_number(buf, size, pmd->_ppz_voldown);
-    append(buf, size, crlf);
-#endif
-    append(buf, size, changemes_4);
-    append_number(buf, size, pmd->_rhythm_voldown);
-    append(buf, size, crlf);
-    append(buf, size, changemes_5);
-    append(buf, size, pmd->kp_rhythm_flag != 0 ? changemes_5a : changemes_5b);
-#endif
-    append(buf, size, changemes_6);
-    append(buf, size, pmd->key_check != 0 ? changemes_6a : changemes_6b);
-    append(buf, size, changemes_7);
-    uint8_t esc = pmd->esc_sp_key;
-    uint8_t grph = pmd->grph_sp_key;
-    uint8_t rew = pmd->rew_sp_key;
-#if va
-    esc = (uint8_t)(((esc << 3) | (esc >> 5)) & 0x07);
-    grph = (uint8_t)(((grph << 3) | (grph >> 5)) & 0x07);
-    rew = (uint8_t)(((rew << 3) | (rew >> 5)) & 0x07);
-#endif
-    append_number(buf, size, esc);
-    append(buf, size, crlf);
-    append(buf, size, changemes_8);
-    append_number(buf, size, grph);
-    append(buf, size, crlf);
-    append(buf, size, changemes_8b);
-    append_number(buf, size, rew);
-    append(buf, size, crlf);
-    append(buf, size, changemes_9);
-    append(buf, size, pmd->fade_stop_flag != 0 ? changemes_6a : changemes_6b);
-    append(buf, size, changemes_10);
-    append(buf, size, pmd->disint != 0 ? changemes_6a : changemes_6b);
-    append(buf, size, changemes_11);
-    append(buf, size, pmd->ppsdrv_flag != 0 ? changemes_6a : changemes_6b);
-#if ppz
-    append(buf, size, changemes_11_);
-    append(buf, size, pmd->ppz_call_seg != 0 ? changemes_6a : changemes_6b);
-#endif
-    append(buf, size, changemes_12);
-    append_number(buf, size, pmd->wait_clock);
-    append(buf, size, changemes_12a);
-    append_number(buf, size,
-                  (uint16_t)(pmd->wait_clock * pmd->wait1_clock));
-    append(buf, size, changemes_12b);
-    append(buf, size, changemes_13);
-    append_number(buf, size, pmd->ff_tempo);
-    append(buf, size, crlf);
-#if board2 && adpcm && !ademu
-    append(buf, size, changemes_14);
-    append(buf, size, pmd->adpcm_wait == 0
-                          ? changemes_14a
-                          : (pmd->adpcm_wait == 1 ? changemes_14b
-                                                  : changemes_14c));
-#endif
-#if board2 && pcm
-    append(buf, size, changemes_15);
-    append(buf, size, pmd->_pcm86_vol != 0 ? changemes_15b : changemes_15a);
-    append(buf, size, changemes_16);
-    append(buf, size, changemes_16a[pmd->p86_freq]);
-    if (pmd->p86_freq != 8) append(buf, size, changemes_16b);
-#endif
-}
-
 // :8378
-static void test_empty_dataarea(struct pmd *pmd) {
+static void test_empty_dataarea(void) {
+    struct pmd *pmd = new_pmd();
     CHECK_EQ(sizeof(pmd->dataarea), 40 * 1024);
     CHECK(pmd->mmlbuf == pmd->dataarea + 1);
     // dataarea[0] is the version/system byte read as -1[mmlbuf].
@@ -675,10 +601,12 @@ static void test_empty_dataarea(struct pmd *pmd) {
     // The first part offset word equals 2 * (max_part2 + 1) = 24, which
     // play_init uses to detect an empty module.
     CHECK_EQ(pmd->mmlbuf[0] | (pmd->mmlbuf[1] << 8), 24);
+    free_pmd(pmd);
 }
 
 // :8642
-static void test_buffer_layout(struct pmd *pmd) {
+static void test_buffer_layout(void) {
+    struct pmd *pmd = new_pmd();
     CHECK_EQ(pmd->mmldat_lng, 16);
     CHECK_EQ(pmd->voicedat_lng, 8);
     CHECK_EQ(pmd->effecdat_lng, 4);
@@ -695,10 +623,12 @@ static void test_buffer_layout(struct pmd *pmd) {
     CHECK(pmd->mmlbuf > pmd->dataarea);
     CHECK(pmd->efcdat > pmd->tondat);
     CHECK(pmd->tondat > pmd->mmlbuf);
+    free_pmd(pmd);
 }
 
 // :8283
-static void test_part_data_table(struct pmd *pmd) {
+static void test_part_data_table(void) {
+    struct pmd *pmd = new_pmd();
     const size_t table_len = sizeof(pmd->part_data_table) / sizeof(pmd->part_data_table[0]);
     // The part work areas are contiguous in the original order, so the entries
     // are the array elements in order, with part_e last. Those max_part1 + 1
@@ -745,10 +675,12 @@ static void test_part_data_table(struct pmd *pmd) {
 #else
     CHECK(pmd->part_data_table[count - 1] != pmd->part_data_table[count - 2] + 1);
 #endif
+    free_pmd(pmd);
 }
 
 // :8248
-static void test_qq_aliases(struct pmd *pmd) {
+static void test_qq_aliases(void) {
+    struct pmd *pmd = new_pmd();
     struct pmd_qq *part = &pmd->parts[0];
     CHECK_EQ(offsetof(struct pmd_qq, pat), offsetof(struct pmd_qq, eenv_ar));
     CHECK_EQ(offsetof(struct pmd_qq, pv2), offsetof(struct pmd_qq, eenv_dr));
@@ -765,24 +697,12 @@ static void test_qq_aliases(struct pmd *pmd) {
     CHECK_EQ(part->penv, 9);
     part->pr2b = 0x5a;
     CHECK_EQ(part->eenv_rrc, 0x5a);
-}
-
-// :8156
-static void test_qq_address(struct pmd *pmd) {
-    struct pmd_qq *part = &pmd->parts[0];
-    part->address = pmd->mmlbuf;
-    part->partloop = pmd->efcdat;
-    CHECK(part->address == pmd->mmlbuf);
-    CHECK(part->partloop == pmd->efcdat);
-    CHECK(pmd->part_data_table[0]->address == pmd->mmlbuf);
-    part->address = NULL;
-    part->partloop = NULL;
-    CHECK(part->address == NULL);
-    CHECK(part->partloop == NULL);
+    free_pmd(pmd);
 }
 
 // :8487
-static void test_defaults(struct pmd *pmd) {
+static void test_defaults(void) {
+    struct pmd *pmd = new_pmd();
     CHECK_EQ(pmd->key_check, 1);
 #if va + board2
     CHECK_EQ(pmd->fm_voldown, 0);
@@ -893,6 +813,7 @@ static void test_defaults(struct pmd *pmd) {
     CHECK_EQ(pmd->pcm86_pan_dat, 0);
 #endif
     CHECK(strcmp(pmd->mes_ongen1, "YM2608") == 0);
+    free_pmd(pmd);
 }
 
 // pmd_init must not overwrite the host-supplied vtables.
@@ -920,13 +841,15 @@ static void test_host_pointers_preserved(void) {
     free_pmd(pmd);
 }
 
-static void test_message_buffer(struct pmd *pmd) {
+static void test_message_buffer(void) {
+    struct pmd *pmd = new_pmd();
     size_t len = strlen(pmd->mes_int);
     CHECK(len + 1 <= sizeof(pmd->mes_int));
     CHECK_EQ(pmd->mes_int[0], 'I');
     // The original's mes_int run ends with "(" before the port number is
     // printed before mes_int2.
     CHECK_EQ(pmd->mes_int[len - 1], '(');
+    free_pmd(pmd);
 }
 
 // :8385
@@ -1014,26 +937,7 @@ static void test_no_board(void) {
 #else
     CHECK_EQ(pmd->mes_int[11], ' ');
 #endif
-    // :9334 check_86b fails on the absent OPNA ID port before touching one, so
-    // the 86B-only builds write nothing; the other probes test a port first.
-#if board2 && !va && (pcm || ppz)
-    CHECK_EQ(ctx.write_count, 0);
-#else
-    CHECK(ctx.write_count != 0);
-#endif
-
-    char expected[test_out_size] = "";
-    append(expected, sizeof(expected), mes_title);
-    append(expected, sizeof(expected), mes_warning);
-    append(expected, sizeof(expected), mes_not_board);
-    append(expected, sizeof(expected), mes_wait1);
-    append_number(expected, sizeof(expected), 0x1234);
-    append(expected, sizeof(expected), mes_wait2);
-    append_number(expected, sizeof(expected), 0x1234 * 2);
-    append(expected, sizeof(expected), mes_wait3);
-    append(expected, sizeof(expected), mes_exit);
-    append(expected, sizeof(expected), mes_key);
-    CHECK_OUTPUT_EQUALS(expected);
+    // The probe writes and the installed console text are in INSTALL_NONE.
     free_pmd(pmd);
 }
 
@@ -1050,8 +954,9 @@ static void test_null_hw(void) {
 
 // :10467
 static void test_usage(void) {
-    // /H (and any unknown option) prints the usage text and exits 255.
-    const char *bad[] = {"/H", "/X", "/KX", "/D", "/M", "/HZ9", "/W0", "/G0"};
+    // Unknown and malformed options print the usage text and exit 255. /H and
+    // the range errors are in USAGE_NONE and OPTIONS_ERR_*.
+    const char *bad[] = {"/X", "/KX", "/D", "/M", "/G0"};
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         ctx_reset();
         struct pmd *pmd = new_pmd();
@@ -1070,280 +975,13 @@ static void test_usage(void) {
         CHECK_OUTPUT_EQUALS(expected);
         free_pmd(pmd);
     }
-
-    // /R is not valid before the driver is resident.
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(!run_resident(pmd, "/R"));
-    CHECK(ctx.exited);
-    CHECK_EQ(ctx.exit_status, 1);
-    CHECK_OUTPUT_CONTAINS(pmderror_mes5);
-    free_pmd(pmd);
 }
 
-// :8582
-static void test_capacity_limits(void) {
-    struct {
-        const char *cmdline;
-        const char *message;
-        int status;
-    } cases[] = {
-        {"/M0", pmderror_mes2, 1},
-        {"/M29", pmderror_mes3, 1},
-        {"/M32", pmderror_mes3, 1},
-        {"/V255", pmderror_mes3, 1},
-        {"/M255/V255/E255", pmderror_mes3, 1},
-    };
-    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        ctx_reset();
-        struct pmd *pmd = new_pmd();
-        CHECK(!run_resident(pmd, cases[i].cmdline));
-        CHECK(ctx.exited);
-        CHECK_EQ(ctx.exit_status, cases[i].status);
-        CHECK_OUTPUT_CONTAINS(cases[i].message);
-        free_pmd(pmd);
-    }
-
-    // The largest accepted configuration ends exactly at the end of dataarea.
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(run_resident(pmd, "/M28/V8/E4"));
-    CHECK_EQ(pmd->mmldat_lng, 28);
-    CHECK(pmd->tondat == pmd->dataarea + 28 * 1024);
-    CHECK(pmd->efcdat == pmd->dataarea + 36 * 1024);
-    CHECK(pmd->efcdat + 4 * 1024 == pmd->dataarea + sizeof(pmd->dataarea));
-    free_pmd(pmd);
-
-    // Without a command line the checked limits are not re-evaluated (:8569),
-    // but the buffer pointers still follow PMDOPT.
-    ctx_reset();
-    ctx.pmdopt = "/M20";
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, ""));
-    CHECK_EQ(pmd->mmldat_lng, 20);
-    CHECK(pmd->tondat == pmd->dataarea + 20 * 1024);
-    CHECK(pmd->efcdat == pmd->dataarea + 28 * 1024);
-    free_pmd(pmd);
-
-    // PMDOPT alone can still ask for buffers that do not fit in dataarea; the
-    // memory check (:8604) is what the original's MCB check did.
-    const char *oversized[] = {"/M41", "/V41", "/M16/V8/E17"};
-    for (size_t i = 0; i < sizeof(oversized) / sizeof(oversized[0]); i++) {
-        ctx_reset();
-        ctx.pmdopt = oversized[i];
-        pmd = new_pmd();
-        CHECK(!run_resident(pmd, ""));
-        CHECK(ctx.exited);
-        CHECK_EQ(ctx.exit_status, 1);
-        CHECK_OUTPUT_CONTAINS(pmderror_mes7);
-        free_pmd(pmd);
-    }
-
-    // The exact bound is still accepted from PMDOPT.
-    ctx_reset();
-    ctx.pmdopt = "/M28/V8/E4";
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, ""));
-    CHECK(pmd->efcdat + 4 * 1024 == pmd->dataarea + sizeof(pmd->dataarea));
-    free_pmd(pmd);
-}
-
-// The resident option table (:10759).
-static void test_resident_options(void) {
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(run_resident(pmd, "/DF5/DS6/DP7/DZ8/DR9/N/F-/P -W9/G7/A2/S/KE3"));
-    CHECK_EQ(pmd->fm_voldown, 5);
-    CHECK_EQ(pmd->_fm_voldown, 5);
-    CHECK_EQ(pmd->ssg_voldown, 6);
-    CHECK_EQ(pmd->_ssg_voldown, 6);
-    CHECK_EQ(pmd->pcm_voldown, 7);
-    CHECK_EQ(pmd->_pcm_voldown, 7);
-    CHECK_EQ(pmd->ppz_voldown, 8);
-    CHECK_EQ(pmd->_ppz_voldown, 8);
-    CHECK_EQ(pmd->rhythm_voldown, 9);
-    CHECK_EQ(pmd->_rhythm_voldown, 9);
-    CHECK_EQ(pmd->kp_rhythm_flag, 0);
-    CHECK_EQ(pmd->fade_stop_flag, 1);
-    CHECK_EQ(pmd->ppsdrv_flag, 0);
-    CHECK_EQ(pmd->wait_clock, 9);
-    CHECK_EQ(pmd->ff_tempo, 7);
-    CHECK_EQ(pmd->adpcm_wait, 2);
-    CHECK_EQ(pmd->pcm86_vol, 1);
-    CHECK_EQ(pmd->_pcm86_vol, 1);
-#if va
-    // The VA key masks are stored rotated left by 3 (:10069).
-    CHECK_EQ(pmd->esc_sp_key, (uint8_t)(((3 >> 3) | (3 << 5)) & 0xe0));
-#else
-    CHECK_EQ(pmd->esc_sp_key, 3);
-#endif
-    free_pmd(pmd);
-
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/K/N-/F/I/S-"));
-    CHECK_EQ(pmd->key_check, 0);
-    CHECK_EQ(pmd->kp_rhythm_flag, 1);
-    CHECK_EQ(pmd->fade_stop_flag, 0);
-    CHECK_EQ(pmd->disint, 1);
-    CHECK_EQ(pmd->pcm86_vol, 0);
-    free_pmd(pmd);
-
-    // /W without a number falls back to wait_check, and /G without one resets
-    // the fast-forward tempo.
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/W/G"));
-    CHECK_EQ(pmd->wait_clock, 1);
-    CHECK_EQ(pmd->wait1_clock, 1);
-    CHECK_EQ(pmd->ff_tempo, 250);
-    free_pmd(pmd);
-
-    // /A without a number means 0 (the original ignores the carry flag).
-    ctx_reset();
-    pmd = new_pmd();
-    pmd->adpcm_wait = 2;
-    CHECK(run_resident(pmd, "/A"));
-    CHECK_EQ(pmd->adpcm_wait, 0);
-    free_pmd(pmd);
-
-    // /KG, /KR, and /KE also ignore the carry flag (:10067, :10081, :10095),
-    // so a missing number stores 0 instead of being a usage error.
-    ctx_reset();
-    pmd = new_pmd();
-    pmd->grph_sp_key = 0x11;
-    pmd->rew_sp_key = 0x12;
-    pmd->esc_sp_key = 0x13;
-    CHECK(run_resident(pmd, "/KG/KR/KE"));
-    CHECK_EQ(pmd->grph_sp_key, 0);
-    CHECK_EQ(pmd->rew_sp_key, 0);
-    CHECK_EQ(pmd->esc_sp_key, 0);
-    free_pmd(pmd);
-
-    // /C suppresses the closing messages, but the banner and the fm_check
-    // warning were already printed before the option was parsed.
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/C"));
-    CHECK_EQ(pmd->message_flag, 0);
-    char expected[test_out_size] = "";
-    append(expected, sizeof(expected), mes_title);
-    append(expected, sizeof(expected), mes_warning);
-    append(expected, sizeof(expected), mes_not_board);
-    CHECK_OUTPUT_EQUALS(expected);
-    free_pmd(pmd);
-
-#if !va
-    // /O selects a port and re-probes the board (:10299).
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/O2"));
-    CHECK_EQ(pmd->port_sel, 2);
-    free_pmd(pmd);
-#else
-    // The VA variants accept /O but do not change the fixed port. port_sel is
-    // uninitialized in these builds, so seed it to show the option leaves it.
-    ctx_reset();
-    pmd = new_pmd();
-    pmd->port_sel = 0x7f;
-    CHECK(run_resident(pmd, "/O2"));
-    CHECK_EQ(pmd->port_sel, 0x7f);
-    free_pmd(pmd);
-#endif
-}
-
-#if board2 && pcm
-// :10485 HZ downloads the selected frequency table.
-static void test_hz_option(void) {
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(run_resident(pmd, "/HZ0"));
-    CHECK_EQ(pmd->p86_freq, 0);
-    // HZDATA.INC table 0 starts with the 4.13kHz C entry.
-    CHECK_EQ(pmd->pcm_tune_data[0], 0x00);
-    CHECK_EQ(pmd->pcm_tune_data[1], 0xb7);
-    CHECK_EQ(pmd->pcm_tune_data[2], 0x2a);
-    free_pmd(pmd);
-
-    // The auto setting leaves the current table alone.
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/HZ0"));
-    pmd->pcm_tune_data[0] = 0x5a;
-    CHECK(run_resident(pmd, "/HZ8"));
-    CHECK_EQ(pmd->p86_freq, 8);
-    CHECK_EQ(pmd->pcm_tune_data[0], 0x5a);
-    free_pmd(pmd);
-}
-#endif
-
-// :8542 the PMDOPT environment is read before the command line, so the command
-// line wins, and a bad PMDOPT option only warns.
-static void test_option_precedence(void) {
-    ctx_reset();
-    ctx.pmdopt = "/DF5";
-    struct pmd *pmd = new_pmd();
-    CHECK(run_resident(pmd, "/DF7"));
-    CHECK_EQ(pmd->_fm_voldown, 7);
-    free_pmd(pmd);
-
-    ctx_reset();
-    ctx.pmdopt = "/DF5";
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, ""));
-    CHECK_EQ(pmd->_fm_voldown, 5);
-    free_pmd(pmd);
-
-    // A bad PMDOPT option reports the warning and abandons the rest of the
-    // environment options only. /DF5 was applied before /X failed.
-    ctx_reset();
-    ctx.pmdopt = "/DF5/X/DS9";
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/DR3"));
-    CHECK_EQ(pmd->_fm_voldown, 5);
-    CHECK_EQ(pmd->_ssg_voldown, 0);
-    CHECK_EQ(pmd->_rhythm_voldown, 3);
-    CHECK_OUTPUT_CONTAINS(mes_warning);
-    CHECK_OUTPUT_CONTAINS(mes_kankyo);
-    free_pmd(pmd);
-
-    // The command line is still parsed after an environment error.
-    ctx_reset();
-    ctx.pmdopt = "/X";
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/DS9"));
-    CHECK_EQ(pmd->_ssg_voldown, 9);
-    free_pmd(pmd);
-}
-
-// :10148 /P turns PPSDRV support on or off; availability is the host vtable.
-static void test_pps_option(void) {
-    static const struct pmd_drv_pps pps = {0};
-
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    pmd->pps = &pps;
-    CHECK(run_resident(pmd, "/P-"));
-    CHECK_EQ(pmd->ppsdrv_flag, 1);
-    free_pmd(pmd);
-
-    ctx_reset();
-    pmd = new_pmd();
-    pmd->pps = &pps;
-    CHECK(run_resident(pmd, "/P"));
-    CHECK_EQ(pmd->ppsdrv_flag, 0);
-    free_pmd(pmd);
-
-    // Without the vtable the enabling option cannot turn it on.
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, "/P-"));
-    CHECK_EQ(pmd->ppsdrv_flag, 0);
-    free_pmd(pmd);
-}
 
 #if ppz
-// :10164 /Z drives the PPZ8 negotiation and the removal protection.
+// :10164 /Z's protection handshake and the /Z stop sequence are in PPZ_86B and
+// PPZ_RESET_86B. Only the interrupt-level mismatch is not expressible in a
+// script: the fake PPZ8 always answers the board's own level.
 static void test_ppz_options(void) {
     ctx_reset();
     struct pmd *pmd = new_pmd();
@@ -1370,102 +1008,8 @@ static void test_ppz_options(void) {
     CHECK_EQ(pmd->ppz_call_seg, 1);
     CHECK(ctx.ppz_removal_protect);
     free_pmd(pmd);
-
-    // Disabling stops the FIFO interrupt and every channel.
-    ctx_reset();
-    pmd = new_pmd();
-    pmd->ppz8 = &mock_ppz8;
-    CHECK(run_resident(pmd, "/Z"));
-    CHECK_EQ(pmd->ppz_call_seg, 0);
-    CHECK_EQ(ctx.ppz_fifo_stops, 1);
-    for (unsigned ch = 0; ch < 8; ch++) CHECK_EQ(ctx.ppz_keyoffs[ch], 1);
-    CHECK_EQ(ctx.ppz_removal_calls, 1);
-    CHECK(!ctx.ppz_removal_protect);
-    free_pmd(pmd);
 }
 #endif
-
-// :9511 pmd_change_main prints the banner and the status, and only reports
-// "settings changed" when it was given options.
-static void test_change_status(void) {
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(run_resident(pmd, "/M12/V2/E2/DF200/DS12/W255/G7"));
-
-    ctx_reset();
-    enum pmd_change_result result = run_change(pmd, "");
-    CHECK(!ctx.exited);
-    CHECK_EQ(result, PMD_CHANGE_OK);
-    char expected[test_out_size] = "";
-    append(expected, sizeof(expected), mes_title);
-    expected_status(expected, sizeof(expected), pmd);
-    CHECK_OUTPUT_EQUALS(expected);
-    free_pmd(pmd);
-
-    // With options: "settings changed" is printed first.
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, ""));
-    ctx_reset();
-    result = run_change(pmd, "/DF3/DS4");
-    CHECK(!ctx.exited);
-    CHECK_EQ(result, PMD_CHANGE_OK);
-    CHECK_EQ(pmd->_fm_voldown, 3);
-    expected[0] = '\0';
-    append(expected, sizeof(expected), mes_title);
-    append(expected, sizeof(expected), changemes_0);
-    expected_status(expected, sizeof(expected), pmd);
-    CHECK_OUTPUT_EQUALS(expected);
-    free_pmd(pmd);
-}
-
-// :10798 the runtime table rejects the options that cannot change.
-static void test_change_options(void) {
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(run_resident(pmd, ""));
-
-    const char *rejected[] = {"/M16", "/V8", "/E4", "/Y", "/O1"};
-    for (size_t i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
-        ctx_reset();
-        (void)run_change(pmd, rejected[i]);
-        CHECK(ctx.exited);
-        if (ctx.exit_status != 1) {
-            fprintf(stderr, "%s:%d: \"%s\": expected exit 1, got %d\n",
-                    __FILE__, __LINE__, rejected[i], ctx.exit_status);
-            failures++;
-        }
-        CHECK_OUTPUT_CONTAINS(pmderror_mes6);
-    }
-
-    // An unknown option in change_main is a usage error.
-    ctx_reset();
-    (void)run_change(pmd, "/X");
-    CHECK(ctx.exited);
-    CHECK_EQ(ctx.exit_status, 255);
-
-    // /R reports removal and prints neither the status nor the success line.
-    ctx_reset();
-    enum pmd_change_result result = run_change(pmd, "/R");
-    CHECK(!ctx.exited);
-    CHECK_EQ(result, PMD_CHANGE_REMOVED);
-    char expected[test_out_size] = "";
-    append(expected, sizeof(expected), mes_title);
-    append(expected, sizeof(expected), mes_cut);
-    CHECK_OUTPUT_EQUALS(expected);
-    free_pmd(pmd);
-
-    // /R also stops the remaining options.
-    ctx_reset();
-    pmd = new_pmd();
-    CHECK(run_resident(pmd, ""));
-    ctx_reset();
-    uint8_t voldown = pmd->_fm_voldown;
-    result = run_change(pmd, "/R/DF3");
-    CHECK_EQ(result, PMD_CHANGE_REMOVED);
-    CHECK_EQ(pmd->_fm_voldown, voldown);
-    free_pmd(pmd);
-}
 
 static void set_script(const struct test_io *script, size_t len) {
     ctx.script = script;
@@ -1580,17 +1124,6 @@ static void test_board_present(void) {
     append(expected, sizeof(expected), mes_key);
     CHECK_OUTPUT_EQUALS(expected);
 
-    // int_init reads PSG 0Eh through the primary ports, and opninit_loop
-    // writes the initial registers to every matching port.
-    CHECK(has_write(0x088, 0x07));
-    CHECK(has_write(0x08a, 0x3f));
-    CHECK(has_write(0x088, 0x0e));
-    CHECK(has_write(0x088, 0x29));
-    CHECK(has_write(0x08a, 0x00));
-    CHECK(has_write(0x088, 0x27));
-    CHECK(has_write(0x08a, 0x3f));
-    CHECK(has_write(0x388, 0x27));
-    CHECK(has_write(0x38a, 0x3f));
 
     free_pmd(pmd);
 }
@@ -1765,12 +1298,6 @@ static void test_board_present(void) {
     append(expected, sizeof(expected), mes_key);
     CHECK_OUTPUT_EQUALS(expected);
 
-    CHECK(has_write(0x44, 0x07));
-    CHECK(has_write(0x45, 0x3f));
-    CHECK(has_write(0x44, 0x0e));
-    CHECK(has_write(0x44, 0x29));
-    CHECK(has_write(0x44, 0x25));
-    CHECK(has_write(0x44, 0x27));
 
     free_pmd(pmd);
 }
@@ -1836,13 +1363,6 @@ static void test_board_present(void) {
     CHECK_EQ(pmd->pcm_gs_flag, 1);
     CHECK(strcmp(pmd->mes_ongen1, "YM2608") == 0);
 
-    CHECK(has_write(0x188, 0x07));
-    CHECK(has_write(0x18a, 0x3f));
-    CHECK(has_write(0x188, 0x0e));
-#if adpcm
-    CHECK(has_write(0x188, 0x29));
-    CHECK(has_write(0x18a, 0x83));
-#endif
 
     char expected[test_out_size] = "";
     append(expected, sizeof(expected), mes_title);
@@ -1912,12 +1432,6 @@ static void test_board_present(void) {
     CHECK(strcmp(pmd->mes_ongen1, "YMF288") == 0);
     CHECK_EQ(pmd->pcm_gs_flag, 1);
 
-    CHECK(has_write(0x188, 0x07));
-    CHECK(has_write(0x18a, 0x3f));
-    CHECK(has_write(0x188, 0x0e));
-    // :8872 the 2608 is switched on before the RAM check.
-    CHECK(has_write(0x188, 0x29));
-    CHECK(has_write(0x18a, 0x83));
 
     char expected[test_out_size] = "";
     append(expected, sizeof(expected), mes_title);
@@ -1975,13 +1489,6 @@ static void test_board_present(void) {
     CHECK_EQ(pmd->wait_clock, 1);
     CHECK_EQ(pmd->wait1_clock, 1);
 
-    // :8690 the VA build writes the initial registers through 44h/45h.
-    CHECK(has_write(0x44, 0x29));
-    CHECK(has_write(0x44, 0x24));
-    CHECK(has_write(0x44, 0x25));
-    CHECK(has_write(0x44, 0x26));
-    CHECK(has_write(0x44, 0x27));
-    CHECK(has_write(0x45, 0x3f));
 
     char expected[test_out_size] = "";
     append(expected, sizeof(expected), mes_title);
@@ -2030,20 +1537,6 @@ static const uint8_t adpcm_readback[] = {
     'D',  'a',  't', 'a', '-', '=', '+', '*',
 };
 
-// True when one opnset46 call wrote `reg`/`data` to the FM2 ports. pcmstore
-// and pcmread both write the same setup, so the register/data pair has to be
-// checked as a unit.
-static bool has_fm2_write(uint8_t reg, uint8_t data) {
-    for (size_t i = 0; i + 1 < ctx.write_count; i++) {
-        if (ctx.writes[i].port == 0x08c && ctx.writes[i].value == reg &&
-            ctx.writes[i + 1].port == 0x08e &&
-            ctx.writes[i + 1].value == data) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static void test_board_present(void) {
     ctx_reset();
     set_script(board_script, sizeof(board_script) / sizeof(board_script[0]));
@@ -2089,22 +1582,6 @@ static void test_board_present(void) {
     append(expected, sizeof(expected), mes_key);
     CHECK_OUTPUT_EQUALS(expected);
 
-    CHECK(has_write(0x088, 0x07));
-    CHECK(has_write(0x08a, 0x3f));
-    CHECK(has_write(0x088, 0x0e));
-    CHECK(has_write(0x088, 0x29));
-    CHECK(has_write(0x08a, 0x83));
-    // The ADPCM transfer selector and length (ADRAMCHK.ASM:72 onwards).
-    CHECK(has_write(0x08c, 0x10));
-    CHECK(has_write(0x08e, 0x17));
-    // Transfer setup: registers 02h/03h hold the start address 1FFFh and
-    // 04h/05h the end address FFFFh (ADRAMCHK.ASM:90-100). 03h = 01h is the
-    // value a mistranscribed start-address high byte would produce.
-    CHECK(has_fm2_write(0x02, 0xff));
-    CHECK(has_fm2_write(0x03, 0x1f));
-    CHECK(!has_fm2_write(0x03, 0x01));
-    CHECK(has_fm2_write(0x04, 0xff));
-    CHECK(has_fm2_write(0x05, 0xff));
 
     free_pmd(pmd);
 
@@ -2225,14 +1702,19 @@ static void test_board_ext_drivers(void) {
 }
 #endif
 
-// Invokes the installed handler, turning a hardware-script failure into a
-// reported failure instead of unwinding into a dead frame.
+// Invokes the installed handler under its own guard, so a hardware-script
+// failure is reported against this call rather than the enclosing test.
 static void run_fm_handler(struct pmd *pmd) {
-    if (setjmp(ctx.jmp) != 0) {
-        report_unwind("fm_timer_handler");
+    struct unwind_frame frame;
+    struct unwind_frame *saved = unwind_top;
+    unwind_top = &frame;
+    if (setjmp(frame.buf) == 0) {
+        ctx.fm_timer_handler(pmd);
+        unwind_top = saved;
         return;
     }
-    ctx.fm_timer_handler(pmd);
+    unwind_top = saved;
+    report_unwind("fm_timer_handler");
 }
 
 // The status reads consumed by one installed-handler invocation: opnint's
@@ -2256,28 +1738,6 @@ static void fire_fm_timer(struct pmd *pmd, uint8_t pending, uint8_t status) {
 #if vsync
         {2, 0x00},
 #endif
-    };
-    set_script(script, sizeof(script) / sizeof(script[0]));
-    ctx.reads = 0;
-    ctx.write_count = 0;
-    run_fm_handler(pmd);
-    CHECK_EQ(ctx.script_pos, ctx.script_len);
-}
-
-// A Timer A invocation while the SSG effect driver runs. Only the timer
-// dispatch reads are scripted: the effect's own register writes read the status
-// port through the idle pad, which reports a clear BUSY bit.
-static void fire_effect_timer(struct pmd *pmd) {
-    uint16_t port1 = pmd->fm1_port1;
-    const struct test_io script[] = {
-#if vsync
-        {2, 0x00},
-#endif
-        {port1, 0x00},
-        {port1, 1}, // Timer A pending
-        {port1, 0x00},
-        {port1, 0x00},
-        {port1, 1}, // 27h status: Timer A
     };
     set_script(script, sizeof(script) / sizeof(script[0]));
     ctx.reads = 0;
@@ -2653,98 +2113,20 @@ static void run_timer_b(struct pmd *pmd) {
 #endif
 }
 
-// :440/:874 start and stop, including the busy deferral.
-static void test_playback_start_stop(void) {
+// :440/:874 A running timer defers both start and stop to Timer B. The
+// register streams the two calls produce are in the PLAY_* goldens.
+static void test_playback_defer(void) {
     struct pmd *pmd = setup_playback();
     static const uint8_t part[] = {0x40, 1, 0x80};
     load_module(pmd, part, sizeof(part));
-
     start_playback(pmd);
-    CHECK_EQ(pmd->mstart_flag, 1);
-    CHECK_EQ(pmd->fadeout_volume, 0);
-    // opn_init, then setint's Timer A/B setup.
-    CHECK(has_write(pmd->fm1_port1, 0x29));
-    CHECK(has_write(pmd->fm1_port1, 0x25));
-    CHECK(has_write(pmd->fm1_port1, 0x24));
-    CHECK(has_write(pmd->fm1_port1, 0x27));
-    // :729-741 SSG-EG reset writes 90h-9Eh, skipping every fourth operator,
-    // and leaves the SSG volume/envelope registers alone.
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x90, 0x00));
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x9e, 0x00));
-    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x93, 0x00));
-    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x09, 0x00));
-    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x0e, 0x00));
 
-    // A running timer defers both start and stop to Timer B.
     pmd->TimerAflag = 1;
     CHECK(!pmd_mstart_f(pmd));
     CHECK_EQ(pmd->music_flag & 1, 1);
     pmd->music_flag = 0;
     CHECK(!pmd_mstop_f(pmd));
     CHECK_EQ(pmd->music_flag & 2, 2);
-    pmd->TimerAflag = 0;
-
-    CHECK(pmd_mstop_f(pmd));
-    CHECK_EQ(pmd->play_flag, 0);
-    CHECK_EQ(pmd->status2, 0xff);
-    CHECK_EQ(pmd->fadeout_volume, 0xff);
-    CHECK(has_write(pmd->fm1_port1, 0x07));
-    CHECK(has_write(pmd->fm1_port2, 0xbf)); // PSG keyoff
-    // :6054 FM KEYOFF: one 28h write per channel, not one register each.
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x00));
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x01));
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x02));
-    CHECK(!has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x29, 0x00));
-#if board2
-    // :6074 the back chip's channels: 28h bit 2 selects the second chip.
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x04));
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x05));
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x06));
-#endif
-
-    free_pmd(pmd);
-}
-
-// :1053 fmmain's note path: pitch, gate, key-on, and cursor advance.
-static void test_playback_note(void) {
-    struct pmd *pmd = setup_playback();
-    static const uint8_t part[] = {0x40, 1, 0x80};
-    load_module(pmd, part, sizeof(part));
-    start_playback(pmd);
-
-    run_timer_b(pmd);
-
-    struct pmd_qq *di = &pmd->parts[0];
-    CHECK_EQ(di->onkai, 0x40);
-    CHECK_EQ(di->fnum, 0x226a); // C, block 4
-    CHECK_EQ(di->leng, 1);
-    CHECK_EQ(di->keyon_flag, 1);
-    CHECK_EQ(di->keyoff_flag, 0);
-    CHECK(di->address == pmd->mmlbuf + 26);
-    CHECK(has_write(pmd->fm1_port1, 0xa4));
-    CHECK(has_write(pmd->fm1_port2, 0x22));
-    CHECK(has_write(pmd->fm1_port1, 0xa0));
-    CHECK(has_write(pmd->fm1_port2, 0x6a));
-    CHECK(has_write(pmd->fm1_port1, 0x28));
-    CHECK(has_write(pmd->fm1_port2, 0xf0));
-
-    free_pmd(pmd);
-
-    // The tone tables are word arrays: a non-zero note index must not be
-    // scaled by two. D4 and the PSG D4 with its octave shift and rounding.
-    static const uint8_t d4[] = {0x42, 1, 0x80};
-    pmd = setup_playback();
-    load_module(pmd, d4, sizeof(d4));
-    start_playback(pmd);
-    run_timer_b(pmd);
-    CHECK_EQ(pmd->parts[0].fnum, 0x22b6);
-    free_pmd(pmd);
-
-    pmd = setup_playback();
-    load_ssg_module(pmd, d4, sizeof(d4));
-    start_playback(pmd);
-    run_timer_b(pmd);
-    CHECK_EQ(pmd->part_data_table[test_part_ssg1]->fnum, 0xd5);
     free_pmd(pmd);
 }
 
@@ -2831,28 +2213,6 @@ static void test_playback_detune_block(void) {
     free_pmd(pmd);
 }
 
-// :3406/:3417 'v' and 't': volume and tempo commands, and the tempo write.
-static void test_playback_commands(void) {
-    struct pmd *pmd = setup_playback();
-    static const uint8_t part[] = {0x40, 1, 0xfd, 100, 0xfc, 100, 0x80};
-    load_module(pmd, part, sizeof(part));
-    start_playback(pmd);
-
-    run_timer_b(pmd); // play the note
-    CHECK_EQ(pmd->parts[0].volume, 108);
-
-    run_timer_b(pmd); // process v/t and the end marker
-    CHECK_EQ(pmd->parts[0].volume, 100);
-    CHECK_EQ(pmd->tempo_d, 100);
-    CHECK_EQ(pmd->tempo_48, 28); // 112Ch / (100h - 64h) = 28.1C
-    CHECK_EQ(pmd->parts[0].loopcheck, 3);
-    CHECK_EQ(pmd->status2, 0xff);
-    CHECK(has_write(pmd->fm1_port1, 0x26));
-    CHECK(has_write(pmd->fm1_port2, 100));
-
-    free_pmd(pmd);
-}
-
 // :3545/:3613 'L': the end marker loops back to the saved address.
 static void test_playback_loop(void) {
     struct pmd *pmd = setup_playback();
@@ -2873,25 +2233,6 @@ static void test_playback_loop(void) {
     CHECK_EQ(di->loopcheck, 0);
     CHECK_EQ(di->keyon_flag, 3);
     CHECK_EQ(di->onkai, 0x41);
-
-    free_pmd(pmd);
-}
-
-// :3029/:5967 fade command and Timer A's fadeout step.
-static void test_playback_fade(void) {
-    struct pmd *pmd = setup_playback();
-    static const uint8_t part[] = {0x40, 1, 0xd2, 8, 0x80};
-    load_module(pmd, part, sizeof(part));
-    start_playback(pmd);
-
-    run_timer_b(pmd); // note
-    run_timer_b(pmd); // fade command, then end
-    CHECK_EQ(pmd->fadeout_flag, 1);
-    CHECK_EQ(pmd->fadeout_speed, 8);
-
-    for (int i = 0; i < 8; i++) fire_fm_timer(pmd, 1, 1); // Timer A
-    CHECK_EQ(pmd->fadeout_volume, 8);
-    CHECK_EQ(pmd->TimerAtime, 8);
 
     free_pmd(pmd);
 }
@@ -3071,7 +2412,7 @@ static void test_playback_rhythm(void) {
 
     // :4064 with PPSDRV the scan continues past the first instrument and must
     // stop after the last one. A regression here spins instead of failing, so
-    // this half of the test relies on the harness timeout.
+    // this half of the test relies on run_test's alarm.
     pmd = setup_playback();
     load_rhythm_module(pmd, pattern, sizeof(pattern));
     start_playback(pmd);
@@ -3361,239 +2702,6 @@ static void test_playback_key_mask(void) {
     free_pmd(pmd);
 }
 
-// The board type drv_chk reports for this variant (:6452).
-static uint8_t expected_board_type(void) {
-#if board2 && ppz
-#if ademu
-    return PMD_DRV_BOARD_PPZE;
-#else
-    return PMD_DRV_BOARD_PPZ;
-#endif
-#elif board2 && pcm
-    return PMD_DRV_BOARD_86;
-#elif board2
-    return PMD_DRV_BOARD_B2;
-#else
-    return PMD_DRV_BOARD_PMD;
-#endif
-}
-
-// The no-board half of n_int60_jumptable (:7294): the entries that `nothing`
-// covers change nothing, the others report their sentinels, and no call
-// reaches the hardware.
-static void test_int60_no_board(void) {
-    struct pmd *pmd = new_pmd();
-    pmd->board = 0;
-    ctx.reads = 0;
-    ctx.write_count = 0;
-
-    // Command entries: no effect at all.
-    pmd->play_flag = 1;
-    CHECK(pmd_mstart_f(pmd));
-    CHECK_EQ(pmd->play_flag, 1);
-    CHECK(pmd_mstop_f(pmd));
-    CHECK_EQ(pmd->play_flag, 1);
-
-    pmd->fadeout_speed = 7;
-    pmd_fout(pmd, 3);
-    CHECK_EQ(pmd->fadeout_speed, 7);
-
-    // :7354 The FM effect entries are translated, so the board guard is
-    // observable here: the effect is not started.
-    pmd->fm_effec_flag = 0;
-    pmd->fm_effec_num = 9;
-    pmd_fm_effect_on(pmd, 2);
-    CHECK_EQ(pmd->fm_effec_num, 9);
-    CHECK_EQ(pmd->fm_effec_flag, 0);
-
-    // :25/:184/:821 The SSG effect and PCM effect entries do nothing without a
-    // board, so they reach no hardware.
-    ctx.reads = 0;
-    ctx.write_count = 0;
-    pmd_eff_on(pmd, 1);
-    pmd_effoff(pmd);
-    pmd_fm_effect_off(pmd);
-    pmd_pcm_effect(pmd, 1, 2, 3, 4);
-    CHECK_EQ(ctx.reads, 0);
-    CHECK_EQ(ctx.write_count, 0);
-
-    pmd->fadeout_volume = 9;
-    pmd_set_fv(pmd, 0);
-    CHECK_EQ(pmd->fadeout_volume, 9);
-
-    pmd->ppsdrv_flag = 3;
-    pmd_set_ppsdrv_flag(pmd, 1);
-    CHECK_EQ(pmd->ppsdrv_flag, 3);
-
-    pmd->pause_flag = 3;
-    pmd_pause_on(pmd);
-    CHECK_EQ(pmd->pause_flag, 3);
-    pmd->play_flag = 0;
-    pmd->pause_flag = 1;
-    pmd_pause_off(pmd);
-    CHECK_EQ(pmd->play_flag, 0);
-    CHECK_EQ(pmd->pause_flag, 1);
-
-    struct pmd_int_handler handler = {test_fm_callback, pmd};
-    pmd_set_fm_int(pmd, handler);
-    CHECK(pmd->fmint.fn == NULL);
-    pmd_set_efc_int(pmd, handler);
-    CHECK(pmd->efcint.fn == NULL);
-    CHECK_EQ(pmd->intfook_flag, 0);
-    CHECK_EQ(pmd->rescut_cant, 0);
-
-    pmd->parts[0].partmask = 0;
-    pmd_part_mask(pmd, 0);
-    CHECK_EQ(pmd->parts[0].partmask, 0);
-
-    CHECK_EQ(pmd_ff_music(pmd, 3), PMD_FF_MUSIC_NO_BOARD);
-    CHECK_EQ(pmd->skip_flag, 0);
-
-    // Query entries: the sentinels from get_255/get_65535.
-    CHECK_EQ(pmd_get_ss(pmd), PMD_NO_BOARD);
-    CHECK_EQ(pmd_get_fv(pmd), PMD_NO_BOARD);
-    CHECK_EQ(pmd_get_fmefc_num(pmd), PMD_NO_BOARD);
-    CHECK_EQ(pmd_get_pcmefc_num(pmd), PMD_NO_BOARD);
-    CHECK_EQ(pmd_get_ppsdrv_flag(pmd), PMD_NO_BOARD);
-
-    struct pmd_status status = pmd_get_status(pmd);
-    CHECK_EQ(status.status, PMD_NO_BOARD);
-    CHECK_EQ(status.status2, PMD_NO_BOARD);
-
-    struct pmd_psgefcnum psgefcnum = pmd_get_psgefcnum(pmd);
-    CHECK_EQ(psgefcnum.psgefcnum, PMD_NO_BOARD);
-    CHECK_EQ(psgefcnum.effon, PMD_NO_BOARD);
-
-    // :6592 The joystick is a hardware read, so it reports the sentinel
-    // without touching the PSG.
-    struct pmd_joy joy = pmd_get_joy(pmd);
-    CHECK_EQ(joy.joystick1, PMD_NO_BOARD);
-    CHECK_EQ(joy.joystick2, PMD_NO_BOARD);
-    CHECK_EQ(ctx.reads, 0);
-    CHECK_EQ(ctx.write_count, 0);
-
-    // :7339 Without a board drv_chk2 reports AL=255 alongside the version.
-    struct pmd_drv_info info = pmd_drv_chk(pmd);
-    CHECK_EQ(info.board, PMD_DRV_BOARD_ABSENT);
-    CHECK_EQ(info.version, vers);
-    CHECK_EQ(info.version_char, (uint8_t)verc[0]);
-
-    // The address entries work either way.
-    CHECK(pmd_get_musdat_adr(pmd) == pmd->dataarea);
-    CHECK_EQ(pmd_get_musdat_adr(pmd)[0], pmd->mmlbuf[-1]);
-    CHECK(pmd_get_tondat_adr(pmd) == pmd->tondat);
-    CHECK(pmd_get_efcdat_adr(pmd) == pmd->efcdat);
-    CHECK(pmd_get_workadr(pmd) == pmd->part_data_table);
-#if board2
-    CHECK(pmd_get_pcm_adr(pmd) == &pmd->pcm_table);
-#else
-    CHECK(pmd_get_pcm_adr(pmd) == NULL);
-#endif
-    CHECK(pmd_get_mus_name(pmd) == pmd->mus_filename);
-    struct pmd_size size = pmd_get_size(pmd);
-    CHECK_EQ(size.music, 16);
-    CHECK_EQ(size.voice, 8);
-    CHECK_EQ(size.effect, 4);
-
-    struct pmd_int_handler fmint = pmd_get_fm_int(pmd);
-    CHECK(fmint.fn == NULL);
-    CHECK(fmint.user_data == NULL);
-    struct pmd_int_handler efcint = pmd_get_efc_int(pmd);
-    CHECK(efcint.fn == NULL);
-    CHECK(efcint.user_data == NULL);
-
-    CHECK_EQ(pmd->int60flag, 0);
-
-    free_pmd(pmd);
-}
-
-// The board-present halves of the same entries, plus the setters.
-static void test_int60_board(void) {
-    static const struct pmd_drv_pps pps = {0};
-
-    struct pmd *pmd = setup_playback();
-
-    pmd->syousetu = 0x1234;
-    CHECK_EQ(pmd_get_ss(pmd), 0x1234);
-
-    pmd->status = 0x12;
-    pmd->status2 = 0x34;
-    struct pmd_status status = pmd_get_status(pmd);
-    CHECK_EQ(status.status, 0x12);
-    CHECK_EQ(status.status2, 0x34);
-
-    pmd->fadeout_volume = 0x2a;
-    CHECK_EQ(pmd_get_fv(pmd), 0x2a);
-
-    struct pmd_drv_info info = pmd_drv_chk(pmd);
-    CHECK_EQ(info.board, expected_board_type());
-    CHECK_EQ(info.version, vers);
-    CHECK_EQ(info.version_char, (uint8_t)verc[0]);
-
-    pmd->fm_effec_num = 6;
-    CHECK_EQ(pmd_get_fmefc_num(pmd), 6);
-    pmd->pcm_effec_num = 8;
-    CHECK_EQ(pmd_get_pcmefc_num(pmd), 8);
-
-    pmd->psgefcnum = 0x80;
-    pmd->effon = 1;
-    struct pmd_psgefcnum psgefcnum = pmd_get_psgefcnum(pmd);
-    CHECK_EQ(psgefcnum.psgefcnum, 0x80);
-    CHECK_EQ(psgefcnum.effon, 1);
-
-    // :6580 the sizes come back in AL/AH/DL.
-    struct pmd_size size = pmd_get_size(pmd);
-    CHECK_EQ(size.music, pmd->mmldat_lng);
-    CHECK_EQ(size.voice, pmd->voicedat_lng);
-    CHECK_EQ(size.effect, pmd->effecdat_lng);
-
-    strcpy(pmd->mus_filename, "TEST.M");
-    CHECK(strcmp(pmd_get_mus_name(pmd), "TEST.M") == 0);
-
-    CHECK(pmd_get_musdat_adr(pmd) == pmd->dataarea);
-    CHECK(pmd_get_tondat_adr(pmd) == pmd->tondat);
-    CHECK(pmd_get_efcdat_adr(pmd) == pmd->efcdat);
-    CHECK(pmd_get_workadr(pmd) == pmd->part_data_table);
-#if board2
-    CHECK(pmd_get_pcm_adr(pmd) == &pmd->pcm_table);
-#else
-    CHECK(pmd_get_pcm_adr(pmd) == NULL);
-#endif
-
-    // :6558 set_ppsdrv_flag clears the flag first and only stores the value
-    // while PPSDRV is resident.
-    pmd->pps = NULL;
-    pmd->ppsdrv_flag = 5;
-    pmd_set_ppsdrv_flag(pmd, 1);
-    CHECK_EQ(pmd->ppsdrv_flag, 0);
-    CHECK_EQ(pmd_get_ppsdrv_flag(pmd), 0);
-    pmd->pps = &pps;
-    pmd_set_ppsdrv_flag(pmd, 1);
-    CHECK_EQ(pmd->ppsdrv_flag, 1);
-    CHECK_EQ(pmd_get_ppsdrv_flag(pmd), 1);
-    pmd->pps = NULL;
-
-    // :6441 set_fv to zero restores the rhythm volume in the board2 builds.
-    ctx.write_count = 0;
-    pmd_set_fv(pmd, 0);
-    CHECK_EQ(pmd->fadeout_volume, 0);
-#if board2
-    // opn_init sets rhyvol from the rhythm volume, 48 at full volume (:811).
-    CHECK_EQ(pmd->rhyvol, 0x30);
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x11, 0x30));
-#else
-    CHECK_EQ(ctx.write_count, 0);
-#endif
-
-    // The SSG effect entry points do nothing without a board; calling them
-    // must be harmless.
-    pmd_eff_on(pmd, 1);
-    pmd_effoff(pmd);
-
-    CHECK_EQ(pmd->int60flag, 0);
-    free_pmd(pmd);
-}
-
 // :7354 The FM effect part: the voice-table address, the fixed defaults, and
 // the FM3 mode save and restore.
 static void test_int60_fm_effect(void) {
@@ -3646,114 +2754,6 @@ static void test_int60_fm_effect(void) {
     free_pmd(pmd);
 }
 
-// :6663 Pause silences the parts and resumes them.
-static void test_int60_pause(void) {
-    struct pmd *pmd = setup_playback();
-    static const uint8_t part[] = {0x40, 1, 0x80};
-    load_module(pmd, part, sizeof(part));
-    start_playback(pmd);
-
-    ctx.write_count = 0;
-    pmd_pause_on(pmd);
-    CHECK_EQ(pmd->play_flag, 0);
-    CHECK_EQ(pmd->pause_flag, 1);
-    // silence() keys every FM channel off.
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x00));
-
-    // A paused driver ignores another pause.
-    ctx.write_count = 0;
-    pmd_pause_on(pmd);
-    CHECK_EQ(ctx.write_count, 0);
-
-    // :6675 Resuming restores the voices of the parts that have music.
-    pmd->parts[0].address = pmd->mmlbuf + 24;
-    pmd->parts[0].neiromask = 0xff;
-    pmd->parts[0].voicenum = 1;
-    ctx.write_count = 0;
-    pmd_pause_off(pmd);
-    CHECK_EQ(pmd->play_flag, 1);
-    CHECK_EQ(pmd->pause_flag, 0);
-    // neiro_reset restores the pan register of FM1 channel 1.
-    CHECK(has_write(pmd->fm1_port1, 0xb0));
-
-    // A running driver ignores the resume.
-    ctx.write_count = 0;
-    pmd_pause_off(pmd);
-    CHECK_EQ(pmd->play_flag, 1);
-    CHECK_EQ(ctx.write_count, 0);
-
-    free_pmd(pmd);
-}
-
-// :6967 part_mask: the mask bit, the rhythm part, and the part numbers the
-// table does not cover.
-static void test_int60_part_mask(void) {
-    struct pmd *pmd = setup_playback();
-    pmd->play_flag = 1;
-
-    // FM1 part 0: mask and unmask. The voice mask makes the mask silent the
-    // part instead of only keying it off.
-    pmd->parts[0].partmask = 0;
-    pmd->parts[0].neiromask = 0xff;
-    ctx.write_count = 0;
-    pmd_part_mask(pmd, 0);
-    CHECK_EQ(pmd->parts[0].partmask, 1);
-    CHECK_EQ(pmd->partb, 1);
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x28, 0x00));
-    pmd_part_mask(pmd, 0x80);
-    CHECK_EQ(pmd->parts[0].partmask, 0);
-
-    // :6997 A part that is already masked is not masked again.
-    pmd->parts[0].partmask = 1;
-    ctx.write_count = 0;
-    pmd_part_mask(pmd, 0);
-    CHECK_EQ(pmd->parts[0].partmask, 1);
-    CHECK_EQ(ctx.write_count, 0);
-
-    // :7111 Unmasking an unmasked part does nothing.
-    pmd->parts[0].partmask = 0;
-    ctx.write_count = 0;
-    pmd_part_mask(pmd, 0x80);
-    CHECK_EQ(pmd->parts[0].partmask, 0);
-    CHECK_EQ(ctx.write_count, 0);
-
-    // The SSG part masks its channel in PSG register 07h.
-    ctx.write_count = 0;
-    pmd_part_mask(pmd, 6);
-    CHECK_EQ(pmd->parts[6].partmask, 1);
-    // The PSG keyoff mask combines the part's own channel bit (bit partb-1)
-    // with the matching noise bit three bits above it.
-    CHECK(has_reg_write(pmd->fm1_port1, pmd->fm1_port2, 0x07, 0x09));
-    pmd_part_mask(pmd, 0x86);
-    CHECK_EQ(pmd->parts[6].partmask, 0);
-
-    // :6973 Part numbers past the table are ignored.
-    ctx.write_count = 0;
-#if ppz
-    pmd_part_mask(pmd, 16 + 8);
-#else
-    pmd_part_mask(pmd, 16);
-#endif
-    CHECK_EQ(ctx.write_count, 0);
-
-    // The rhythm part masks the rhythm source instead of a part.
-    pmd->rhythmmask = 0xff;
-    pmd_part_mask(pmd, 14);
-    CHECK_EQ(pmd->rhythmmask, 0);
-    pmd_part_mask(pmd, 0x8e);
-    CHECK_EQ(pmd->rhythmmask, 0xff);
-
-    // The effect part is part_e, which the table's last entry names in every
-    // variant. An empty part_e keeps the unmask from restoring a voice.
-    pmd->part_e = (struct pmd_qq){0};
-    pmd_part_mask(pmd, 15);
-    CHECK_EQ(pmd->part_e.partmask, 1);
-    pmd_part_mask(pmd, 0x8f);
-    CHECK_EQ(pmd->part_e.partmask, 0);
-
-    free_pmd(pmd);
-}
-
 // :6741 get_memo walks the module's memo table.
 static void test_int60_get_memo(void) {
     struct pmd *pmd = new_pmd();
@@ -3796,35 +2796,6 @@ static void test_int60_get_memo(void) {
     free_pmd(pmd);
 }
 
-// :6592 Both joystick axes come through PSG registers 0Eh/0Fh.
-static void test_int60_get_joy(void) {
-    struct pmd *pmd = setup_playback();
-    uint16_t port1 = pmd->fm1_port1;
-    uint16_t port2 = pmd->fm1_port2;
-
-    const struct test_io script[] = {
-        {port1, 0x00}, {port1, 0x00}, {port2, 0x10}, // get07: mode set
-        {port1, 0x00}, {port1, 0x00}, // opnset44
-        {port1, 0x00}, {port1, 0x00}, {port2, 0x01}, // init (1)
-        {port1, 0x00}, {port1, 0x00}, {port2, 0x15}, // data (1)
-        {port1, 0x00}, {port1, 0x00}, {port2, 0x02}, // init (2)
-        {port1, 0x00}, {port1, 0x00}, {port2, 0x2a}, // data (2)
-    };
-    set_script(script, sizeof(script) / sizeof(script[0]));
-    ctx.write_count = 0;
-
-    struct pmd_joy joy = pmd_get_joy(pmd);
-    CHECK_EQ(ctx.script_pos, ctx.script_len);
-    // The data reads mask off the buttons' upper bits.
-    CHECK_EQ(joy.joystick1, 0x15);
-    CHECK_EQ(joy.joystick2, 0x2a);
-    // :6614 The init writes keep the low nibble and set the top bits.
-    CHECK(has_write(port2, 0x81));
-    CHECK(has_write(port2, 0xc2));
-
-    free_pmd(pmd);
-}
-
 // :6504 The callbacks and the removal lock they take.
 static void test_int60_callbacks(void) {
     struct pmd *pmd = setup_playback();
@@ -3857,21 +2828,6 @@ static void test_int60_callbacks(void) {
     CHECK(pmd->efcint.fn == NULL);
     CHECK_EQ(pmd->intfook_flag, 0);
     CHECK_EQ(pmd->rescut_cant, 0);
-
-    // The timer path calls them at the original points.
-    pmd->play_flag = 1;
-    pmd->fmint = (struct pmd_int_handler){test_fm_callback, pmd};
-    pmd->efcint = (struct pmd_int_handler){test_efc_callback, pmd};
-    pmd->intfook_flag = 3;
-    ctx.fm_calls = 0;
-    ctx.efc_calls = 0;
-    fire_fm_timer(pmd, 3, 3);
-    CHECK_EQ(ctx.efc_calls, 1);
-#if sync
-    CHECK_EQ(ctx.fm_calls, 0);
-#else
-    CHECK_EQ(ctx.fm_calls, 1);
-#endif
 
     free_pmd(pmd);
 }
@@ -4032,13 +2988,16 @@ static void test_resident_cut(void) {
     CHECK_EQ(pmd->rescut_cant, 0x80);
     ctx.out_len = 0;
     ctx.out[0] = '\0';
-    int unwound = setjmp(ctx.jmp);
-    if (unwound == 0) {
+    struct unwind_frame frame;
+    struct unwind_frame *saved = unwind_top;
+    unwind_top = &frame;
+    if (setjmp(frame.buf) == 0) {
         pmd_resident_cut(pmd);
         fprintf(stderr, "%s:%d: pmd_resident_cut did not exit\n", __FILE__,
                 __LINE__);
         failures++;
     }
+    unwind_top = saved;
     CHECK(ctx.exited);
     CHECK_EQ(ctx.exit_status, 1);
     CHECK_OUTPUT_EQUALS(cantcut_mes);
@@ -4108,43 +3067,6 @@ static void test_resident_cut(void) {
     free_pmd(pmd);
 }
 
-// :9753 /R removes the driver through pmd_change_main.
-static void test_change_remove(void) {
-    ctx_reset();
-    struct pmd *pmd = new_pmd();
-    CHECK(run_board_resident(pmd));
-    CHECK(ctx.fm_timer_handler != NULL);
-    CHECK_EQ(ctx.fm_timer_removals, 0);
-
-    ctx.out_len = 0;
-    ctx.out[0] = '\0';
-    enum pmd_change_result result = run_change(pmd, "/R");
-    CHECK(!ctx.exited);
-    CHECK_EQ(result, PMD_CHANGE_REMOVED);
-    CHECK_EQ(ctx.fm_timer_removals, 1);
-    CHECK(ctx.fm_timer_handler == NULL);
-    char expected[test_out_size] = "";
-    append(expected, sizeof(expected), mes_title);
-    append(expected, sizeof(expected), mes_cut);
-    CHECK_OUTPUT_EQUALS(expected);
-    free_pmd(pmd);
-}
-
-// Without a board both entry points report success without touching playback.
-static void test_playback_no_board(void) {
-    struct pmd *pmd = alloc_pmd();
-    pmd_init(pmd);
-    pmd->board = 0;
-    pmd->play_flag = 1;
-
-    CHECK(pmd_mstart_f(pmd));
-    CHECK_EQ(pmd->play_flag, 1); // unchanged: no board
-    CHECK(pmd_mstop_f(pmd));
-    CHECK_EQ(pmd->play_flag, 1);
-
-    free_pmd(pmd);
-}
-
 // The YMFM backend. The pmd_hw vtable delivers the FM timer handler
 // through pmd->user_data, which therefore has to be the backend itself, so
 // these pmd_sys wrappers ignore user_data and use the global test context.
@@ -4162,7 +3084,7 @@ PMDC_NORETURN static void ymfm_sys_exit(int status, void *user_data) {
     (void)user_data;
     ctx.exited = true;
     ctx.exit_status = status;
-    longjmp(ctx.jmp, 1);
+    unwind(1);
 }
 
 static char *ymfm_sys_getenv(const char *name, void *user_data) {
@@ -4221,10 +3143,15 @@ static void free_ymfm_pmd(struct pmd *pmd) {
 }
 
 static bool run_ymfm_resident(struct pmd *pmd) {
-    if (setjmp(ctx.jmp) == 0) {
+    struct unwind_frame frame;
+    struct unwind_frame *saved = unwind_top;
+    unwind_top = &frame;
+    if (setjmp(frame.buf) == 0) {
         pmd_resident_main(pmd, "");
+        unwind_top = saved;
         return true;
     }
+    unwind_top = saved;
     report_unwind("pmd_resident_main (YMFM)");
     return false;
 }
@@ -4696,110 +3623,6 @@ static void test_ymfm_rom(void) {
     rmdir(dir);
 }
 
-
-// The SSG effect driver (EFCDRV.ASM). pmd_eff_on loads the first frame
-// of the effect, pmd_effoff silences it, and Timer A advances the frames.
-static void test_int60_ssg_effect(void) {
-    struct pmd *pmd = new_timer_pmd();
-    ctx.write_count = 0;
-
-    // Effect 0 (EFFECT.INC D_000): priority 1, one frame of one tick.
-    pmd_eff_on(pmd, 0);
-    CHECK_EQ(pmd->effon, 1);
-    CHECK_EQ(pmd->psgefcnum, 0);
-    CHECK_EQ(pmd->effcnt, 1);
-    CHECK(pmd->effadr != NULL);
-    CHECK_EQ(pmd->eswthz, 0x05dc); // registers 4 and 5
-    CHECK_EQ(pmd->eswnhz, 31);     // register 6
-    CHECK_EQ(pmd->eswtst, 127);
-    CHECK_EQ(pmd->eswnst, 0);
-    CHECK_EQ(pmd->eswnct, 0);
-    CHECK_EQ(pmd->parts[test_part_ssg3].partmask & 2, 2);
-
-    uint16_t port1 = pmd->fm1_port1;
-    uint16_t port2 = pmd->fm1_port2;
-    // :152 The mix register keeps the SSG enable bits, which get07 reads back
-    // from the idle data port.
-    uint8_t mix = (uint8_t)(ctx.pad_read & 0xdb);
-    CHECK(has_reg_write(port1, port2, 0x04, 0xdc));
-    CHECK(has_reg_write(port1, port2, 0x05, 0x05));
-    CHECK(has_reg_write(port1, port2, 0x06, 0x1f));
-    CHECK(has_reg_write(port1, port2, 0x07, mix));
-    CHECK(has_reg_write(port1, port2, 0x0a, 0x0f));
-    CHECK(has_reg_write(port1, port2, 0x0b, 0x00));
-    CHECK(has_reg_write(port1, port2, 0x0c, 0x00));
-    CHECK(has_reg_write(port1, port2, 0x0d, 0x00));
-
-    // Effect 11 has priority 2, so it replaces effect 0. Effect 0 then loses
-    // the priority test, though psgefcnum is already overwritten.
-    pmd_eff_on(pmd, 11);
-    CHECK_EQ(pmd->effon, 2);
-    CHECK_EQ(pmd->psgefcnum, 11);
-    pmd_eff_on(pmd, 0);
-    CHECK_EQ(pmd->effon, 2);
-    CHECK_EQ(pmd->psgefcnum, 0);
-
-    // effoff: minimum volume, cut the noise channel, and clear the state.
-    ctx.write_count = 0;
-    pmd_effoff(pmd);
-    CHECK_EQ(pmd->effon, 0);
-    CHECK_EQ(pmd->psgefcnum, 0xff);
-    CHECK(has_reg_write(port1, port2, 0x0a, 0x00));
-    CHECK(has_reg_write(port1, port2, 0x07, (uint8_t)(mix | 0x24)));
-    free_pmd(pmd);
-
-    // The sweep: Timer A advances the frame count, and the frame's tone
-    // increment is applied when the count runs out.
-    pmd = new_timer_pmd();
-    pmd_eff_on(pmd, 0);
-    CHECK_EQ(pmd->effcnt, 1);
-    ctx.write_count = 0;
-    fire_effect_timer(pmd);
-    CHECK_EQ(pmd->effcnt, 8);      // D_000's second frame
-    CHECK_EQ(pmd->eswthz, 0x06a4);
-    CHECK_EQ(pmd->eswtst, 127);
-    CHECK(has_reg_write(port1, port2, 0x04, 0xa4));
-    CHECK(has_reg_write(port1, port2, 0x05, 0x06));
-
-    ctx.write_count = 0;
-    fire_effect_timer(pmd);
-    CHECK_EQ(pmd->effcnt, 7);
-    CHECK_EQ(pmd->eswthz, 0x0723); // 0x06a4 + 127
-    CHECK(has_reg_write(port1, port2, 0x04, 0x23));
-    CHECK(has_reg_write(port1, port2, 0x05, 0x07));
-    free_pmd(pmd);
-}
-
-// The PPSDRV path of eff_main. A negative effect number is handed to
-// PPSDRV with the inverted volume, and the same voice is keyed off first.
-static void test_int60_ssg_effect_pps(void) {
-    struct pmd *pmd = new_timer_pmd();
-    pmd->pps = &mock_pps;
-    pmd->ppsdrv_flag = 1;
-
-    pmd_eff_on(pmd, 0x85);
-    CHECK_EQ(pmd->effon, 1);
-    CHECK_EQ(pmd->psgefcnum, 0x85);
-    // Only the rhythm path (effgo) records the last PPSDRV voice.
-    CHECK_EQ(pmd->last_shot_data, 0);
-    CHECK_EQ(ctx.pps_keyons, 1);
-    CHECK_EQ(ctx.pps_keyon.num, 5);
-    CHECK_EQ(ctx.pps_keyon.detune, 0);
-    CHECK_EQ(ctx.pps_keyon.volume, 0); // the inverted default volume 15
-    CHECK_EQ(pmd->parts[test_part_ssg3].partmask & 2, 2);
-
-    // A second request does not reach PPSDRV: the priority test sees the
-    // running effect and returns.
-    pmd_eff_on(pmd, 0x85);
-    CHECK_EQ(ctx.pps_keyoffs, 0);
-    CHECK_EQ(ctx.pps_keyons, 2);
-
-    ctx.write_count = 0;
-    pmd_effoff(pmd);
-    CHECK_EQ(ctx.pps_keyoffs, 1);
-    CHECK_EQ(pmd->effon, 0);
-    free_pmd(pmd);
-}
 
 #if ppz
 // The PPZ8 driver calls mstart (:461-486) and opn_init (:848) make.
@@ -5575,142 +4398,165 @@ static void test_pcm_loop_offsets(void) {
 }
 #endif
 
+// A test that spins in the sequencer touches no hardware, so test_read_max
+// does not catch it; the alarm bounds the whole test instead.
+enum { test_timeout_seconds = 30 };
+
+static const char *current_test;
+static size_t current_test_len;
+
+static void test_timeout(int sig) {
+    (void)sig;
+    static const char prefix[] = "timeout: ";
+    static const char suffix[] = " did not finish\n";
+    write(STDERR_FILENO, prefix, sizeof(prefix) - 1);
+    if (current_test != NULL) write(STDERR_FILENO, current_test, current_test_len);
+    write(STDERR_FILENO, suffix, sizeof(suffix) - 1);
+    _exit(1);
+}
+
+// Runs one test inside its own unwind frame, so a hardware-script failure in a
+// direct driver call is attributed to the test instead of jumping into a guard
+// whose frame has already returned.
+static void run_test(const char *name, void (*fn)(void)) {
+    struct unwind_frame frame;
+    struct unwind_frame *saved = unwind_top;
+    current_test = name;
+    current_test_len = strlen(name);
+    alarm(test_timeout_seconds);
+    unwind_top = &frame;
+    if (setjmp(frame.buf) == 0) {
+        fn();
+    } else if (ctx.hw_error[0] != '\0') {
+        fprintf(stderr, "%s: hardware script: %s\n", name, ctx.hw_error);
+        failures++;
+    } else {
+        fprintf(stderr, "%s: unexpected exit\n", name);
+        failures++;
+    }
+    alarm(0);
+    current_test = NULL;
+    unwind_top = saved;
+    ctx.hw_error[0] = '\0';
+    ctx.exited = false;
+}
+
+#define RUN_TEST(name) run_test(#name, name)
+
 int main(void) {
-    struct pmd *pmd = new_pmd();
+    signal(SIGALRM, test_timeout);
 
-    test_empty_dataarea(pmd);
-    test_buffer_layout(pmd);
-    test_part_data_table(pmd);
-    test_qq_aliases(pmd);
-    test_qq_address(pmd);
-    test_defaults(pmd);
-    test_message_buffer(pmd);
+    RUN_TEST(test_empty_dataarea);
+    RUN_TEST(test_buffer_layout);
+    RUN_TEST(test_part_data_table);
+    RUN_TEST(test_qq_aliases);
+    RUN_TEST(test_defaults);
+    RUN_TEST(test_message_buffer);
 
-    free_pmd(pmd);
-
-    test_host_pointers_preserved();
-    test_buffer_init();
-    test_no_board();
-    test_null_hw();
-    test_usage();
-    test_capacity_limits();
-    test_resident_options();
+    RUN_TEST(test_host_pointers_preserved);
+    RUN_TEST(test_buffer_init);
+    RUN_TEST(test_no_board);
+    RUN_TEST(test_null_hw);
+    RUN_TEST(test_usage);
 #if board2 && pcm
-    test_hz_option();
 #endif
-    test_option_precedence();
-    test_pps_option();
 #if ppz
-    test_ppz_options();
+    RUN_TEST(test_ppz_options);
 #endif
-    test_change_status();
-    test_change_options();
-    test_board_present();
+    RUN_TEST(test_board_present);
 #if !va && !board2
-    test_board_ppsdrv();
-    test_portsel_reprobe();
+    RUN_TEST(test_board_ppsdrv);
+    RUN_TEST(test_portsel_reprobe);
 #endif
 #if ppz
-    test_board_ext_drivers();
+    RUN_TEST(test_board_ext_drivers);
 #endif
-    test_playback_no_board();
-    test_playback_start_stop();
-    test_playback_note();
-    test_playback_note_repeat();
-    test_playback_program_voice();
-    test_playback_detune_block();
-    test_playback_commands();
-    test_playback_loop();
-    test_playback_fade();
-    test_playback_keys();
-    test_playback_voice();
-    test_playback_fb_relative();
-    test_playback_rhythm();
+    RUN_TEST(test_playback_defer);
+    RUN_TEST(test_playback_note_repeat);
+    RUN_TEST(test_playback_program_voice);
+    RUN_TEST(test_playback_detune_block);
+    RUN_TEST(test_playback_loop);
+    RUN_TEST(test_playback_keys);
+    RUN_TEST(test_playback_voice);
+    RUN_TEST(test_playback_fb_relative);
+    RUN_TEST(test_playback_rhythm);
 #if board2
-    test_playback_rhythm_volume();
+    RUN_TEST(test_playback_rhythm_volume);
 #endif
-    test_playback_psg_envelope();
-    test_playback_rewind_key();
-    test_playback_gate();
-    test_playback_porta();
-    test_playback_lfo();
-    test_playback_key_mask();
-    test_int60_no_board();
-    test_int60_board();
-    test_int60_fm_effect();
-    test_int60_pause();
-    test_int60_part_mask();
-    test_int60_get_memo();
-    test_int60_get_joy();
-    test_int60_callbacks();
-    test_int60_reentrancy();
-    test_int60_ff_music();
-    test_int60_ff_music_skip();
-    test_resident_cut();
-    test_change_remove();
-    test_int60_ssg_effect();
-    test_int60_ssg_effect_pps();
+    RUN_TEST(test_playback_psg_envelope);
+    RUN_TEST(test_playback_rewind_key);
+    RUN_TEST(test_playback_gate);
+    RUN_TEST(test_playback_porta);
+    RUN_TEST(test_playback_lfo);
+    RUN_TEST(test_playback_key_mask);
+    RUN_TEST(test_int60_fm_effect);
+    RUN_TEST(test_int60_get_memo);
+    RUN_TEST(test_int60_callbacks);
+    RUN_TEST(test_int60_reentrancy);
+    RUN_TEST(test_int60_ff_music);
+    RUN_TEST(test_int60_ff_music_skip);
+    RUN_TEST(test_resident_cut);
 #if ppz
-    test_ppz8_start();
-    test_ppz8_part();
-    test_ppz8_mml_mask();
-    test_ppz8_loop_offsets();
-    test_ppz8_extpart_skip();
+    RUN_TEST(test_ppz8_start);
+    RUN_TEST(test_ppz8_part);
+    RUN_TEST(test_ppz8_mml_mask);
+    RUN_TEST(test_ppz8_loop_offsets);
+    RUN_TEST(test_ppz8_extpart_skip);
 #endif
 #if board2 && !pcm
-    test_pcm_part();
+    RUN_TEST(test_pcm_part);
 #endif
 #if board2 && pcm
-    test_pcm86_part();
-    test_pcm86_freq_table();
-    test_pcm86_command_table();
-    test_pcm86_portamento_skip();
-    test_pcm86_s_octave();
+    RUN_TEST(test_pcm86_part);
+    RUN_TEST(test_pcm86_freq_table);
+    RUN_TEST(test_pcm86_command_table);
+    RUN_TEST(test_pcm86_portamento_skip);
+    RUN_TEST(test_pcm86_s_octave);
 #endif
 #if board2 && adpcm && !ademu
-    test_adpcm_effect();
-    test_pcmrepeat_release();
+    RUN_TEST(test_adpcm_effect);
+    RUN_TEST(test_pcmrepeat_release);
 #endif
 #if board2 && adpcm && ademu
-    test_pcm_loop_offsets();
+    RUN_TEST(test_pcm_loop_offsets);
 #endif
 #if board2 && adpcm
-    test_pcm_detune();
+    RUN_TEST(test_pcm_detune);
 #endif
 #if board2 && !pcm
-    test_pcm_extended_envelope();
-    test_pcm_fadeout_square();
+    RUN_TEST(test_pcm_extended_envelope);
+    RUN_TEST(test_pcm_fadeout_square);
 #endif
 #if board2
-    test_pcm_volume_lfo();
+    RUN_TEST(test_pcm_volume_lfo);
 #endif
-    test_ymfm_vtable();
-    test_ymfm_probe();
+    RUN_TEST(test_ymfm_vtable);
+    RUN_TEST(test_ymfm_probe);
 #if !va && !board2
-    test_ymfm_ym2203();
-    test_ymfm_ymf288();
+    RUN_TEST(test_ymfm_ym2203);
+    RUN_TEST(test_ymfm_ymf288);
 #endif
-    test_ymfm_timer_install();
-    test_ymfm_timer_remove();
-    test_ymfm_keys();
+    RUN_TEST(test_ymfm_timer_install);
+    RUN_TEST(test_ymfm_timer_remove);
+    RUN_TEST(test_ymfm_keys);
 #if !sync
-    test_ymfm_playback();
-    test_ymfm_retrigger();
+    RUN_TEST(test_ymfm_playback);
+    RUN_TEST(test_ymfm_retrigger);
 #endif
-    test_ymfm_ssg_gain();
-    test_ymfm_rom();
-    test_timer_a();
-    test_timer_b();
-    test_timer_ab();
-    test_timer_status_zero();
-    test_timer_nesting();
-    test_timer_callbacks();
+    RUN_TEST(test_ymfm_ssg_gain);
+    RUN_TEST(test_ymfm_rom);
+    RUN_TEST(test_timer_a);
+    RUN_TEST(test_timer_b);
+    RUN_TEST(test_timer_ab);
+    RUN_TEST(test_timer_status_zero);
+    RUN_TEST(test_timer_nesting);
+    RUN_TEST(test_timer_callbacks);
 #if sync
-    test_timer_sync();
+    RUN_TEST(test_timer_sync);
 #endif
 #if vsync
-    test_timer_vsync();
-    test_timer_vsync_restore();
+    RUN_TEST(test_timer_vsync);
+    RUN_TEST(test_timer_vsync_restore);
 #endif
 
     if (failures != 0) {

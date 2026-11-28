@@ -1,0 +1,16 @@
+0 outb 88 ff
+0 outb 188 ff
+0 outb 288 ff
+0 outb 388 ff
+0 outb 88 b
+0 outb 8a aa
+0 outb 188 b
+0 outb 18a aa
+0 outb 288 b
+0 outb 28a aa
+0 outb 388 b
+0 outb 38a aa
+0 ret exit 00
+0 ret tondat 7000
+0 ret efcdat 9000
+0 ret size 1c 08 04

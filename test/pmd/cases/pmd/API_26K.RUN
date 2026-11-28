@@ -39,3 +39,5 @@ setfv 42
 fv
 setppsdrv 1
 ppsdrv
+setfv 0
+fv

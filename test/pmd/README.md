@@ -317,8 +317,9 @@ Only these host differences are normalized:
 
 - The PIC/PIT ports and the `WAIT.INC` wait counts, as above.
 - `mstart`/`mstop`'s deferred/rejected result is recorded as a flag, and `ss`
-  as AL only, because the original's no-board entries leave the other bits
-  untouched.
+  and `ff` as AL only, because the original's no-board entries leave the other
+  bits untouched. `ff` is called with AL=FFh so a no-board return is the
+  `PMD_FF_MUSIC_NO_BOARD` sentinel rather than the caller's AL.
 - Pointer-valued actions. `musdat`, `tondat`, `efcdat` and `memo` point into
   the module data area, whose layout is the original's, so they are logged as
   offsets from the data-area base (`musdat` is 0 by definition). `pcm` and
@@ -348,7 +349,7 @@ install, the INT 60h probes, a playback, and the module-loaded control trace.
 
 | Directory | Board | Cases |
 | --- | --- | --- |
-| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `DATA_26K`, `PPS_26K`, `PPS_OFF_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `PLAY_TIMING`, `PLAY_FADE_26K`, `PLAY_FF_26K`, `PLAY_VOLDOWN_26K`, `PLAY_CONTROL`, `USAGE_NONE`, `OPTIONS_26K`, `OPTIONS_RESIDENT_NONE`, `OPTIONS_PRECEDENCE_NONE`, `OPTIONS_ENV_NONE`, `OPTIONS_ERR_M_NONE`, `OPTIONS_ERR_TOTAL_NONE`, `OPTIONS_ERR_R_NONE`, `OPTIONS_ERR_PORT_NONE`, `OPTIONS_ERR_HZ_NONE`, `OPTIONS_ERR_WAIT_NONE`, `OPTIONS_ERR_ADPCM_NONE`, `OPTIONS_PORT_86B`, `CHANGE_NONE`, `CHANGE_RESET_26K` |
+| `pmd` | 26K, 86B, none | `INSTALL_NONE`, `INSTALL_26K`, `INSTALL_86B`, `TIMER_26K`, `API_26K`, `API_NONE`, `DATA_26K`, `PPS_26K`, `PPS_OFF_26K`, `PDR_26K`, `VOICE_26K`, `EFC_26K`, `SSGEFC_26K`, `PLAY_SAMPLE`, `PLAY_SAMPLE2`, `PLAY_SSGEG`, `PLAY_86B`, `PLAY_END`, `PLAY_TIMING`, `PLAY_FADE_26K`, `PLAY_FF_26K`, `PLAY_VOLDOWN_26K`, `PLAY_CONTROL`, `USAGE_NONE`, `OPTIONS_26K`, `OPTIONS_RESIDENT_NONE`, `OPTIONS_PRECEDENCE_NONE`, `OPTIONS_ENV_NONE`, `OPTIONS_ERR_M_NONE`, `OPTIONS_ERR_M29_NONE`, `OPTIONS_ERR_V255_NONE`, `OPTIONS_ERR_M255_NONE`, `OPTIONS_MAX_NONE`, `OPTIONS_ENV_OVERSIZE_NONE`, `OPTIONS_ENV_MAX_NONE`, `OPTIONS_PPS_NONE`, `OPTIONS_ERR_TOTAL_NONE`, `OPTIONS_ERR_R_NONE`, `OPTIONS_ERR_PORT_NONE`, `OPTIONS_ERR_HZ_NONE`, `OPTIONS_ERR_WAIT_NONE`, `OPTIONS_ERR_ADPCM_NONE`, `OPTIONS_PORT_86B`, `CHANGE_NONE`, `CHANGE_RESET_26K` |
 | `pmd86` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `PCM86_86B`, `PCM86_S_86B`, `PCM86_HZ_86B`, `PCM86_HZ4_86B`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
 | `pmdb2` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `ADPCM_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_RHYTHM_86B`, `PLAY_RHYTHM_N_86B`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
 | `pmdppz` | 86B, none | `INSTALL_NONE`, `INSTALL_86B`, `PPZ_86B`, `PPZ_RESET_86B`, `PPZ_PLAY_86B`, `ADPCM_PLAY_86B`, `RHYTHM_86B`, `API_86B`, `PLAY_SAMPLE`, `PLAY_CONTROL`, `OPTIONS_RESIDENT_NONE`, `CHANGE_NONE`, `CHANGE_RESET` |
@@ -364,7 +365,8 @@ What the `pmd` cases cover:
 | `INSTALL_26K` | 26K install with `/C`: probe, board init registers, status |
 | `INSTALL_86B` | 86B install with `/C`: OPNA probe/on/off sequence and the YM2608 init |
 | `TIMER_26K` | `/C` plus `run b 8`: Timer A/B periods and their interleaving with no module |
-| `API_26K` | the INT 60h probes and controls that need no module, with a board |
+| `API_26K` | the INT 60h probes and controls that need no module, with a board, including `setfv 0` |
+| `API_NONE` | the same probe matrix with no board: every sentinel, `ff`'s no-board result, and the untouched pointers |
 | `DATA_26K` | `PMDOPT` buffer sizes, the resulting `tondat`/`efcdat` offsets, the pointer aliases, and the memo table before and after `load` |
 | `PPS_26K` | a resident PPSDRV: detection, then the `pps keyon`/`keyoff` calls `effon`/`effoff` make |
 | `PDR_26K` | the rhythm part's `*` (PDR mode) command from `PDR.M`, with a rhythm hit between switches: one `pps pdr` call for each of the six documented operands, 0-5 |
@@ -377,22 +379,27 @@ What the `pmd` cases cover:
 | `PLAY_86B` | `SAMPLE.M` on the 86B board: the FM6/rhythm writes the second chip adds |
 | `PLAY_END` | `SHORT.M` played to its end, bounded by `run-until status2 ff max 512` |
 | `PLAY_TIMING` | `SAMPLE2.M` over 88 Timer B ticks: the module's tempo rewrite of the Timer B reload, coincident A/B overflows, `fout` to full fade and back, then `mstop`/`mstart` reinitialization |
-| `PLAY_CONTROL` | `SAMPLE2.M` with FM and SSG effects running: `ff` forward and rewind with a partial fade held across the skip, `pause`/`resume`, `partmask` on the FM, SSG, PCM, rhythm, and effect-masked parts, and a full fade-in that reaches `volset2rf` on the board2 builds |
+| `PLAY_CONTROL` | `SAMPLE2.M` with FM and SSG effects running: `ff` forward and rewind with a partial fade held across the skip, `pause`/`resume`, `partmask` on the FM, SSG, PCM, rhythm, and effect parts, and a full fade-in that reaches `volset2rf` on the board2 builds |
 | `USAGE_NONE` | no board plus `/H`: the full usage text and exit status 255 |
 | `OPTIONS_26K` | `PMDOPT` buffers overridden by the command line, `/K-`, and the `size`/`drvchk`/`ppsdrv` results |
 | `OPTIONS_RESIDENT_NONE` | every resident option at once, defaulted from `PMDOPT` and overridden from the command line, then the second-instance status text, `tondat`/`efcdat`, `size`, `drvchk`, and `ppsdrv` |
 | `OPTIONS_PRECEDENCE_NONE` | the same fields set from both `PMDOPT` and the command line: the command line wins for `/M`, `/V`, `/E`, `/W`, `/G`, `/DF`, `/DR`, the key options and `/P`, while `PMDOPT`'s `/DS`, `/DP`, `/DZ` survive |
 | `OPTIONS_ENV_NONE` | a bad `PMDOPT` option: the warning and `mes_kankyo`, the options parsed before it kept, and the command line still applied |
 | `OPTIONS_ERR_M_NONE` | `/M0`: the "1KB or more" error and exit status 1 |
+| `OPTIONS_ERR_M29_NONE`, `_V255_NONE`, `_M255_NONE` | `/M29`, `/V255`, and `/M255 /V255 /E255`: the "40KB total" error and exit status 1 |
+| `OPTIONS_MAX_NONE` | `/M28 /V8 /E4`: the largest accepted configuration, with `tondat`/`efcdat` at the end of `dataarea` |
+| `OPTIONS_ENV_OVERSIZE_NONE` | `PMDOPT` `/M16 /V8 /E17`: the memory check's "too large" error and exit status 1 |
+| `OPTIONS_ENV_MAX_NONE` | `PMDOPT` `/M28 /V8 /E4`: the same boundary reached from the environment |
 | `OPTIONS_ERR_TOTAL_NONE` | `/M16 /V16 /E16`: the "40KB total" error and exit status 1 |
 | `OPTIONS_ERR_R_NONE` | `/R` at install: `pmderror_mes5` and exit status 1 |
 | `OPTIONS_ERR_PORT_NONE`, `_HZ_NONE`, `_WAIT_NONE`, `_ADPCM_NONE` | `/O4`, `/HZ9`, `/W0`, `/A3`: each handler's range check falls into the usage text and exit status 255 |
 | `OPTIONS_PORT_86B` | `/O1` re-probes 188h and installs the 86B board there: the probe writes move and `drvchk`/`size` follow |
+| `OPTIONS_PPS_NONE` | `/P-` with no PPSDRV vtable: the option cannot enable it, and the status reports it off |
 | `PPS_OFF_26K` | `/P` with a resident PPSDRV: the driver keeps its flag clear and `effon`/`effoff` take the SSG effect path instead of the `pps` calls |
 | `PLAY_FADE_26K` | `/F`: a completed fade-out does not stop the music, so the keyoffs `PLAY_TIMING` reaches at the same point are absent |
 | `PLAY_FF_26K` | `/G100`: the fast-forward Timer B reload (`0x63` instead of the default `0xf9`) and the tick spacing it changes |
 | `PLAY_VOLDOWN_26K` | `/DF20 /DS4` and the other `/D` volumes: the offset the FM volume registers are written with |
-| `CHANGE_NONE` | the second-instance status: `/K`, `/KE`, `/KG`, `/KR`, `/DF`, `/DS`, `/W`, `/G`, `/A`, then `/I`, `/N`, `/F`, `/S`, `/P`, and `/Z` reflected in the `changemes_*` text, an option-less status, the rejected-option message, the usage text, and `/R` |
+| `CHANGE_NONE` | the second-instance status: `/K`, `/KE`, `/KG`, `/KR`, `/DF`, `/DS`, `/W`, `/G`, `/A`, then `/I`, `/N`, `/F`, `/S`, `/P`, and `/Z` reflected in the `changemes_*` text, the missing-number options (`/G`, `/A`, `/KG`/`/KR`/`/KE`), the rejected `/V`, `/E`, `/Y`, `/O1`, `/M`, an option-less status, the usage text, and `/R` |
 | `CHANGE_RESET_26K` | `/R` with a board and a module playing: the shutdown's keyoffs, the FM interrupt reset (`27h=30h`), and `ret change 01` |
 
 The board2 variants add their own driver-specific cases:
@@ -418,9 +425,10 @@ the 88VA key-mask rotation) and every option handler that variant compiles in.
 asks the fake resident PPZ8 for the 1900h removal release. The status has to be
 a `Board: none` case: `fm_check` calibrates the two wait counts by timing
 `loop $`, so a board-present one prints host-owned numbers. The VA scripts also
-leave out `/M16`, because `pmderr_main` prints through the `$`-terminated DOS
-call while those builds' strings end at a NUL: the original runs past the text
-into the image.
+leave out the rejected second-instance options (`/M`, `/V`, `/E`, `/Y`, `/O1`),
+because `pmderr_main` prints through the `$`-terminated DOS call while those
+builds' strings end at a NUL: the original runs past the text into the image.
+The base builds' `CHANGE_NONE` covers them.
 
 The variant directories reuse those shapes: the install cases pin each build's
 probe and initialization sequence, the API cases pin its `drvchk` board value

@@ -1,0 +1,8 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+; PMDOPT: /M28 /V8 /E4
+
+main /C
+tondat
+efcdat

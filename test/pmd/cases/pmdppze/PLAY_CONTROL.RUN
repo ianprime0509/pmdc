@@ -44,6 +44,9 @@ partmask 137
 partmask 14
 run b 2
 partmask 142
+partmask 15
+run b 2
+partmask 143
 fout 132
 run b 16
 status

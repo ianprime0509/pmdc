@@ -1047,7 +1047,10 @@ class Machine:
             elif verb in ("effoff", "fmefoff"):
                 self.api(0x04 if verb == "effoff" else 0x0D)
             elif verb == "ff":
-                result = self.api(0x1C, dx=int(rest, 0) & 0xFFFF)
+                # Without a board the original leaves AL untouched; AL is set to
+                # no-board so the recorded value matches the translation's
+                # explicit sentinel, as for `ss`.
+                result = self.api(0x1C, al=0xFF, dx=int(rest, 0) & 0xFFFF)
                 self.record.write(f"{self.now} ret ff {hex8(result['al'])}\n")
             elif verb == "pause":
                 self.api(0x1A)

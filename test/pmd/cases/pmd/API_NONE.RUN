@@ -1,0 +1,43 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+
+main /C
+drvchk
+size
+ss
+fv
+ppsdrv
+psgefcnum
+fmefcnum
+pcmefcnum
+joy
+status
+mstart
+mstop
+status
+fout 32
+partmask 130
+partmask 0
+effon 0
+effoff
+fmefon 0
+fmefoff
+ff 1
+status
+pause
+resume
+musdat
+tondat
+efcdat
+pcm
+workadr
+memo 0
+memo 1
+musname
+setfv 42
+fv
+setppsdrv 1
+ppsdrv
+setfv 0
+fv

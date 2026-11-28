@@ -68,6 +68,104 @@ Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
 Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(VA)
 Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
 
+設定を変更しました．
+
+　----- 現在の設定 -----
+・曲　　データバッファサイズ:16KB
+・音色　データバッファサイズ:8KB
+・効果音データバッファサイズ:4KB
+・FM音源    音量調整値:20
+・SSG音源   音量調整値:4
+・GRPH/ESCキーで早送り/曲の停止を制御する
+・MSTOP/ESC と同時に使用するキー設定値:0
+・FF   /GRPHと同時に使用するキー設定値:2
+・REW  /GRPHと同時に使用するキー設定値:4
+・フェードアウト後に曲の演奏を停止する
+・FM/INT60割り込み中に割り込みを禁止しない
+・PPSDRVを使用しない
+・FM音源LSI REG-DATA間 Waitloop回数: 20回(約 0ns)
+・GRPHによる早送り時のTimerB値: 250
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(VA)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+設定を変更しました．
+
+　----- 現在の設定 -----
+・曲　　データバッファサイズ:16KB
+・音色　データバッファサイズ:8KB
+・効果音データバッファサイズ:4KB
+・FM音源    音量調整値:20
+・SSG音源   音量調整値:4
+・GRPH/ESCキーで早送り/曲の停止を制御する
+・MSTOP/ESC と同時に使用するキー設定値:0
+・FF   /GRPHと同時に使用するキー設定値:0
+・REW  /GRPHと同時に使用するキー設定値:0
+・フェードアウト後に曲の演奏を停止する
+・FM/INT60割り込み中に割り込みを禁止しない
+・PPSDRVを使用しない
+・FM音源LSI REG-DATA間 Waitloop回数: 20回(約 0ns)
+・GRPHによる早送り時のTimerB値: 250
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(VA)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+設定を変更しました．
+
+　----- 現在の設定 -----
+・曲　　データバッファサイズ:16KB
+・音色　データバッファサイズ:8KB
+・効果音データバッファサイズ:4KB
+・FM音源    音量調整値:20
+・SSG音源   音量調整値:4
+・GRPH/ESCキーで早送り/曲の停止を制御する
+・MSTOP/ESC と同時に使用するキー設定値:0
+・FF   /GRPHと同時に使用するキー設定値:0
+・REW  /GRPHと同時に使用するキー設定値:0
+・フェードアウト後に曲の演奏を停止する
+・FM/INT60割り込み中に割り込みを禁止しない
+・PPSDRVを使用しない
+・FM音源LSI REG-DATA間 Waitloop回数: 20回(約 0ns)
+・GRPHによる早送り時のTimerB値: 250
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(VA)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+Usage:	PMDVA1 [/option[数値]][/option[数値]]..
+Option:	  /Mn  曲データ      バッファサイズ指定(KB単位)Def.=16
+	  /Vn  音色データ    バッファサイズ指定(KB単位)Def.= 8
+	  /En  FM効果音データバッファサイズ指定(KB単位)Def.= 4
+	* /DFn FM音源の    音量調整値設定(最大0〜最小255)Def.=16
+	* /DSn SSG音源の   音量調整値設定(最大0〜最小255)Def.= 0
+	* /K(-)ESC/GRPHキーで曲の停止/早送りをしない(する)
+	* /KEn MSTOP/ESC と同時に使用するキーの設定 Def.=4
+	* /KGn FF   /GRPHと同時に使用するキーの設定 Def.=4
+	* /KRn REW  /GRPHと同時に使用するキーの設定 Def.=2
+		設定値: 1=ｶﾅ 2=SHIFT 4=CTRL (加算して複数指定可)
+	* /F(-)フェードアウト後に曲を停止しない(する)
+	* /I(-)FM/INT60割り込み中は割り込みを禁止する(しない)
+	* /P(-)PPSDRVに対応しない(常駐していたら対応する)
+	* /Wn  FM音源REG-DATA間のWait回数の設定(1〜255,数値省略時は自動判別)
+	* /Gn  GRPHキーによる早送りのTimerB値 Def.=250
+	  /R   常駐解除する		/H   ヘルプの表示
+	(* の付いたoptionは常駐後に再設定可能, - は括弧内に設定)Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(VA)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
+　----- 現在の設定 -----
+・曲　　データバッファサイズ:16KB
+・音色　データバッファサイズ:8KB
+・効果音データバッファサイズ:4KB
+・FM音源    音量調整値:20
+・SSG音源   音量調整値:4
+・GRPH/ESCキーで早送り/曲の停止を制御する
+・MSTOP/ESC と同時に使用するキー設定値:0
+・FF   /GRPHと同時に使用するキー設定値:0
+・REW  /GRPHと同時に使用するキー設定値:0
+・フェードアウト後に曲の演奏を停止する
+・FM/INT60割り込み中に割り込みを禁止しない
+・PPSDRVを使用しない
+・FM音源LSI REG-DATA間 Waitloop回数: 20回(約 0ns)
+・GRPHによる早送り時のTimerB値: 250
+Ｍｕｓｉｃ　Ｄｒｉｖｅｒ　Ｐ.Ｍ.Ｄ. for PC9801/88VA Version 4.8s(VA)
+Copyright (C)1989,Jan.22nd 2020 by M.Kajihara(KAJA).
+
 Usage:	PMDVA1 [/option[数値]][/option[数値]]..
 Option:	  /Mn  曲データ      バッファサイズ指定(KB単位)Def.=16
 	  /Vn  音色データ    バッファサイズ指定(KB単位)Def.= 8

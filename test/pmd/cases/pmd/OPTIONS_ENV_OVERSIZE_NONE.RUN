@@ -1,0 +1,6 @@
+; Driver: pmd
+; Board: none
+; Chip: YM2203
+; PMDOPT: /M16 /V8 /E17
+
+main /C
